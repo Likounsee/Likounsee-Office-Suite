@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn rejects_unknown_format_version() {
         let mut encoded = encode(&Checkpoint::new(1, 0, b"abc".to_vec())).unwrap();
-        encoded[8..12].copy_from_slice(&2_u32.to_le_bytes());
+        encoded[8..12].copy_from_slice(&3_u32.to_le_bytes());
         assert_eq!(
             decode(&encoded).unwrap_err().kind(),
             io::ErrorKind::InvalidData
