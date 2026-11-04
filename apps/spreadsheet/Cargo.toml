@@ -6,3 +6,4 @@ rust-version.workspace = true
 [dependencies]
 spreadsheet-engine = { path = "../../engines/spreadsheet-engine" }
 suite-common = { path = "../../crates/suite-common" }
+tracing.workspace = true

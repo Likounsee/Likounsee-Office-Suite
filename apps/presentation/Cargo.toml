@@ -6,3 +6,4 @@ rust-version.workspace = true
 [dependencies]
 presentation-engine = { path = "../../engines/presentation-engine" }
 suite-common = { path = "../../crates/suite-common" }
+tracing.workspace = true
