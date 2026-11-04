@@ -21,11 +21,18 @@ rendering and file operations must not block the UI thread once a GUI exists.
   and platform-specific replacement primitives.
 - Append-only recovery journal with sequence validation, CRC-32 and torn-tail
   detection/recovery.
+- Versioned checkpoints linked to journal sequences, with crash-safe replay and
+  atomic journal compaction.
+- A first UI-independent document model with durable edit journaling, recovery
+  on reopen and a debounced autosave entry point.
 - Windows/Linux CI workflow for formatting, linting, tests and builds.
 
 ## Implemented persistence primitives
 - Autosave scheduling policy (2-second debounce, 15-second maximum dirty age by default).
-- Recovery checkpoints and journal compaction are implemented as shared primitives\n  and are now integrated into the first document-engine persistence session.\n- Document editing remains a minimal text model; rich-text structures, document\n  formats, collaboration and UI integration are not implemented yet.
+- Recovery checkpoints and journal compaction are implemented as shared primitives
+  and are now integrated into the first document-engine persistence session.
+- Document editing remains a minimal text model; rich-text structures, document
+  formats, collaboration and UI integration are not implemented yet.
 - Filesystem capability validation matrix across real filesystems.
 - Import/export adapters for OOXML, ODF, legacy Office formats and PDF.
 - Crash-report consent flow and shared UI components.
