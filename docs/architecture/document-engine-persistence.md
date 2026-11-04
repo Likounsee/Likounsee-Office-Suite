@@ -30,7 +30,7 @@ boundaries, duplicate IDs, invalid or overlapping same-mark spans,
 duplicate IDs, malformed UTF-8, inconsistent lengths and payloads larger than
 the 64 MiB journal-record limit.
 
-Tables and paragraphs remain stored in type-specific collections for efficient access, while `Document::blocks()` exposes their unified persistent reading order. New paragraphs can be inserted after an existing paragraph without moving adjacent tables. The legacy plain-text compatibility view still contains paragraph text only. The session can create bounded rectangular tables (up to 1,024 rows or columns and 65,536 cells per table) and edit cell text by table ID and zero-based coordinates. Table cell text is UTF-8 and is persisted in checkpoints and recovery snapshots.
+Tables and paragraphs remain stored in type-specific collections for efficient access, while `Document::blocks()` exposes their unified persistent reading order. New paragraphs can be inserted after an existing paragraph without moving adjacent tables. The legacy plain-text compatibility view still contains paragraph text only. The session can create bounded rectangular tables (up to 1,024 rows or columns and 65,536 cells per table) edit cell text by table ID and zero-based coordinates, and insert or delete rows and columns by zero-based index. Row and column edits preserve IDs of surviving rows and cells; new cells receive fresh document-wide IDs. Tables always retain at least one row and one column, and edits that exceed dimension or cell-count limits are rejected before journaling. Table cell text is UTF-8 and is persisted in checkpoints and recovery snapshots.
 
 The session exposes targeted UTF-8 text operations (`insert_text`,
 `delete_range` and `replace_range`) using byte offsets. It also supports
@@ -77,7 +77,7 @@ partially truncated journal header.
 
 ## Current limitations
 
-- Tables are persisted, editable and interleaved with paragraphs in the block order, but table formatting, row/column insertion/deletion and GUI rendering are not implemented.
+- Tables are persisted, editable and interleaved with paragraphs in the block order, but table formatting and GUI rendering are not implemented.
 - Images, page layout and rendered list numbering are not implemented.
 - A single encoded document snapshot must fit within the journal record limit
   (64 MiB), so the current model caps total encoded document size below 64 MiB.
