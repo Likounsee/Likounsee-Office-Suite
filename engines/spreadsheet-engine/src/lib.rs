@@ -818,3 +818,305 @@ mod tests {
         );
     }
 }
+
+
+// -----------------------------------------------------------------------------
+// Durable workbook sessions: journal-before-memory edits, autosave and recovery.
+// -----------------------------------------------------------------------------
+
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+use suite_common::autosave::AutosaveScheduler;
+use suite_common::checkpoint::{read_checkpoint, verify_checkpoint, write_checkpoint, Checkpoint};
+use suite_common::recovery::RecoveryJournal;
+use suite_common::storage::{FileSystem, LocalFileSystem};
+
+const CHECKPOINT_FILE: &str = "workbook.checkpoint";
+const JOURNAL_FILE: &str = "workbook.journal";
+
+/// A workbook with crash recovery and periodic checkpoint support.
+///
+/// Every successful mutation is first encoded and synchronously appended to
+/// the recovery journal. Only then is the in-memory workbook replaced.
+pub struct WorkbookSession {
+    filesystem: LocalFileSystem,
+    directory: PathBuf,
+    workbook: Workbook,
+    journal: RecoveryJournal,
+    autosave: AutosaveScheduler,
+    checkpoint_generation: u64,
+    recovered_records: usize,
+    journal_had_truncated_tail: bool,
+}
+
+impl WorkbookSession {
+    /// Open an existing session or create a new empty workbook in the directory.
+    /// The directory must have a single active owner.
+    pub fn open(directory: impl AsRef<Path>) -> io::Result<Self> {
+        let directory = directory.as_ref().to_path_buf();
+        let filesystem = LocalFileSystem;
+        filesystem.create_dir_all(&directory)?;
+        let checkpoint_path = directory.join(CHECKPOINT_FILE);
+        let journal = RecoveryJournal::open(directory.join(JOURNAL_FILE))?;
+
+        let checkpoint = if filesystem.exists(&checkpoint_path) {
+            Some(read_checkpoint(&filesystem, &checkpoint_path)?)
+        } else {
+            None
+        };
+
+        let (mut workbook, checkpoint_generation, replay) = if let Some(checkpoint) = checkpoint {
+            let replay = journal.replay_after(checkpoint.journal_sequence)?;
+            (Workbook::decode(&checkpoint.payload)?, checkpoint.generation, replay)
+        } else {
+            let replay = journal.replay()?;
+            if replay.base_sequence != 0 {
+                return Err(invalid_data(
+                    "workbook journal has a checkpoint base sequence but checkpoint is missing",
+                ));
+            }
+            (Workbook::new(), 0, replay)
+        };
+
+        let recovered_records = replay.records.len();
+        let journal_had_truncated_tail = replay.had_truncated_tail;
+        for record in replay.records {
+            // Each entry is a complete snapshot, so malformed data is never
+            // partially applied to the recovered workbook.
+            workbook = Workbook::decode(&record.payload)?;
+        }
+
+        let mut autosave = AutosaveScheduler::default();
+        if recovered_records > 0 {
+            autosave.mark_dirty(Instant::now());
+        }
+
+        Ok(Self {
+            filesystem,
+            directory,
+            workbook,
+            journal,
+            autosave,
+            checkpoint_generation,
+            recovered_records,
+            journal_had_truncated_tail,
+        })
+    }
+
+    pub fn workbook(&self) -> &Workbook {
+        &self.workbook
+    }
+
+    pub fn recovered_records(&self) -> usize {
+        self.recovered_records
+    }
+
+    pub fn journal_had_truncated_tail(&self) -> bool {
+        self.journal_had_truncated_tail
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.autosave.is_dirty()
+    }
+
+    pub fn add_sheet(&mut self, name: impl Into<String>) -> io::Result<u64> {
+        let mut next = self.workbook.clone();
+        let id = next.add_sheet(name)?;
+        self.record_change(next)?;
+        Ok(id)
+    }
+
+    pub fn rename_sheet(&mut self, id: u64, name: impl Into<String>) -> io::Result<()> {
+        let mut next = self.workbook.clone();
+        next.rename_sheet(id, name)?;
+        self.record_change(next)
+    }
+
+    pub fn remove_sheet(&mut self, id: u64) -> io::Result<()> {
+        let mut next = self.workbook.clone();
+        next.remove_sheet(id)?;
+        self.record_change(next)
+    }
+
+    pub fn set_number(&mut self, sheet_id: u64, address: CellAddress, value: f64) -> io::Result<()> {
+        let mut next = self.workbook.clone();
+        next.set_number(sheet_id, address, value)?;
+        self.record_change(next)
+    }
+
+    pub fn set_text(&mut self, sheet_id: u64, address: CellAddress, value: impl Into<String>) -> io::Result<()> {
+        let mut next = self.workbook.clone();
+        next.set_text(sheet_id, address, value)?;
+        self.record_change(next)
+    }
+
+    pub fn set_boolean(&mut self, sheet_id: u64, address: CellAddress, value: bool) -> io::Result<()> {
+        let mut next = self.workbook.clone();
+        next.set_boolean(sheet_id, address, value)?;
+        self.record_change(next)
+    }
+
+    pub fn set_formula(&mut self, sheet_id: u64, address: CellAddress, formula: impl Into<String>) -> io::Result<()> {
+        let mut next = self.workbook.clone();
+        next.set_formula(sheet_id, address, formula)?;
+        self.record_change(next)
+    }
+
+    pub fn clear_cell(&mut self, sheet_id: u64, address: CellAddress) -> io::Result<()> {
+        let mut next = self.workbook.clone();
+        let sheet = next.sheets.iter().find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        if !sheet.cells.contains_key(&address) {
+            return Ok(());
+        }
+        next.clear_cell(sheet_id, address)?;
+        self.record_change(next)
+    }
+
+    fn record_change(&mut self, next: Workbook) -> io::Result<()> {
+        let encoded = next.encode()?;
+        // append() syncs the record before returning. Never expose an edit in
+        // memory if its recovery representation could not be made durable.
+        self.journal.append(&encoded)?;
+        self.workbook = next;
+        self.autosave.mark_dirty(Instant::now());
+        Ok(())
+    }
+
+    /// Run the default debounce/max-dirty-age policy and checkpoint if due.
+    pub fn autosave_if_due(&mut self, now: Instant) -> io::Result<bool> {
+        if !self.autosave.should_save(now) {
+            return Ok(false);
+        }
+        self.save_now()?;
+        Ok(true)
+    }
+
+    /// Persist a verified checkpoint, then atomically compact covered journal entries.
+    pub fn save_now(&mut self) -> io::Result<()> {
+        if !self.autosave.is_dirty() && self.filesystem.exists(&self.checkpoint_path()) {
+            return Ok(());
+        }
+        let sequence = self.write_checkpoint_without_compaction()?;
+        self.journal.reset_after_checkpoint(sequence)?;
+        self.autosave.mark_saved();
+        self.recovered_records = 0;
+        self.journal_had_truncated_tail = false;
+        Ok(())
+    }
+
+    fn write_checkpoint_without_compaction(&mut self) -> io::Result<u64> {
+        let generation = self.checkpoint_generation.checked_add(1)
+            .ok_or_else(|| invalid_input("workbook checkpoint generation exhausted"))?;
+        let sequence = self.journal.latest_sequence()?;
+        let checkpoint = Checkpoint::new(generation, sequence, self.workbook.encode()?);
+        let path = self.checkpoint_path();
+        write_checkpoint(&self.filesystem, &path, &checkpoint)?;
+        verify_checkpoint(&self.filesystem, &path, generation)?;
+        self.checkpoint_generation = generation;
+        Ok(sequence)
+    }
+
+    fn checkpoint_path(&self) -> PathBuf {
+        self.directory.join(CHECKPOINT_FILE)
+    }
+}
+
+fn invalid_data(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+    use std::fs;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "likounsee-spreadsheet-engine-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn session_journals_edits_before_exposing_them_and_recovers_after_drop() {
+        let directory = TestDirectory::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        {
+            let mut session = WorkbookSession::open(&directory.0).unwrap();
+            session.set_number(1, address, 21.0).unwrap();
+            session.set_formula(1, CellAddress::parse_a1("B1").unwrap(), "=A1*2").unwrap();
+            assert_eq!(session.workbook().value(1, CellAddress::parse_a1("B1").unwrap()), CellValue::Number(42.0));
+        }
+        let recovered = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.workbook().value(1, address), CellValue::Number(21.0));
+        assert_eq!(recovered.workbook().value(1, CellAddress::parse_a1("B1").unwrap()), CellValue::Number(42.0));
+        assert_eq!(recovered.recovered_records(), 2);
+        assert!(recovered.is_dirty());
+    }
+
+    #[test]
+    fn checkpoint_and_journal_compaction_preserve_sequence_continuity() {
+        let directory = TestDirectory::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        {
+            let mut session = WorkbookSession::open(&directory.0).unwrap();
+            session.set_number(1, a1, 5.0).unwrap();
+            session.save_now().unwrap();
+            session.set_number(1, a1, 8.0).unwrap();
+        }
+        let recovered = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.workbook().value(1, a1), CellValue::Number(8.0));
+        assert_eq!(recovered.recovered_records(), 1);
+    }
+
+    #[test]
+    fn crash_after_checkpoint_before_journal_compaction_does_not_duplicate_state() {
+        let directory = TestDirectory::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        {
+            let mut session = WorkbookSession::open(&directory.0).unwrap();
+            session.set_number(1, a1, 123.0).unwrap();
+            session.write_checkpoint_without_compaction().unwrap();
+        }
+        let recovered = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.workbook().value(1, a1), CellValue::Number(123.0));
+        assert_eq!(recovered.recovered_records(), 0);
+    }
+
+    #[test]
+    fn autosave_waits_for_debounce_and_writes_checkpoint() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        session.set_text(1, CellAddress::parse_a1("A1").unwrap(), "autosaved").unwrap();
+        assert!(!session.autosave_if_due(Instant::now()).unwrap());
+        assert!(session.autosave_if_due(Instant::now() + Duration::from_secs(3)).unwrap());
+        let reopened = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(reopened.workbook().value(1, CellAddress::parse_a1("A1").unwrap()), CellValue::Text("autosaved".into()));
+        assert_eq!(reopened.recovered_records(), 0);
+    }
+
+    #[test]
+    fn failed_mutation_does_not_change_memory_or_journal_sequence() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let before = session.journal.latest_sequence().unwrap();
+        assert!(session.set_number(999, CellAddress::parse_a1("A1").unwrap(), 1.0).is_err());
+        assert_eq!(session.journal.latest_sequence().unwrap(), before);
+        assert!(session.workbook().sheet(999).is_none());
+    }
+}
