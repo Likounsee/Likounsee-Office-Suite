@@ -990,6 +990,24 @@ mod tests {
                 CellValue::Number(expected)
             );
         }
+        book.set_formula(1, CellAddress::parse_a1("B5").unwrap(), "=SUM(2*3,4)")
+            .unwrap();
+        assert_eq!(
+            book.value(1, CellAddress::parse_a1("B5").unwrap()),
+            CellValue::Number(10.0)
+        );
+        book.set_formula(1, CellAddress::parse_a1("B6").unwrap(), "=AVERAGE(2,4)")
+            .unwrap();
+        assert_eq!(
+            book.value(1, CellAddress::parse_a1("B6").unwrap()),
+            CellValue::Number(3.0)
+        );
+        book.set_formula(1, CellAddress::parse_a1("B7").unwrap(), "=AVERAGE(A4:A5)")
+            .unwrap();
+        assert_eq!(
+            book.value(1, CellAddress::parse_a1("B7").unwrap()),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
     }
     #[test]
     fn sum_propagates_errors_and_rejects_invalid_or_oversized_ranges() {
