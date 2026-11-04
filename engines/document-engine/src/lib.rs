@@ -19,7 +19,8 @@ use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
-const DOCUMENT_FORMAT_VERSION: u32 = 2;
+const DOCUMENT_FORMAT_VERSION: u32 = 3;
+const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 2;
 const LEGACY_DOCUMENT_FORMAT_VERSION: u32 = 1;
 const DOCUMENT_HEADER_SIZE: usize = 32;
 const MAX_DOCUMENT_SIZE: usize = 64 * 1024 * 1024 - DOCUMENT_HEADER_SIZE;
@@ -52,12 +53,35 @@ impl ParagraphStyle {
     }
 }
 
+/// List semantics attached to a paragraph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum ListKind {
+    #[default]
+    None = 0,
+    Bullet = 1,
+    Numbered = 2,
+}
+
+impl ListKind {
+    fn from_byte(value: u8) -> io::Result<Self> {
+        match value {
+            0 => Ok(Self::None),
+            1 => Ok(Self::Bullet),
+            2 => Ok(Self::Numbered),
+            _ => Err(invalid_data("unknown paragraph list kind")),
+        }
+    }
+}
+
 /// A stable, independently addressable paragraph block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paragraph {
     id: u64,
     text: String,
     style: ParagraphStyle,
+    list_kind: ListKind,
+    list_level: u8,
 }
 
 impl Paragraph {
@@ -69,6 +93,12 @@ impl Paragraph {
     }
     pub fn style(&self) -> ParagraphStyle {
         self.style
+    }
+    pub fn list_kind(&self) -> ListKind {
+        self.list_kind
+    }
+    pub fn list_level(&self) -> u8 {
+        self.list_level
     }
 }
 
@@ -96,6 +126,8 @@ impl Document {
                 id: 1,
                 text: String::new(),
                 style: ParagraphStyle::Normal,
+                list_kind: ListKind::None,
+                list_level: 0,
             }],
             next_block_id: 2,
         })
@@ -144,6 +176,8 @@ impl Document {
                     id: previous.id,
                     text: text.to_owned(),
                     style: previous.style,
+                    list_kind: previous.list_kind,
+                    list_level: previous.list_level,
                 });
             } else {
                 let id = next_id;
@@ -154,6 +188,8 @@ impl Document {
                     id,
                     text: text.to_owned(),
                     style: ParagraphStyle::Normal,
+                    list_kind: ListKind::None,
+                    list_level: 0,
                 });
             }
         }
@@ -210,6 +246,8 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
             .map_err(|_| invalid_input("paragraph text length is not representable"))?;
         bytes.extend_from_slice(&paragraph.id.to_le_bytes());
         bytes.push(paragraph.style as u8);
+        bytes.push(paragraph.list_kind as u8);
+        bytes.push(paragraph.list_level);
         bytes.extend_from_slice(&text_len.to_le_bytes());
         bytes.extend_from_slice(paragraph.text.as_bytes());
     }
@@ -227,7 +265,10 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         return Err(invalid_data("invalid document header"));
     }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    if version != DOCUMENT_FORMAT_VERSION && version != LEGACY_DOCUMENT_FORMAT_VERSION {
+    if version != DOCUMENT_FORMAT_VERSION
+        && version != PREVIOUS_DOCUMENT_FORMAT_VERSION
+        && version != LEGACY_DOCUMENT_FORMAT_VERSION
+    {
         return Err(invalid_data("unsupported document format version"));
     }
     let revision = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
@@ -260,6 +301,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 id,
                 text: text.to_owned(),
                 style: ParagraphStyle::Normal,
+                list_kind: ListKind::None,
+                list_level: 0,
             });
         }
         let next_id = u64::try_from(paragraphs.len())
@@ -287,22 +330,34 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         cursor = next_end;
         if count == 0
             || count > body_len.saturating_add(1)
-            || count > bytes.len().saturating_sub(cursor) / 17
+            || count > bytes.len().saturating_sub(cursor)
+                / if version == DOCUMENT_FORMAT_VERSION { 19 } else { 17 }
         {
             return Err(invalid_data("paragraph count is invalid"));
         }
         let mut paragraphs = Vec::with_capacity(count);
         let mut ids = std::collections::HashSet::with_capacity(count);
         for _ in 0..count {
+            let fixed_size = if version == DOCUMENT_FORMAT_VERSION { 19 } else { 17 };
             let fixed_end = cursor
-                .checked_add(17)
+                .checked_add(fixed_size)
                 .ok_or_else(|| invalid_data("paragraph metadata overflow"))?;
             if fixed_end > bytes.len() {
                 return Err(invalid_data("truncated paragraph record"));
             }
             let id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
             let style = ParagraphStyle::from_byte(bytes[cursor + 8])?;
-            let text_len = u64::from_le_bytes(bytes[cursor + 9..fixed_end].try_into().unwrap());
+            let (list_kind, list_level, length_offset) = if version == DOCUMENT_FORMAT_VERSION {
+                (
+                    ListKind::from_byte(bytes[cursor + 9])?,
+                    bytes[cursor + 10],
+                    cursor + 11,
+                )
+            } else {
+                (ListKind::None, 0, cursor + 9)
+            };
+            let text_len =
+                u64::from_le_bytes(bytes[length_offset..fixed_end].try_into().unwrap());
             cursor = fixed_end;
             let text_len = usize::try_from(text_len)
                 .map_err(|_| invalid_data("paragraph text length overflow"))?;
@@ -318,6 +373,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 id,
                 text: text.to_owned(),
                 style,
+                list_kind,
+                list_level,
             });
             cursor = paragraph_end;
         }
@@ -370,9 +427,14 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
                 "paragraph text cannot contain line-feed characters",
             ));
         }
+        if paragraph.list_level > 8
+            || (paragraph.list_kind == ListKind::None && paragraph.list_level != 0)
+        {
+            return Err(invalid_input("paragraph list level is invalid"));
+        }
         max_id = max_id.max(paragraph.id);
         size = size
-            .checked_add(17)
+            .checked_add(19)
             .and_then(|len| len.checked_add(paragraph.text.len()))
             .ok_or_else(|| invalid_input("document size overflow"))?;
     }
@@ -560,6 +622,30 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Set bullet/numbered list semantics and nesting level for a paragraph.
+    /// Level zero is the outermost list; levels above eight are rejected.
+    pub fn set_paragraph_list(
+        &mut self,
+        paragraph_id: u64,
+        kind: ListKind,
+        level: u8,
+    ) -> io::Result<u64> {
+        if level > 8 || (kind == ListKind::None && level != 0) {
+            return Err(invalid_input("paragraph list level is invalid"));
+        }
+        let mut paragraphs = self.document.paragraphs.clone();
+        let paragraph = paragraphs
+            .iter_mut()
+            .find(|paragraph| paragraph.id == paragraph_id)
+            .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        paragraph.list_kind = kind;
+        paragraph.list_level = level;
+        let next = self
+            .document
+            .with_paragraphs(paragraphs, self.document.next_block_id)?;
+        self.record_change(next)
+    }
+
     /// Insert a paragraph after the supplied ID, or append when no ID is supplied.
     pub fn insert_paragraph_after(
         &mut self,
@@ -586,6 +672,8 @@ impl DocumentSession {
                 id,
                 text: text.into(),
                 style,
+                list_kind: ListKind::None,
+                list_level: 0,
             },
         );
         let next = self.document.with_paragraphs(paragraphs, next_id)?;
