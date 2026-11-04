@@ -15,17 +15,23 @@ from zero through eight. A paragraph without list semantics must have level zero
 The engine stores these semantics; numbering continuity, marker generation and
 visual indentation are responsibilities of later layout and UI layers.
 
-The versioned binary format (`LOUSDOC1`, v3) persists block IDs, styles, list
-kinds, nesting levels and the next-ID counter. Version 1 documents are migrated
-in memory into normal paragraphs; version 2 documents are migrated with no list
-metadata. The decoder rejects unknown styles or list kinds, invalid list levels,
+The versioned binary format (`LOUSDOC1`, v4) persists block IDs, paragraph
+styles, list kinds, nesting levels, inline formatting ranges and the next-ID
+counter. Inline marks support bold, italic and underline as independently
+addressable UTF-8 byte ranges; overlapping marks of different kinds are allowed,
+while ranges of the same kind are canonicalized. Version 1 documents migrate to
+normal paragraphs, version 2 adds paragraph styles, and version 3 adds list
+metadata; all older formats migrate with no inline marks. The decoder rejects
+unknown styles, list kinds or inline marks, invalid list levels, invalid UTF-8
+boundaries, duplicate IDs, invalid or overlapping same-mark spans,
 duplicate IDs, malformed UTF-8, inconsistent lengths and payloads larger than
 the 64 MiB journal-record limit.
 
 The session exposes targeted UTF-8 text operations (`insert_text`,
 `delete_range` and `replace_range`) using byte offsets. It also supports
 inserting and deleting paragraphs, changing paragraph styles by stable ID, and
-assigning bullet or numbered list semantics. Both text-range endpoints must be
+assigning bullet or numbered list semantics, and applying or removing bold,
+italic or underline over selected character ranges. Both text-range endpoints must be
 valid UTF-8 character boundaries; invalid offsets are rejected before mutation.
 The engine journals a complete serialized document snapshot before publishing
 the new in-memory state. If the append fails, the visible in-memory document
@@ -66,7 +72,7 @@ partially truncated journal header.
 
 ## Current limitations
 
-- Inline spans and character formatting (bold, italic, underline), tables,
+- Tables,
   images, page layout and rendered list numbering are not implemented.
 - A single encoded document snapshot must fit within the journal record limit
   (64 MiB), so the current model caps total encoded document size below 64 MiB.
