@@ -9,7 +9,7 @@ is introduced.
 A document contains a UTF-8 title, a plain-text compatibility view, a monotonically
 increasing revision and an ordered list of paragraph blocks. Each paragraph has
 a stable nonzero ID, UTF-8 text and a semantic style (`Normal`, `Heading1`,
-`Heading2`, `Quote` or `Code`). The versioned binary format (`LOUSDOC1`, v2)
+`Heading2`, `Quote` or `Code`). The versioned binary format (`LOUSDOC1`, v3)
 persists the block IDs, styles and next-ID counter, and rejects unknown styles,
 duplicate IDs, malformed UTF-8, inconsistent lengths and payloads larger than
 the 64 MiB journal-record limit. Version 1 documents are still decoded and
