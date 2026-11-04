@@ -735,12 +735,15 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                         cells.push(TableCell {
                             id: cell_id,
                             text: text.to_owned(),
+                            alignment: CellAlignment::Left,
+                            background: None,
+                            borders: 0x0f,
                         });
                     }
                     if row_id == 0 || !ids.insert(row_id) {
                         return Err(invalid_data("duplicate or zero block ID"));
                     }
-                    rows.push(TableRow { id: row_id, cells });
+                    rows.push(TableRow { id: row_id, cells, height_twips: 0 });
                 }
                 if !ids.insert(table_id) {
                     return Err(invalid_data("duplicate table ID"));
@@ -749,10 +752,11 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                     id: table_id,
                     rows,
                     columns,
+                    column_widths_twips: vec![2400; columns],
                 });
             }
         }
-        let order = if version >= DOCUMENT_FORMAT_VERSION {
+        let order = if version >= BLOCK_ORDER_FORMAT_VERSION {
             let count_end = cursor
                 .checked_add(4)
                 .ok_or_else(|| invalid_data("block order count overflow"))?;
@@ -1139,9 +1143,12 @@ impl DocumentSession {
                 cells.push(TableCell {
                     id: take_id()?,
                     text: String::new(),
+                    alignment: CellAlignment::Left,
+                    background: None,
+                    borders: 0x0f,
                 });
             }
-            table_rows.push(TableRow { id: row_id, cells });
+            table_rows.push(TableRow { id: row_id, cells, height_twips: 0 });
         }
         let mut next = self.document.clone();
         self.document.increment_revision(&mut next)?;
@@ -1149,6 +1156,7 @@ impl DocumentSession {
             id: table_id,
             rows: table_rows,
             columns,
+            column_widths_twips: vec![2400; columns],
         });
         next.block_order.push(DocumentBlock::Table(table_id));
         next.next_block_id = next_id;
@@ -1194,9 +1202,15 @@ impl DocumentSession {
             cells.push(TableCell {
                 id: cell_id,
                 text: String::new(),
+                alignment: CellAlignment::Left,
+                background: None,
+                borders: 0x0f,
             });
         }
-        table.rows.insert(row_index, TableRow { id: row_id, cells });
+        table.rows.insert(
+            row_index,
+            TableRow { id: row_id, cells, height_twips: 0 },
+        );
         next.next_block_id = id;
         self.document.increment_revision(&mut next)?;
         validate_document_size(&next)?;
@@ -1254,6 +1268,9 @@ impl DocumentSession {
                 TableCell {
                     id: cell_id,
                     text: String::new(),
+                    alignment: CellAlignment::Left,
+                    background: None,
+                    borders: 0x0f,
                 },
             );
         }
