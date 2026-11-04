@@ -21,6 +21,7 @@ use suite_common::storage::{FileSystem, LocalFileSystem};
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
 const DOCUMENT_FORMAT_VERSION: u32 = 6;
 const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 5;
+const INLINE_MARK_FORMAT_VERSION: u32 = 4;
 const LEGACY_TABLE_FORMAT_VERSION: u32 = 5;
 const LEGACY_LIST_FORMAT_VERSION: u32 = 3;
 const LEGACY_STRUCTURED_FORMAT_VERSION: u32 = 2;
@@ -554,7 +555,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 .map_err(|_| invalid_data("paragraph text is not valid UTF-8"))?;
             cursor = paragraph_end;
             let mut spans = Vec::new();
-            if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
+            if version >= INLINE_MARK_FORMAT_VERSION {
                 let count_end = cursor
                     .checked_add(4)
                     .ok_or_else(|| invalid_data("inline span metadata overflow"))?;
@@ -899,7 +900,9 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
     }
     size = size
         .checked_add(4)
-        .ok_or_else(|| invalid_input("table count size overflow"))?;
+        .and_then(|n| n.checked_add(4))
+        .and_then(|n| n.checked_add(document.block_order.len().checked_mul(9)?))
+        .ok_or_else(|| invalid_input("block metadata size overflow"))?;
     let expected_blocks = document.paragraphs.len() + document.tables.len();
     if document.block_order.len() != expected_blocks {
         return Err(invalid_input("block order must reference every paragraph and table exactly once"));
@@ -1926,13 +1929,50 @@ mod tests {
         document.body = "legacy".to_owned();
         document.paragraphs[0].text = "legacy".to_owned();
         let mut bytes = encode_document(&document).unwrap();
-        // Remove the v5 table-count trailer and mark the payload as v4.
-        bytes.truncate(bytes.len() - 4);
-        bytes[8..12].copy_from_slice(&PREVIOUS_DOCUMENT_FORMAT_VERSION.to_le_bytes());
+        // Remove the v5 table trailer and v6 block-order trailer.
+        bytes.truncate(bytes.len() - 17);
+        bytes[8..12].copy_from_slice(&4_u32.to_le_bytes());
         let decoded = decode_document(&bytes).unwrap();
         assert_eq!(decoded.body(), "legacy");
         assert!(decoded.tables().is_empty());
         assert_eq!(decoded.blocks(), &[DocumentBlock::Paragraph(decoded.paragraphs()[0].id())]);
+    }
+
+    #[test]
+    fn unified_block_order_interleaves_paragraphs_and_tables_and_survives_recovery() {
+        let directory = TestDirectory::new();
+        let first_id;
+        let table_id;
+        let inserted_id;
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            first_id = session.document().paragraphs()[0].id();
+            table_id = session.insert_table(1, 2).unwrap();
+            inserted_id = session.insert_paragraph_after(
+                Some(first_id),
+                "Paragraph between blocks",
+                ParagraphStyle::Normal,
+            ).unwrap();
+            assert_eq!(
+                session.document().blocks(),
+                &[
+                    DocumentBlock::Paragraph(first_id),
+                    DocumentBlock::Paragraph(inserted_id),
+                    DocumentBlock::Table(table_id),
+                ]
+            );
+            let encoded = encode_document(session.document()).unwrap();
+            assert_eq!(decode_document(&encoded).unwrap(), *session.document());
+        }
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(
+            recovered.document().blocks(),
+            &[
+                DocumentBlock::Paragraph(first_id),
+                DocumentBlock::Paragraph(inserted_id),
+                DocumentBlock::Table(table_id),
+            ]
+        );
     }
 
     #[test]
