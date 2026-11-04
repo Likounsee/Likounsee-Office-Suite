@@ -2,7 +2,7 @@
 
 A free, open-source, local-first office suite aiming to provide a modern alternative to Microsoft Office and LibreOffice.
 
-> **Project status:** Early planning. The repository currently describes the project and its intended direction; the applications and features below are goals, not claims of implemented functionality.
+> **Project status:** Initial technical scaffold in progress. The Rust workspace, application entry points, shared error/logging primitives, architecture notes and Windows/Linux CI have been added on the `foundation/initial-architecture` branch. The actual office features remain planned, not implemented.
 
 ## Vision
 
@@ -83,7 +83,7 @@ Compatibility is a goal, not a guarantee that every advanced feature in every th
 
 ## Technical direction
 
-The current language proposal is **Rust** for the applications and their processing engines. The final language and GUI framework have not yet been formally selected.
+The implementation language is **Rust**. Windows and Linux are first-class targets from the start. The GUI framework is deliberately undecided until a documented comparison and cross-platform proof of concept are complete.
 
 The intended architecture separates:
 
@@ -188,7 +188,7 @@ The architecture should also leave room for:
 
 The order below is a planning baseline and may change as implementation and testing reveal dependencies.
 
-1. **Technical foundations** — repository structure, Rust workspace decision, GUI evaluation, build system, CI, logging, error handling, and Windows/Linux development setup.
+1. **Technical foundations** — Rust workspace, initial application/engine boundaries, shared error handling and logging, GUI framework evaluation, build system, CI, and Windows/Linux development setup. The workspace and CI scaffold now exist; GUI selection and deeper platform foundations remain to do.
 2. **Shared components** — windows, menus, themes, settings, shortcuts, clipboard, undo/redo, file dialogs, printing interfaces, and localization.
 3. **Saving and recovery infrastructure** — portable filesystem abstraction, safe writes, autosave, recovery journal, checkpoints, version history, and fault-injection tests.
 4. **Document Editor** — document model, layout, editing, rendering, and file-format adapters.
@@ -202,13 +202,13 @@ The order below is a planning baseline and may change as implementation and test
 
 ## Current status and scope
 
-This repository is at the planning stage. No application should be considered implemented until its code, tests, and documented behavior exist.
+The repository now contains an initial Rust/Cargo scaffold and CI configuration. The three executables are currently startup stubs, not usable office applications. No document editing, spreadsheet calculation, presentation editing, file-format compatibility, autosave or recovery feature should be considered implemented until its code, tests and documented behavior exist.
 
 Initial release scope remains limited to Document Editor, Spreadsheet, and Presentation. Future applications may be considered after the foundations are stable.
 
 ## Contributing
 
-Contribution guidelines, development setup, coding conventions, architecture decisions, and issue templates will be added as the codebase takes shape.
+See `CONTRIBUTING.md`, `docs/development/setup.md` and `docs/architecture/` for the initial development and architecture guidance.
 
 Until then, proposals should focus on the three initial applications, cross-platform reliability, interoperability, privacy, and preventing data loss.
 
