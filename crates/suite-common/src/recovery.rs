@@ -422,6 +422,25 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn replay_rejects_a_record_with_a_truncated_payload() {
+        let path = TestJournal::new();
+        let journal = RecoveryJournal::open(&path.0).unwrap();
+        journal.append(b"payload that will be cut").unwrap();
+        drop(journal);
+
+        let file = OpenOptions::new().write(true).open(&path.0).unwrap();
+        file.set_len(fs::metadata(&path.0).unwrap().len() - 3)
+            .unwrap();
+
+        let journal = RecoveryJournal::open(&path.0).unwrap();
+        let replay = journal.replay().unwrap();
+        assert!(replay.had_truncated_tail);
+        assert!(replay.records.is_empty());
+        assert_eq!(replay.valid_bytes, FILE_MAGIC.len() as u64);
+    }
+
     #[test]
     fn replay_bounds_scanning_of_oversized_journal_files() {
         let path = TestJournal::new();
