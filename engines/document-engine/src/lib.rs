@@ -218,7 +218,11 @@ impl Document {
                     style: previous.style,
                     list_kind: previous.list_kind,
                     list_level: previous.list_level,
-                    spans: if previous.text == text { previous.spans.clone() } else { Vec::new() },
+                    spans: if previous.text == text {
+                        previous.spans.clone()
+                    } else {
+                        Vec::new()
+                    },
                 });
             } else {
                 let id = next_id;
@@ -382,12 +386,13 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         cursor = next_end;
         if count == 0
             || count > body_len.saturating_add(1)
-            || count > bytes.len().saturating_sub(cursor)
-                / if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
-                    19
-                } else {
-                    17
-                }
+            || count
+                > bytes.len().saturating_sub(cursor)
+                    / if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
+                        19
+                    } else {
+                        17
+                    }
         {
             return Err(invalid_data("paragraph count is invalid"));
         }
@@ -407,15 +412,16 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             }
             let id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
             let style = ParagraphStyle::from_byte(bytes[cursor + 8])?;
-            let (list_kind, list_level, length_offset) = if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
-                (
-                    ListKind::from_byte(bytes[cursor + 9])?,
-                    bytes[cursor + 10],
-                    cursor + 11,
-                )
-            } else {
-                (ListKind::None, 0, cursor + 9)
-            };
+            let (list_kind, list_level, length_offset) =
+                if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
+                    (
+                        ListKind::from_byte(bytes[cursor + 9])?,
+                        bytes[cursor + 10],
+                        cursor + 11,
+                    )
+                } else {
+                    (ListKind::None, 0, cursor + 9)
+                };
             let text_len =
                 u64::from_le_bytes(bytes[length_offset..length_offset + 8].try_into().unwrap());
             cursor = fixed_end;
