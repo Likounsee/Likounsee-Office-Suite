@@ -18,7 +18,7 @@ use suite_common::storage::{FileSystem, LocalFileSystem};
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
 const DOCUMENT_FORMAT_VERSION: u32 = 1;
 const DOCUMENT_HEADER_SIZE: usize = 32;
-const MAX_DOCUMENT_SIZE: usize = 128 * 1024 * 1024;
+const MAX_DOCUMENT_SIZE: usize = 64 * 1024 * 1024 - DOCUMENT_HEADER_SIZE;
 const MAX_TITLE_SIZE: usize = 1024 * 1024;
 const CHECKPOINT_FILE: &str = "document.checkpoint";
 const JOURNAL_FILE: &str = "document.journal";
@@ -139,7 +139,7 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
         .and_then(|len| len.checked_add(document.body.len()))
         .ok_or_else(|| invalid_input("document size overflow"))?;
     if size > MAX_DOCUMENT_SIZE {
-        return Err(invalid_input("document exceeds 128 MiB"));
+        return Err(invalid_input("document exceeds the 64 MiB recovery-record limit"));
     }
     Ok(())
 }
