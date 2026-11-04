@@ -511,7 +511,11 @@ impl<'a> Parser<'a> {
                 Some(b',') => self.cursor += 1,
                 Some(b')') if arguments > 0 => {
                     self.cursor += 1;
-                    return if total.is_finite() { Ok(total) } else { Err(FormulaError::Number) };
+                    return if total.is_finite() {
+                        Ok(total)
+                    } else {
+                        Err(FormulaError::Number)
+                    };
                 }
                 _ => return Err(FormulaError::Parse),
             }
@@ -534,7 +538,10 @@ impl<'a> Parser<'a> {
         CellAddress::parse_a1(text).map_err(|_| FormulaError::Reference)
     }
     fn numeric_cell(&mut self, address: CellAddress) -> Result<f64, FormulaError> {
-        match self.workbook.evaluate(self.sheet_id, address, self.visiting) {
+        match self
+            .workbook
+            .evaluate(self.sheet_id, address, self.visiting)
+        {
             CellValue::Number(value) => Ok(value),
             CellValue::Blank => Ok(0.0),
             CellValue::Error(error) => Err(error),
@@ -554,8 +561,12 @@ impl<'a> Parser<'a> {
         let mut total = 0.0;
         for row in min_row..=max_row {
             for column in min_column..=max_column {
-                let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
-                match self.workbook.evaluate(self.sheet_id, address, self.visiting) {
+                let address =
+                    CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
+                match self
+                    .workbook
+                    .evaluate(self.sheet_id, address, self.visiting)
+                {
                     CellValue::Number(value) => total += value,
                     CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                     CellValue::Error(error) => return Err(error),
@@ -850,9 +861,15 @@ mod tests {
         let b1 = CellAddress::parse_a1("B1").unwrap();
         book.set_formula(sheet, a1, "=1/0").unwrap();
         book.set_formula(sheet, b1, "=SUM(A1:A2)").unwrap();
-        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::DivisionByZero));
+        assert_eq!(
+            book.value(sheet, b1),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
         book.set_formula(sheet, b1, "=SUM(A1:XFD1048576)").unwrap();
-        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Number));
+        assert_eq!(
+            book.value(sheet, b1),
+            CellValue::Error(FormulaError::Number)
+        );
         book.set_formula(sheet, b1, "=SUM(A1:)").unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
