@@ -1,4 +1,13 @@
 //! UI-independent spreadsheet processing engine.
-pub const fn engine_name() -> &str { "Spreadsheet Engine" }
+
+pub const fn engine_name() -> &'static str {
+    "Spreadsheet Engine"
+}
+
 #[cfg(test)]
-mod tests { #[test] fn engine_has_a_name() { assert_eq!(super::engine_name(), "Spreadsheet Engine"); } }
+mod tests {
+    #[test]
+    fn engine_has_a_name() {
+        assert_eq!(super::engine_name(), "Spreadsheet Engine");
+    }
+}
