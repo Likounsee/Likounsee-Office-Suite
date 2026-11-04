@@ -3,14 +3,14 @@
 //! Checkpoints are written through the portable atomic-replacement layer. The
 //! caller must verify a newly written checkpoint before compacting its journal.
 
-use crate::storage::{FileSystem, write_atomic};
+use crate::storage::FileSystem;
 use crc32fast::Hasher;
 use std::io;
 use std::path::Path;
 
 const MAGIC: &[u8; 8] = b"LOUSCHK1";
 const FORMAT_VERSION: u32 = 1;
-const HEADER_SIZE: usize = 32;
+const HEADER_SIZE: usize = 36;
 const MAX_CHECKPOINT_SIZE: usize = 128 * 1024 * 1024;
 
 /// Maximum serialized document payload accepted by this checkpoint format.
@@ -65,7 +65,7 @@ pub fn decode(bytes: &[u8]) -> io::Result<Checkpoint> {
 
     let generation = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
     let payload_len = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
-    let expected_checksum = u32::from_le_bytes(bytes[32 - 4..32].try_into().unwrap());
+    let expected_checksum = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
     let payload_len = usize::try_from(payload_len)
         .map_err(|_| invalid_data("checkpoint payload length is not representable"))?;
 
