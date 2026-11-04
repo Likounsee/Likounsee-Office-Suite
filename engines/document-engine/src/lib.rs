@@ -330,15 +330,24 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         cursor = next_end;
         if count == 0
             || count > body_len.saturating_add(1)
-            || count > bytes.len().saturating_sub(cursor)
-                / if version == DOCUMENT_FORMAT_VERSION { 19 } else { 17 }
+            || count
+                > bytes.len().saturating_sub(cursor)
+                    / if version == DOCUMENT_FORMAT_VERSION {
+                        19
+                    } else {
+                        17
+                    }
         {
             return Err(invalid_data("paragraph count is invalid"));
         }
         let mut paragraphs = Vec::with_capacity(count);
         let mut ids = std::collections::HashSet::with_capacity(count);
         for _ in 0..count {
-            let fixed_size = if version == DOCUMENT_FORMAT_VERSION { 19 } else { 17 };
+            let fixed_size = if version == DOCUMENT_FORMAT_VERSION {
+                19
+            } else {
+                17
+            };
             let fixed_end = cursor
                 .checked_add(fixed_size)
                 .ok_or_else(|| invalid_data("paragraph metadata overflow"))?;
@@ -356,8 +365,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             } else {
                 (ListKind::None, 0, cursor + 9)
             };
-            let text_len =
-                u64::from_le_bytes(bytes[length_offset..fixed_end].try_into().unwrap());
+            let text_len = u64::from_le_bytes(bytes[length_offset..fixed_end].try_into().unwrap());
             cursor = fixed_end;
             let text_len = usize::try_from(text_len)
                 .map_err(|_| invalid_data("paragraph text length overflow"))?;
@@ -1020,7 +1028,9 @@ mod tests {
         {
             let mut session = DocumentSession::open(&directory.0).unwrap();
             first_id = session.document().paragraphs()[0].id();
-            session.set_body("First item\nNested item\nNumbered item").unwrap();
+            session
+                .set_body("First item\nNested item\nNumbered item")
+                .unwrap();
             let second_id = session.document().paragraphs()[1].id();
             let third_id = session.document().paragraphs()[2].id();
             session
@@ -1052,21 +1062,28 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         let paragraph_id = session.document().paragraphs()[0].id();
         let before = session.document().clone();
-        assert!(session
-            .set_paragraph_list(paragraph_id, ListKind::None, 1)
-            .is_err());
-        assert!(session
-            .set_paragraph_list(paragraph_id, ListKind::Bullet, 9)
-            .is_err());
+        assert!(
+            session
+                .set_paragraph_list(paragraph_id, ListKind::None, 1)
+                .is_err()
+        );
+        assert!(
+            session
+                .set_paragraph_list(paragraph_id, ListKind::Bullet, 9)
+                .is_err()
+        );
         assert_eq!(session.document(), &before);
 
         session
             .set_paragraph_list(paragraph_id, ListKind::Bullet, 1)
             .unwrap();
         let mut encoded = encode_document(session.document()).unwrap();
-        let list_kind_offset =
-            DOCUMENT_HEADER_SIZE + session.document().title.len() + session.document().body.len()
-                + 12 + 8 + 1;
+        let list_kind_offset = DOCUMENT_HEADER_SIZE
+            + session.document().title.len()
+            + session.document().body.len()
+            + 12
+            + 8
+            + 1;
         encoded[list_kind_offset] = 255;
         assert_eq!(
             decode_document(&encoded).unwrap_err().kind(),
