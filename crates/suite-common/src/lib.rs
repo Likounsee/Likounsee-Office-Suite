@@ -1,5 +1,6 @@
 //! Shared, UI-independent foundations.
 pub mod autosave;
+pub mod checkpoint;
 pub mod error;
 pub mod logging;
 pub mod recovery;
