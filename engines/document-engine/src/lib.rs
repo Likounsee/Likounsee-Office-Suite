@@ -1134,6 +1134,7 @@ impl DocumentSession {
         {
             return Err(invalid_input("table column insertion exceeds supported limits"));
         }
+        let first_cell_id = id;
         for row in &mut table.rows {
             let cell_id = id;
             id = id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
@@ -1144,7 +1145,7 @@ impl DocumentSession {
         self.document.increment_revision(&mut next)?;
         validate_document_size(&next)?;
         self.record_change(next)?;
-        Ok(id - table.rows.len() as u64)
+        Ok(first_cell_id)
     }
 
     /// Remove a column by zero-based index. A table always retains at least one column.
@@ -2022,14 +2023,16 @@ mod tests {
             original_row_id = session.document().tables()[0].rows()[0].id();
             original_cell_id = session.document().tables()[0].rows()[0].cells()[0].id();
             inserted_row_id = session.insert_table_row(table_id, 1).unwrap();
+            let previous_next_id = session.document().next_block_id;
             let inserted_column_cell = session.insert_table_column(table_id, 1).unwrap();
+            assert_eq!(inserted_column_cell, previous_next_id);
             assert_eq!(session.document().tables()[0].rows().len(), 3);
             assert_eq!(session.document().tables()[0].columns(), 3);
             assert_eq!(session.document().tables()[0].rows()[0].id(), original_row_id);
             assert_eq!(session.document().tables()[0].rows()[0].cells()[0].id(), original_cell_id);
             assert_eq!(session.document().tables()[0].rows()[1].id(), inserted_row_id);
             assert!(session.document().tables()[0].rows().iter()
-                .all(|row| row.cells()[1].id() >= inserted_column_cell - 2));
+                .all(|row| row.cells()[1].id() >= inserted_column_cell));
             session.delete_table_row(table_id, 1).unwrap();
             session.delete_table_column(table_id, 1).unwrap();
             assert_eq!(session.document().tables()[0].rows().len(), 2);
