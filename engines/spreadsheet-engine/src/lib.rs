@@ -604,8 +604,7 @@ impl<'a> Parser<'a> {
         }
         for row in min_row..=max_row {
             for column in min_column..=max_column {
-                let address =
-                    CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
+                let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
                 match self
                     .workbook
                     .evaluate(self.sheet_id, address, self.visiting)
