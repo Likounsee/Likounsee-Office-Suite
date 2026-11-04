@@ -9,9 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use suite_common::autosave::AutosaveScheduler;
-use suite_common::checkpoint::{
-    Checkpoint, read_checkpoint, verify_checkpoint, write_checkpoint,
-};
+use suite_common::checkpoint::{Checkpoint, read_checkpoint, verify_checkpoint, write_checkpoint};
 use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
@@ -61,7 +59,9 @@ impl Document {
             return Err(invalid_input("document title exceeds 1 MiB"));
         }
         let mut next = self.clone();
-        next.revision = next.revision.checked_add(1)
+        next.revision = next
+            .revision
+            .checked_add(1)
             .ok_or_else(|| invalid_input("document revision exhausted"))?;
         next.title = title;
         validate_document_size(&next)?;
@@ -70,7 +70,9 @@ impl Document {
 
     fn with_body(&self, body: String) -> io::Result<Self> {
         let mut next = self.clone();
-        next.revision = next.revision.checked_add(1)
+        next.revision = next
+            .revision
+            .checked_add(1)
             .ok_or_else(|| invalid_input("document revision exhausted"))?;
         next.body = body;
         validate_document_size(&next)?;
@@ -86,7 +88,8 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
     let body_len = u64::try_from(document.body.len())
         .map_err(|_| invalid_input("document body length is not representable"))?;
 
-    let mut bytes = Vec::with_capacity(DOCUMENT_HEADER_SIZE + document.title.len() + document.body.len());
+    let mut bytes =
+        Vec::with_capacity(DOCUMENT_HEADER_SIZE + document.title.len() + document.body.len());
     bytes.extend_from_slice(DOCUMENT_MAGIC);
     bytes.extend_from_slice(&DOCUMENT_FORMAT_VERSION.to_le_bytes());
     bytes.extend_from_slice(&document.revision.to_le_bytes());
@@ -116,7 +119,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         .and_then(|len| len.checked_add(body_len))
         .ok_or_else(|| invalid_data("document size overflow"))?;
 
-    if expected_len != bytes.len() || expected_len > MAX_DOCUMENT_SIZE || title_len > MAX_TITLE_SIZE {
+    if expected_len != bytes.len() || expected_len > MAX_DOCUMENT_SIZE || title_len > MAX_TITLE_SIZE
+    {
         return Err(invalid_data("document length is invalid"));
     }
 
@@ -139,7 +143,9 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
         .and_then(|len| len.checked_add(document.body.len()))
         .ok_or_else(|| invalid_input("document size overflow"))?;
     if size > MAX_DOCUMENT_SIZE {
-        return Err(invalid_input("document exceeds the 64 MiB recovery-record limit"));
+        return Err(invalid_input(
+            "document exceeds the 64 MiB recovery-record limit",
+        ));
     }
     Ok(())
 }
@@ -194,10 +200,14 @@ impl DocumentSession {
         let recovered_records = replay.records.len();
         for record in replay.records {
             let recovered = decode_document(&record.payload)?;
-            let expected_revision = document.revision.checked_add(1)
+            let expected_revision = document
+                .revision
+                .checked_add(1)
                 .ok_or_else(|| invalid_data("document revision exhausted during recovery"))?;
             if recovered.revision != expected_revision {
-                return Err(invalid_data("recovery journal document revisions are not contiguous"));
+                return Err(invalid_data(
+                    "recovery journal document revisions are not contiguous",
+                ));
             }
             document = recovered;
         }
@@ -277,7 +287,9 @@ impl DocumentSession {
     }
 
     fn write_checkpoint_without_compaction(&mut self) -> io::Result<u64> {
-        let generation = self.checkpoint_generation.checked_add(1)
+        let generation = self
+            .checkpoint_generation
+            .checked_add(1)
             .ok_or_else(|| invalid_input("checkpoint generation exhausted"))?;
         let sequence = self.journal.latest_sequence()?;
         let checkpoint = Checkpoint::new(generation, sequence, encode_document(&self.document)?);
@@ -311,7 +323,10 @@ mod tests {
 
     impl TestDirectory {
         fn new() -> Self {
-            let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
             let path = std::env::temp_dir().join(format!(
                 "likounsee-document-engine-{}-{nonce}",
                 std::process::id()
@@ -339,10 +354,16 @@ mod tests {
 
     #[test]
     fn rejects_invalid_document_data() {
-        assert_eq!(decode_document(b"bad").unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            decode_document(b"bad").unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         let mut encoded = encode_document(&Document::new("Title").unwrap()).unwrap();
         encoded[8..12].copy_from_slice(&99_u32.to_le_bytes());
-        assert_eq!(decode_document(&encoded).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            decode_document(&encoded).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
@@ -416,7 +437,11 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_body("autosaved").unwrap();
         assert!(!session.autosave_if_due(Instant::now()).unwrap());
-        assert!(session.autosave_if_due(Instant::now() + Duration::from_secs(3)).unwrap());
+        assert!(
+            session
+                .autosave_if_due(Instant::now() + Duration::from_secs(3))
+                .unwrap()
+        );
 
         let reopened = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(reopened.document().body(), "autosaved");
