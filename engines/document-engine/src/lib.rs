@@ -220,7 +220,7 @@ impl Document {
     }
 }
 
-/// Encode a document using the engine's initial versioned binary format.
+/// Encode a document using the current versioned binary format.
 pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
     validate_document_size(document)?;
     let title_len = u32::try_from(document.title.len())
@@ -1020,7 +1020,7 @@ mod tests {
         {
             let mut session = DocumentSession::open(&directory.0).unwrap();
             first_id = session.document().paragraphs()[0].id();
-            session.set_body("First item\\nNested item\\nNumbered item").unwrap();
+            session.set_body("First item\nNested item\nNumbered item").unwrap();
             let second_id = session.document().paragraphs()[1].id();
             let third_id = session.document().paragraphs()[2].id();
             session
