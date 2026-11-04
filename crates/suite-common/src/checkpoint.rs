@@ -29,7 +29,11 @@ pub struct Checkpoint {
 
 impl Checkpoint {
     pub fn new(generation: u64, journal_sequence: u64, payload: Vec<u8>) -> Self {
-        Self { generation, journal_sequence, payload }
+        Self {
+            generation,
+            journal_sequence,
+            payload,
+        }
     }
 }
 
