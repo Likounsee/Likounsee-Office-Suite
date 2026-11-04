@@ -6,18 +6,23 @@ is introduced.
 
 ## Current document model
 
-A document currently contains a UTF-8 title, UTF-8 body and monotonically
-increasing revision. Its binary representation is versioned (`LOUSDOC1`) and
-rejects unknown versions, malformed UTF-8, inconsistent lengths and payloads
-larger than the 64 MiB journal-record limit.
+A document contains a UTF-8 title, a plain-text compatibility view, a monotonically
+increasing revision and an ordered list of paragraph blocks. Each paragraph has
+a stable nonzero ID, UTF-8 text and a semantic style (`Normal`, `Heading1`,
+`Heading2`, `Quote` or `Code`). The versioned binary format (`LOUSDOC1`, v2)
+persists the block IDs, styles and next-ID counter, and rejects unknown styles,
+duplicate IDs, malformed UTF-8, inconsistent lengths and payloads larger than
+the 64 MiB journal-record limit. Version 1 documents are still decoded and
+migrated in memory as normal paragraphs.
 
 Each successful title or body edit increments the revision exactly once. The
 session exposes targeted UTF-8 text operations (insert_text, delete_range and
-replace_range) using byte offsets. Both range endpoints must be valid UTF-8
-character boundaries; invalid offsets are rejected before any mutation. The
-engine journals a complete serialized document snapshot before publishing the
-new in-memory state. If the append fails, the visible in-memory document is not
-changed.
+replace_range) using byte offsets. It also supports inserting and deleting
+paragraphs and changing paragraph styles by stable ID. Both range endpoints
+must be valid UTF-8 character boundaries; invalid offsets are rejected before
+any mutation. The engine journals a complete serialized document snapshot
+before publishing the new in-memory state. If the append fails, the visible
+in-memory document is not changed.
 
 ## Session files
 
@@ -54,9 +59,9 @@ partially truncated journal header.
 
 ## Current limitations
 
-- The model is still plain text, not a rich-text editor. Targeted text edits are
-  available, but paragraphs, blocks, styles and stable block identifiers are
-  not modelled yet.
+- The model now has paragraph blocks and semantic paragraph styles, but it is
+  not yet a full rich-text model: inline spans, character formatting, tables,
+  images, lists and page layout are not implemented.
 - A single encoded document snapshot must fit within the journal record limit
   (64 MiB), so the current model caps total encoded document size below 64 MiB.
 - Every edit writes a complete document snapshot to the journal; this is
