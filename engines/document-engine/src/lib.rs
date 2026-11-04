@@ -1039,7 +1039,9 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             .ok_or_else(|| invalid_input("document size overflow"))?;
     }
     for table in &document.tables {
-        if table.id == 0
+        if table.column_widths_twips.len() != table.columns
+            || table.column_widths_twips.iter().any(|width| !(100..=100_000).contains(width))
+            || table.id == 0
             || !ids.insert(table.id)
             || table.rows.is_empty()
             || table.columns == 0
@@ -1055,11 +1057,19 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
         }
         max_id = max_id.max(table.id);
         for row in &table.rows {
+            if row.height_twips != 0 && !(100..=100_000).contains(&row.height_twips) {
+                return Err(invalid_input("table row height is invalid"));
+            }
             if row.id == 0 || !ids.insert(row.id) || row.cells.len() != table.columns {
                 return Err(invalid_input("table row ID or cell count is invalid"));
             }
             max_id = max_id.max(row.id);
             for cell in &row.cells {
+                if cell.background.is_some_and(|color| color > 0x00ff_ffff)
+                    || cell.borders & !0x0f != 0
+                {
+                    return Err(invalid_input("table cell formatting is invalid"));
+                }
                 if cell.id == 0 || !ids.insert(cell.id) {
                     return Err(invalid_input("table cell ID is invalid"));
                 }
@@ -1078,10 +1088,21 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             .ok_or_else(|| invalid_input("table size overflow"))?;
     }
     size = size
-        .checked_add(4)
-        .and_then(|n| n.checked_add(4))
+        .checked_add(8)
         .and_then(|n| n.checked_add(document.block_order.len().checked_mul(9)?))
         .ok_or_else(|| invalid_input("block metadata size overflow"))?;
+    for table in &document.tables {
+        let table_format_bytes = table
+            .columns
+            .checked_mul(4)
+            .and_then(|n| table.rows.len().checked_mul(table.columns)?.checked_mul(14)?.checked_add(n))
+            .and_then(|n| table.rows.len().checked_mul(12)?.checked_add(n))
+            .and_then(|n| n.checked_add(8))
+            .ok_or_else(|| invalid_input("table formatting size overflow"))?;
+        size = size
+            .checked_add(table_format_bytes)
+            .ok_or_else(|| invalid_input("table formatting size overflow"))?;
+    }
     let expected_blocks = document.paragraphs.len() + document.tables.len();
     if document.block_order.len() != expected_blocks {
         return Err(invalid_input(
