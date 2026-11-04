@@ -260,6 +260,41 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Insert UTF-8 text at a byte offset that must be a character boundary.
+    pub fn insert_text(&mut self, offset: usize, text: &str) -> io::Result<u64> {
+        let mut body = self.document.body.clone();
+        if offset > body.len() || !body.is_char_boundary(offset) {
+            return Err(invalid_input("text insertion offset is not a UTF-8 character boundary"));
+        }
+        body.insert_str(offset, text);
+        let next = self.document.with_body(body)?;
+        self.record_change(next)
+    }
+
+    /// Delete a byte range whose endpoints must both be UTF-8 character boundaries.
+    pub fn delete_range(&mut self, range: std::ops::Range<usize>) -> io::Result<u64> {
+        self.replace_range(range, "")
+    }
+
+    /// Replace a byte range while preserving valid UTF-8.
+    pub fn replace_range(
+        &mut self,
+        range: std::ops::Range<usize>,
+        replacement: &str,
+    ) -> io::Result<u64> {
+        let mut body = self.document.body.clone();
+        if range.start > range.end
+            || range.end > body.len()
+            || !body.is_char_boundary(range.start)
+            || !body.is_char_boundary(range.end)
+        {
+            return Err(invalid_input("text range is not a valid UTF-8 byte range"));
+        }
+        body.replace_range(range, replacement);
+        let next = self.document.with_body(body)?;
+        self.record_change(next)
+    }
+
     fn record_change(&mut self, next: Document) -> io::Result<u64> {
         let encoded = encode_document(&next)?;
         let sequence = self.journal.append(&encoded)?;
@@ -450,6 +485,46 @@ mod tests {
         let reopened = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(reopened.document().body(), "autosaved");
         assert_eq!(reopened.recovered_records(), 0);
+    }
+
+    #[test]
+    fn targeted_text_edits_preserve_utf8_and_increment_revisions() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("Aé🧪Z").unwrap();
+        session.insert_text(1, " + ").unwrap();
+        session.replace_range(4..6, "è").unwrap();
+        session.delete_range(1..4).unwrap();
+
+        assert_eq!(session.document().body(), "Aè🧪Z");
+        assert_eq!(session.document().revision(), 4);
+    }
+
+    #[test]
+    fn targeted_text_edits_reject_invalid_utf8_boundaries_without_mutation() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("aéz").unwrap();
+        let before = session.document().clone();
+
+        assert!(session.insert_text(2, "x").is_err());
+        assert!(session.delete_range(2..3).is_err());
+        assert!(session.replace_range(3..2, "x").is_err());
+        assert_eq!(session.document(), &before);
+    }
+
+    #[test]
+    fn targeted_text_edits_are_recovered_from_the_journal() {
+        let directory = TestDirectory::new();
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            session.set_body("Hello world").unwrap();
+            session.replace_range(6..11, "OpenFS").unwrap();
+        }
+
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.document().body(), "Hello OpenFS");
+        assert_eq!(recovered.document().revision(), 2);
     }
 
     #[test]
