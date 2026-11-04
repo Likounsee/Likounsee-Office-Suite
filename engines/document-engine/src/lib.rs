@@ -4,6 +4,11 @@
 //! each edit. This is intentionally simple and safe; compact edit operations
 //! can replace snapshots after a stable document format is established.
 
+/// Return the engine's stable diagnostic name for application startup logs.
+pub const fn engine_name() -> &'static str {
+    "document-engine"
+}
+
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
