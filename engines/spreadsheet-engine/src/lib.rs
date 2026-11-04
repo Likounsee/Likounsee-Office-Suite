@@ -644,35 +644,6 @@ impl<'a> Parser<'a> {
             CellValue::Text(_) | CellValue::Boolean(_) => Err(FormulaError::Type),
         }
     }
-    fn sum_range(&mut self, first: CellAddress, last: CellAddress) -> Result<f64, FormulaError> {
-        let min_row = first.row().min(last.row());
-        let max_row = first.row().max(last.row());
-        let min_column = first.column().min(last.column());
-        let max_column = first.column().max(last.column());
-        let rows = (max_row - min_row + 1) as u64;
-        let columns = (max_column - min_column + 1) as u64;
-        if rows.saturating_mul(columns) > MAX_CELLS as u64 {
-            return Err(FormulaError::Number);
-        }
-        let mut total = 0.0;
-        for row in min_row..=max_row {
-            for column in min_column..=max_column {
-                let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
-                match self
-                    .workbook
-                    .evaluate(self.sheet_id, address, self.visiting)
-                {
-                    CellValue::Number(value) => total += value,
-                    CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
-                    CellValue::Error(error) => return Err(error),
-                }
-                if !total.is_finite() {
-                    return Err(FormulaError::Number);
-                }
-            }
-        }
-        Ok(total)
-    }
     fn whitespace(&mut self) {
         while matches!(self.peek(), Some(b' ' | b'\t' | b'\r' | b'\n')) {
             self.cursor += 1;
