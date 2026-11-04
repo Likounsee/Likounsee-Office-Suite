@@ -1014,6 +1014,92 @@ mod tests {
     }
 
     #[test]
+    fn paragraph_lists_round_trip_and_survive_recovery() {
+        let directory = TestDirectory::new();
+        let first_id;
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            first_id = session.document().paragraphs()[0].id();
+            session.set_body("First item\\nNested item\\nNumbered item").unwrap();
+            let second_id = session.document().paragraphs()[1].id();
+            let third_id = session.document().paragraphs()[2].id();
+            session
+                .set_paragraph_list(first_id, ListKind::Bullet, 0)
+                .unwrap();
+            session
+                .set_paragraph_list(second_id, ListKind::Bullet, 2)
+                .unwrap();
+            session
+                .set_paragraph_list(third_id, ListKind::Numbered, 0)
+                .unwrap();
+            let encoded = encode_document(session.document()).unwrap();
+            assert_eq!(decode_document(&encoded).unwrap(), *session.document());
+        }
+
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        let paragraphs = recovered.document().paragraphs();
+        assert_eq!(paragraphs[0].id(), first_id);
+        assert_eq!(paragraphs[0].list_kind(), ListKind::Bullet);
+        assert_eq!(paragraphs[0].list_level(), 0);
+        assert_eq!(paragraphs[1].list_kind(), ListKind::Bullet);
+        assert_eq!(paragraphs[1].list_level(), 2);
+        assert_eq!(paragraphs[2].list_kind(), ListKind::Numbered);
+    }
+
+    #[test]
+    fn paragraph_list_metadata_rejects_unknown_kinds_and_invalid_levels() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let paragraph_id = session.document().paragraphs()[0].id();
+        let before = session.document().clone();
+        assert!(session
+            .set_paragraph_list(paragraph_id, ListKind::None, 1)
+            .is_err());
+        assert!(session
+            .set_paragraph_list(paragraph_id, ListKind::Bullet, 9)
+            .is_err());
+        assert_eq!(session.document(), &before);
+
+        session
+            .set_paragraph_list(paragraph_id, ListKind::Bullet, 1)
+            .unwrap();
+        let mut encoded = encode_document(session.document()).unwrap();
+        let list_kind_offset =
+            DOCUMENT_HEADER_SIZE + session.document().title.len() + session.document().body.len()
+                + 12 + 8 + 1;
+        encoded[list_kind_offset] = 255;
+        assert_eq!(
+            decode_document(&encoded).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn version_two_documents_decode_without_list_metadata() {
+        let title = "Previous";
+        let body = "legacy list model";
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(DOCUMENT_MAGIC);
+        bytes.extend_from_slice(&PREVIOUS_DOCUMENT_FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&4_u64.to_le_bytes());
+        bytes.extend_from_slice(&(title.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(title.as_bytes());
+        bytes.extend_from_slice(body.as_bytes());
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&2_u64.to_le_bytes());
+        bytes.extend_from_slice(&1_u64.to_le_bytes());
+        bytes.push(ParagraphStyle::Normal as u8);
+        bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(body.as_bytes());
+
+        let document = decode_document(&bytes).unwrap();
+        assert_eq!(document.body(), body);
+        assert_eq!(document.paragraphs()[0].list_kind(), ListKind::None);
+        assert_eq!(document.paragraphs()[0].list_level(), 0);
+    }
+
+    #[test]
     fn failed_edit_does_not_change_in_memory_document() {
         let mut document = Document::new("Title").unwrap();
         document.revision = u64::MAX;
