@@ -104,9 +104,15 @@ pub struct TextSpan {
 }
 
 impl TextSpan {
-    pub fn start(&self) -> usize { self.start }
-    pub fn end(&self) -> usize { self.end }
-    pub fn mark(&self) -> InlineMark { self.mark }
+    pub fn start(&self) -> usize {
+        self.start
+    }
+    pub fn end(&self) -> usize {
+        self.end
+    }
+    pub fn mark(&self) -> InlineMark {
+        self.mark
+    }
 }
 
 /// A stable, independently addressable paragraph block.
