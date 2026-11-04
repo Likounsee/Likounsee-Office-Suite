@@ -63,6 +63,7 @@ See:
 - docs/architecture/overview.md
 - docs/architecture/gui-framework-evaluation.md
 - docs/architecture/safe-file-storage.md
+- docs/architecture/autosave-policy.md
 - docs/architecture/recovery-journal.md
 
 ## Current scope

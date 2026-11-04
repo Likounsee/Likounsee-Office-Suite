@@ -10,13 +10,16 @@
 - Windows replacement uses MoveFileExW with REPLACE_EXISTING and WRITE_THROUGH.
 - A failed data producer leaves the previous destination untouched and cleans up
   its temporary file.
+- Existing regular-file permissions are copied to the replacement. Symbolic links
+  and non-regular destinations are rejected rather than silently replaced.
 - Tests cover new writes, overwrites, injected producer failure and filesystem calls.
 
 ## Important limits
 
 This is a safer write primitive, not a claim of absolute power-loss protection.
 Hardware caches, storage controllers, filesystem implementations and mount options
-affect persistence. A directory synchronization failure can occur after replacement
+affect persistence. On Windows, standard file attributes are copied but custom NTFS
+ACLs are not guaranteed to be preserved by this initial implementation. A directory synchronization failure can occur after replacement
 has become visible; callers must report uncertain durability rather than assume the
 old file is still present.
 

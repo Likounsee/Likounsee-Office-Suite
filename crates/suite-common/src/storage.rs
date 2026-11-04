@@ -54,10 +54,31 @@ where
     let file_name = path.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "destination must name a file")
     })?;
+    let existing_permissions = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "destination is a symbolic link; resolve it before atomic replacement",
+            ));
+        }
+        Ok(metadata) if metadata.is_file() => Some(metadata.permissions()),
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "destination exists but is not a regular file",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+
     let (temp_path, mut temp_file) = create_temporary_file(parent, file_name)?;
     let cleanup = TempFileCleanup(temp_path.clone());
 
     producer(&mut temp_file)?;
+    if let Some(permissions) = existing_permissions {
+        temp_file.set_permissions(permissions)?;
+    }
     temp_file.sync_all()?;
     drop(temp_file);
     replace_file(&temp_path, path)?;
@@ -182,6 +203,39 @@ mod tests {
             .filter(|name| name.to_string_lossy().contains(".likounsee-tmp-"))
             .collect();
         assert!(leftovers.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_existing_unix_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TestDirectory::new();
+        let target = dir.file("private.bin");
+        fs::write(&target, b"private").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+
+        write_atomic(&target, b"updated").unwrap();
+
+        assert_eq!(fs::metadata(target).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_to_replace_a_symbolic_link() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestDirectory::new();
+        let target = dir.file("real.bin");
+        let link = dir.file("link.bin");
+        fs::write(&target, b"original").unwrap();
+        symlink(&target, &link).unwrap();
+
+        let error = write_atomic(&link, b"replacement").unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
     }
 
     #[test]

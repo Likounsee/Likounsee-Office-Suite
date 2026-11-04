@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AutosavePolicy {
     /// Save after this much inactivity.
-    pub debounce: Duration,
+    debounce: Duration,
     /// Save no later than this interval after the first unsaved edit.
-    pub maximum_dirty_age: Duration,
+    maximum_dirty_age: Duration,
 }
 
 impl AutosavePolicy {
@@ -28,6 +28,14 @@ impl AutosavePolicy {
             debounce,
             maximum_dirty_age,
         })
+    }
+
+    pub fn debounce(&self) -> Duration {
+        self.debounce
+    }
+
+    pub fn maximum_dirty_age(&self) -> Duration {
+        self.maximum_dirty_age
     }
 }
 
