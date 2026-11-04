@@ -285,7 +285,10 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         }
         let next_id = u64::from_le_bytes(bytes[cursor..next_end].try_into().unwrap());
         cursor = next_end;
-        if count == 0 || count > body_len.saturating_add(1) {
+        if count == 0
+            || count > body_len.saturating_add(1)
+            || count > bytes.len().saturating_sub(cursor) / 17
+        {
             return Err(invalid_data("paragraph count is invalid"));
         }
         let mut paragraphs = Vec::with_capacity(count);
@@ -593,9 +596,7 @@ impl DocumentSession {
     /// Remove a paragraph while preserving at least one editable paragraph.
     pub fn delete_paragraph(&mut self, paragraph_id: u64) -> io::Result<u64> {
         if self.document.paragraphs.len() == 1 {
-            return Err(invalid_input(
-                "cannot delete the document's only paragraph",
-            ));
+            return Err(invalid_input("cannot delete the document's only paragraph"));
         }
         let mut paragraphs = self.document.paragraphs.clone();
         let index = paragraphs
@@ -603,7 +604,9 @@ impl DocumentSession {
             .position(|paragraph| paragraph.id == paragraph_id)
             .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
         paragraphs.remove(index);
-        let next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        let next = self
+            .document
+            .with_paragraphs(paragraphs, self.document.next_block_id)?;
         self.record_change(next)
     }
 
@@ -907,9 +910,13 @@ mod tests {
         assert_eq!(decode_document(&encoded).unwrap(), document);
 
         let mut corrupted = encoded;
-        let style_offset = DOCUMENT_HEADER_SIZE + document.title.len() + document.body.len() + 12 + 8;
+        let style_offset =
+            DOCUMENT_HEADER_SIZE + document.title.len() + document.body.len() + 12 + 8;
         corrupted[style_offset] = 255;
-        assert_eq!(decode_document(&corrupted).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            decode_document(&corrupted).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
