@@ -832,13 +832,15 @@ mod tests {
         let a2 = CellAddress::parse_a1("A2").unwrap();
         let a3 = CellAddress::parse_a1("A3").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
         book.set_number(sheet, a1, 2.0).unwrap();
         book.set_number(sheet, a2, 3.5).unwrap();
         book.set_text(sheet, a3, "ignored").unwrap();
-        book.set_formula(sheet, b1, "=SUM(A1:A3, 4)").unwrap();
-        assert_eq!(book.value(sheet, b1), CellValue::Number(9.5));
+        book.set_number(sheet, b1, 4.0).unwrap();
+        book.set_formula(sheet, c1, "=SUM(A1:A3,B1)").unwrap();
+        assert_eq!(book.value(sheet, c1), CellValue::Number(9.5));
         book.set_number(sheet, a2, 10.0).unwrap();
-        assert_eq!(book.value(sheet, b1), CellValue::Number(16.0));
+        assert_eq!(book.value(sheet, c1), CellValue::Number(16.0));
     }
     #[test]
     fn sum_propagates_errors_and_rejects_invalid_or_oversized_ranges() {
