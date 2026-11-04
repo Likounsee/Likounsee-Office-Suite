@@ -19,8 +19,9 @@ use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
-const DOCUMENT_FORMAT_VERSION: u32 = 3;
-const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 2;
+const DOCUMENT_FORMAT_VERSION: u32 = 4;
+const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 3;
+const LEGACY_STRUCTURED_FORMAT_VERSION: u32 = 2;
 const LEGACY_DOCUMENT_FORMAT_VERSION: u32 = 1;
 const DOCUMENT_HEADER_SIZE: usize = 32;
 const MAX_DOCUMENT_SIZE: usize = 64 * 1024 * 1024 - DOCUMENT_HEADER_SIZE;
@@ -74,6 +75,40 @@ impl ListKind {
     }
 }
 
+/// Character-level formatting marks stored as independent UTF-8 byte ranges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum InlineMark {
+    Bold = 1,
+    Italic = 2,
+    Underline = 3,
+}
+
+impl InlineMark {
+    fn from_byte(value: u8) -> io::Result<Self> {
+        match value {
+            1 => Ok(Self::Bold),
+            2 => Ok(Self::Italic),
+            3 => Ok(Self::Underline),
+            _ => Err(invalid_data("unknown inline formatting mark")),
+        }
+    }
+}
+
+/// A half-open UTF-8 byte range with one character-level formatting mark.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextSpan {
+    start: usize,
+    end: usize,
+    mark: InlineMark,
+}
+
+impl TextSpan {
+    pub fn start(&self) -> usize { self.start }
+    pub fn end(&self) -> usize { self.end }
+    pub fn mark(&self) -> InlineMark { self.mark }
+}
+
 /// A stable, independently addressable paragraph block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paragraph {
@@ -82,6 +117,7 @@ pub struct Paragraph {
     style: ParagraphStyle,
     list_kind: ListKind,
     list_level: u8,
+    spans: Vec<TextSpan>,
 }
 
 impl Paragraph {
@@ -99,6 +135,9 @@ impl Paragraph {
     }
     pub fn list_level(&self) -> u8 {
         self.list_level
+    }
+    pub fn spans(&self) -> &[TextSpan] {
+        &self.spans
     }
 }
 
@@ -128,6 +167,7 @@ impl Document {
                 style: ParagraphStyle::Normal,
                 list_kind: ListKind::None,
                 list_level: 0,
+                spans: Vec::new(),
             }],
             next_block_id: 2,
         })
@@ -178,6 +218,7 @@ impl Document {
                     style: previous.style,
                     list_kind: previous.list_kind,
                     list_level: previous.list_level,
+                    spans: if previous.text == text { previous.spans.clone() } else { Vec::new() },
                 });
             } else {
                 let id = next_id;
@@ -190,6 +231,7 @@ impl Document {
                     style: ParagraphStyle::Normal,
                     list_kind: ListKind::None,
                     list_level: 0,
+                    spans: Vec::new(),
                 });
             }
         }
@@ -250,6 +292,14 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
         bytes.push(paragraph.list_level);
         bytes.extend_from_slice(&text_len.to_le_bytes());
         bytes.extend_from_slice(paragraph.text.as_bytes());
+        let span_count = u32::try_from(paragraph.spans.len())
+            .map_err(|_| invalid_input("inline span count is not representable"))?;
+        bytes.extend_from_slice(&span_count.to_le_bytes());
+        for span in &paragraph.spans {
+            bytes.extend_from_slice(&(span.start as u64).to_le_bytes());
+            bytes.extend_from_slice(&(span.end as u64).to_le_bytes());
+            bytes.push(span.mark as u8);
+        }
     }
     if bytes.len() > MAX_DOCUMENT_SIZE {
         return Err(invalid_input(
@@ -267,6 +317,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
     if version != DOCUMENT_FORMAT_VERSION
         && version != PREVIOUS_DOCUMENT_FORMAT_VERSION
+        && version != LEGACY_STRUCTURED_FORMAT_VERSION
         && version != LEGACY_DOCUMENT_FORMAT_VERSION
     {
         return Err(invalid_data("unsupported document format version"));
@@ -303,6 +354,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 style: ParagraphStyle::Normal,
                 list_kind: ListKind::None,
                 list_level: 0,
+                spans: Vec::new(),
             });
         }
         let next_id = u64::try_from(paragraphs.len())
@@ -332,11 +384,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             || count > body_len.saturating_add(1)
             || count
                 > bytes.len().saturating_sub(cursor)
-                    / if version == DOCUMENT_FORMAT_VERSION {
-                        19
-                    } else {
-                        17
-                    }
+                    / if version == DOCUMENT_FORMAT_VERSION { 23 } else if version == PREVIOUS_DOCUMENT_FORMAT_VERSION { 19 } else { 17 }
         {
             return Err(invalid_data("paragraph count is invalid"));
         }
@@ -344,6 +392,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         let mut ids = std::collections::HashSet::with_capacity(count);
         for _ in 0..count {
             let fixed_size = if version == DOCUMENT_FORMAT_VERSION {
+                23
+            } else if version == PREVIOUS_DOCUMENT_FORMAT_VERSION {
                 19
             } else {
                 17
@@ -356,7 +406,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             }
             let id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
             let style = ParagraphStyle::from_byte(bytes[cursor + 8])?;
-            let (list_kind, list_level, length_offset) = if version == DOCUMENT_FORMAT_VERSION {
+            let (list_kind, list_level, length_offset) = if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
                 (
                     ListKind::from_byte(bytes[cursor + 9])?,
                     bytes[cursor + 10],
@@ -365,7 +415,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             } else {
                 (ListKind::None, 0, cursor + 9)
             };
-            let text_len = u64::from_le_bytes(bytes[length_offset..fixed_end].try_into().unwrap());
+            let text_len = u64::from_le_bytes(bytes[length_offset..length_offset + 8].try_into().unwrap());
             cursor = fixed_end;
             let text_len = usize::try_from(text_len)
                 .map_err(|_| invalid_data("paragraph text length overflow"))?;
@@ -377,14 +427,43 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             }
             let text = std::str::from_utf8(&bytes[cursor..paragraph_end])
                 .map_err(|_| invalid_data("paragraph text is not valid UTF-8"))?;
+            cursor = paragraph_end;
+            let mut spans = Vec::new();
+            if version == DOCUMENT_FORMAT_VERSION {
+                let count_end = cursor.checked_add(4)
+                    .ok_or_else(|| invalid_data("inline span metadata overflow"))?;
+                if count_end > bytes.len() {
+                    return Err(invalid_data("truncated inline span count"));
+                }
+                let span_count = u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
+                cursor = count_end;
+                if span_count > bytes.len().saturating_sub(cursor) / 17 {
+                    return Err(invalid_data("inline span count is invalid"));
+                }
+                spans.reserve(span_count);
+                for _ in 0..span_count {
+                    let span_end = cursor.checked_add(17)
+                        .ok_or_else(|| invalid_data("inline span metadata overflow"))?;
+                    if span_end > bytes.len() {
+                        return Err(invalid_data("truncated inline span"));
+                    }
+                    let start = usize::try_from(u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap()))
+                        .map_err(|_| invalid_data("inline span offset overflow"))?;
+                    let end = usize::try_from(u64::from_le_bytes(bytes[cursor + 8..cursor + 16].try_into().unwrap()))
+                        .map_err(|_| invalid_data("inline span offset overflow"))?;
+                    let mark = InlineMark::from_byte(bytes[cursor + 16])?;
+                    spans.push(TextSpan { start, end, mark });
+                    cursor = span_end;
+                }
+            }
             paragraphs.push(Paragraph {
                 id,
                 text: text.to_owned(),
                 style,
                 list_kind,
                 list_level,
+                spans,
             });
-            cursor = paragraph_end;
         }
         if cursor != bytes.len() || next_id == 0 || ids.iter().any(|id| *id >= next_id) {
             return Err(invalid_data("paragraph metadata is inconsistent"));
@@ -441,8 +520,30 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             return Err(invalid_input("paragraph list level is invalid"));
         }
         max_id = max_id.max(paragraph.id);
+        let span_bytes = paragraph.spans.len().checked_mul(17)
+            .and_then(|len| len.checked_add(4))
+            .ok_or_else(|| invalid_input("inline span size overflow"))?;
+        let mut previous_span: Option<&TextSpan> = None;
+        for span in &paragraph.spans {
+            if span.start >= span.end
+                || span.end > paragraph.text.len()
+                || !paragraph.text.is_char_boundary(span.start)
+                || !paragraph.text.is_char_boundary(span.end)
+            {
+                return Err(invalid_input("inline span range is invalid"));
+            }
+            if let Some(previous) = previous_span {
+                if (span.mark, span.start, span.end) <= (previous.mark, previous.start, previous.end)
+                    || (span.mark == previous.mark && span.start < previous.end)
+                {
+                    return Err(invalid_input("inline spans are not canonical"));
+                }
+            }
+            previous_span = Some(span);
+        }
         size = size
-            .checked_add(19)
+            .checked_add(23)
+            .and_then(|len| len.checked_add(span_bytes))
             .and_then(|len| len.checked_add(paragraph.text.len()))
             .ok_or_else(|| invalid_input("document size overflow"))?;
     }
@@ -630,6 +731,63 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Apply or remove one inline mark over a UTF-8 byte range in a paragraph.
+    /// Existing marks of other kinds are preserved; adjacent ranges are merged.
+    pub fn set_inline_mark(
+        &mut self,
+        paragraph_id: u64,
+        range: std::ops::Range<usize>,
+        mark: InlineMark,
+        enabled: bool,
+    ) -> io::Result<u64> {
+        let mut paragraphs = self.document.paragraphs.clone();
+        let paragraph = paragraphs.iter_mut()
+            .find(|paragraph| paragraph.id == paragraph_id)
+            .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        if range.start >= range.end
+            || range.end > paragraph.text.len()
+            || !paragraph.text.is_char_boundary(range.start)
+            || !paragraph.text.is_char_boundary(range.end)
+        {
+            return Err(invalid_input("inline formatting range is invalid"));
+        }
+        let mut intervals: Vec<(usize, usize)> = paragraph.spans.iter()
+            .filter(|span| span.mark == mark)
+            .map(|span| (span.start, span.end))
+            .collect();
+        if enabled {
+            intervals.push((range.start, range.end));
+            intervals.sort_unstable();
+            let mut merged: Vec<(usize, usize)> = Vec::new();
+            for (start, end) in intervals {
+                if let Some(last) = merged.last_mut() {
+                    if start <= last.1 {
+                        last.1 = last.1.max(end);
+                        continue;
+                    }
+                }
+                merged.push((start, end));
+            }
+            intervals = merged;
+        } else {
+            let mut remaining = Vec::new();
+            for (start, end) in intervals {
+                if end <= range.start || start >= range.end {
+                    remaining.push((start, end));
+                } else {
+                    if start < range.start { remaining.push((start, range.start)); }
+                    if end > range.end { remaining.push((range.end, end)); }
+                }
+            }
+            intervals = remaining;
+        }
+        paragraph.spans.retain(|span| span.mark != mark);
+        paragraph.spans.extend(intervals.into_iter().map(|(start, end)| TextSpan { start, end, mark }));
+        paragraph.spans.sort_by_key(|span| (span.mark, span.start, span.end));
+        let next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        self.record_change(next)
+    }
+
     /// Set bullet/numbered list semantics and nesting level for a paragraph.
     /// Level zero is the outermost list; levels above eight are rejected.
     pub fn set_paragraph_list(
@@ -682,6 +840,7 @@ impl DocumentSession {
                 style,
                 list_kind: ListKind::None,
                 list_level: 0,
+                spans: Vec::new(),
             },
         );
         let next = self.document.with_paragraphs(paragraphs, next_id)?;
