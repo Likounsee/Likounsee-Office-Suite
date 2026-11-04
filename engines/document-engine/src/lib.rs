@@ -150,25 +150,49 @@ impl Paragraph {
 
 /// A table cell with a stable ID and UTF-8 text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableCell { id: u64, text: String }
+pub struct TableCell {
+    id: u64,
+    text: String,
+}
 impl TableCell {
-    pub fn id(&self) -> u64 { self.id }
-    pub fn text(&self) -> &str { &self.text }
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+    pub fn text(&self) -> &str {
+        &self.text
+    }
 }
 /// A row in a rectangular table.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableRow { id: u64, cells: Vec<TableCell> }
+pub struct TableRow {
+    id: u64,
+    cells: Vec<TableCell>,
+}
 impl TableRow {
-    pub fn id(&self) -> u64 { self.id }
-    pub fn cells(&self) -> &[TableCell] { &self.cells }
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+    pub fn cells(&self) -> &[TableCell] {
+        &self.cells
+    }
 }
 /// A rectangular table with stable table, row and cell IDs.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Table { id: u64, rows: Vec<TableRow>, columns: usize }
+pub struct Table {
+    id: u64,
+    rows: Vec<TableRow>,
+    columns: usize,
+}
 impl Table {
-    pub fn id(&self) -> u64 { self.id }
-    pub fn rows(&self) -> &[TableRow] { &self.rows }
-    pub fn columns(&self) -> usize { self.columns }
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+    pub fn rows(&self) -> &[TableRow] {
+        &self.rows
+    }
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
 }
 /// Editable document with stable paragraph/table IDs and a compatibility plain-text view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,8 +237,12 @@ impl Document {
     pub fn revision(&self) -> u64 {
         self.revision
     }
-    pub fn paragraphs(&self) -> &[Paragraph] { &self.paragraphs }
-    pub fn tables(&self) -> &[Table] { &self.tables }
+    pub fn paragraphs(&self) -> &[Paragraph] {
+        &self.paragraphs
+    }
+    pub fn tables(&self) -> &[Table] {
+        &self.tables
+    }
 
     fn increment_revision(&self, next: &mut Self) -> io::Result<()> {
         next.revision = self
@@ -459,16 +487,15 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             }
             let id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
             let style = ParagraphStyle::from_byte(bytes[cursor + 8])?;
-            let (list_kind, list_level, length_offset) =
-                if version >= LEGACY_LIST_FORMAT_VERSION {
-                    (
-                        ListKind::from_byte(bytes[cursor + 9])?,
-                        bytes[cursor + 10],
-                        cursor + 11,
-                    )
-                } else {
-                    (ListKind::None, 0, cursor + 9)
-                };
+            let (list_kind, list_level, length_offset) = if version >= LEGACY_LIST_FORMAT_VERSION {
+                (
+                    ListKind::from_byte(bytes[cursor + 9])?,
+                    bytes[cursor + 10],
+                    cursor + 11,
+                )
+            } else {
+                (ListKind::None, 0, cursor + 9)
+            };
             let text_len =
                 u64::from_le_bytes(bytes[length_offset..length_offset + 8].try_into().unwrap());
             cursor = fixed_end;
@@ -528,49 +555,95 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             });
         }
         if version >= DOCUMENT_FORMAT_VERSION {
-            let count_end = cursor.checked_add(4).ok_or_else(|| invalid_data("table count overflow"))?;
-            if count_end > bytes.len() { return Err(invalid_data("truncated table count")); }
-            let table_count = u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
+            let count_end = cursor
+                .checked_add(4)
+                .ok_or_else(|| invalid_data("table count overflow"))?;
+            if count_end > bytes.len() {
+                return Err(invalid_data("truncated table count"));
+            }
+            let table_count =
+                u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
             cursor = count_end;
-            if table_count > bytes.len().saturating_sub(cursor) / 16 { return Err(invalid_data("table count is invalid")); }
+            if table_count > bytes.len().saturating_sub(cursor) / 16 {
+                return Err(invalid_data("table count is invalid"));
+            }
             for _ in 0..table_count {
-                let end = cursor.checked_add(16).ok_or_else(|| invalid_data("table header overflow"))?;
-                if end > bytes.len() { return Err(invalid_data("truncated table header")); }
+                let end = cursor
+                    .checked_add(16)
+                    .ok_or_else(|| invalid_data("table header overflow"))?;
+                if end > bytes.len() {
+                    return Err(invalid_data("truncated table header"));
+                }
                 let table_id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
-                let row_count = u32::from_le_bytes(bytes[cursor + 8..cursor + 12].try_into().unwrap()) as usize;
-                let columns = u32::from_le_bytes(bytes[cursor + 12..end].try_into().unwrap()) as usize;
+                let row_count =
+                    u32::from_le_bytes(bytes[cursor + 8..cursor + 12].try_into().unwrap()) as usize;
+                let columns =
+                    u32::from_le_bytes(bytes[cursor + 12..end].try_into().unwrap()) as usize;
                 cursor = end;
-                if table_id == 0 || row_count == 0 || columns == 0 || row_count > 1024 || columns > 1024
-                    || row_count.checked_mul(columns).is_none_or(|n| n > 65_536) {
+                if table_id == 0
+                    || row_count == 0
+                    || columns == 0
+                    || row_count > 1024
+                    || columns > 1024
+                    || row_count.checked_mul(columns).is_none_or(|n| n > 65_536)
+                {
                     return Err(invalid_data("table dimensions or ID are invalid"));
                 }
                 let mut rows = Vec::with_capacity(row_count);
                 for _ in 0..row_count {
-                    let row_end = cursor.checked_add(8).ok_or_else(|| invalid_data("row header overflow"))?;
-                    if row_end > bytes.len() { return Err(invalid_data("truncated table row")); }
+                    let row_end = cursor
+                        .checked_add(8)
+                        .ok_or_else(|| invalid_data("row header overflow"))?;
+                    if row_end > bytes.len() {
+                        return Err(invalid_data("truncated table row"));
+                    }
                     let row_id = u64::from_le_bytes(bytes[cursor..row_end].try_into().unwrap());
                     cursor = row_end;
                     let mut cells = Vec::with_capacity(columns);
                     for _ in 0..columns {
-                        let cell_end = cursor.checked_add(16).ok_or_else(|| invalid_data("cell header overflow"))?;
-                        if cell_end > bytes.len() { return Err(invalid_data("truncated table cell")); }
-                        let cell_id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
-                        let text_len = usize::try_from(u64::from_le_bytes(bytes[cursor + 8..cell_end].try_into().unwrap()))
-                            .map_err(|_| invalid_data("cell text length overflow"))?;
+                        let cell_end = cursor
+                            .checked_add(16)
+                            .ok_or_else(|| invalid_data("cell header overflow"))?;
+                        if cell_end > bytes.len() {
+                            return Err(invalid_data("truncated table cell"));
+                        }
+                        let cell_id =
+                            u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
+                        let text_len = usize::try_from(u64::from_le_bytes(
+                            bytes[cursor + 8..cell_end].try_into().unwrap(),
+                        ))
+                        .map_err(|_| invalid_data("cell text length overflow"))?;
                         cursor = cell_end;
-                        let text_end = cursor.checked_add(text_len).ok_or_else(|| invalid_data("cell text length overflow"))?;
-                        if text_end > bytes.len() { return Err(invalid_data("truncated cell text")); }
+                        let text_end = cursor
+                            .checked_add(text_len)
+                            .ok_or_else(|| invalid_data("cell text length overflow"))?;
+                        if text_end > bytes.len() {
+                            return Err(invalid_data("truncated cell text"));
+                        }
                         let text = std::str::from_utf8(&bytes[cursor..text_end])
                             .map_err(|_| invalid_data("table cell text is not valid UTF-8"))?;
                         cursor = text_end;
-                        if cell_id == 0 || !ids.insert(cell_id) { return Err(invalid_data("duplicate or zero block ID")); }
-                        cells.push(TableCell { id: cell_id, text: text.to_owned() });
+                        if cell_id == 0 || !ids.insert(cell_id) {
+                            return Err(invalid_data("duplicate or zero block ID"));
+                        }
+                        cells.push(TableCell {
+                            id: cell_id,
+                            text: text.to_owned(),
+                        });
                     }
-                    if row_id == 0 || !ids.insert(row_id) { return Err(invalid_data("duplicate or zero block ID")); }
+                    if row_id == 0 || !ids.insert(row_id) {
+                        return Err(invalid_data("duplicate or zero block ID"));
+                    }
                     rows.push(TableRow { id: row_id, cells });
                 }
-                if !ids.insert(table_id) { return Err(invalid_data("duplicate table ID")); }
-                tables.push(Table { id: table_id, rows, columns });
+                if !ids.insert(table_id) {
+                    return Err(invalid_data("duplicate table ID"));
+                }
+                tables.push(Table {
+                    id: table_id,
+                    rows,
+                    columns,
+                });
             }
         }
         if cursor != bytes.len() || next_id == 0 || ids.iter().any(|id| *id >= next_id) {
@@ -718,9 +791,18 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             .ok_or_else(|| invalid_input("document size overflow"))?;
     }
     for table in &document.tables {
-        if table.id == 0 || !ids.insert(table.id) || table.rows.is_empty()
-            || table.columns == 0 || table.rows.len() > 1024 || table.columns > 1024
-            || table.rows.len().checked_mul(table.columns).is_none_or(|n| n > 65_536) {
+        if table.id == 0
+            || !ids.insert(table.id)
+            || table.rows.is_empty()
+            || table.columns == 0
+            || table.rows.len() > 1024
+            || table.columns > 1024
+            || table
+                .rows
+                .len()
+                .checked_mul(table.columns)
+                .is_none_or(|n| n > 65_536)
+        {
             return Err(invalid_input("table dimensions or ID are invalid"));
         }
         max_id = max_id.max(table.id);
@@ -730,16 +812,26 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             }
             max_id = max_id.max(row.id);
             for cell in &row.cells {
-                if cell.id == 0 || !ids.insert(cell.id) { return Err(invalid_input("table cell ID is invalid")); }
+                if cell.id == 0 || !ids.insert(cell.id) {
+                    return Err(invalid_input("table cell ID is invalid"));
+                }
                 max_id = max_id.max(cell.id);
-                size = size.checked_add(16).and_then(|n| n.checked_add(cell.text.len()))
+                size = size
+                    .checked_add(16)
+                    .and_then(|n| n.checked_add(cell.text.len()))
                     .ok_or_else(|| invalid_input("table size overflow"))?;
             }
-            size = size.checked_add(8).ok_or_else(|| invalid_input("table size overflow"))?;
+            size = size
+                .checked_add(8)
+                .ok_or_else(|| invalid_input("table size overflow"))?;
         }
-        size = size.checked_add(16).ok_or_else(|| invalid_input("table size overflow"))?;
+        size = size
+            .checked_add(16)
+            .ok_or_else(|| invalid_input("table size overflow"))?;
     }
-    size = size.checked_add(4).ok_or_else(|| invalid_input("table count size overflow"))?;
+    size = size
+        .checked_add(4)
+        .ok_or_else(|| invalid_input("table count size overflow"))?;
     if document.next_block_id <= max_id {
         return Err(invalid_input(
             "next paragraph ID must exceed every existing ID",
@@ -859,14 +951,20 @@ impl DocumentSession {
 
     /// Insert an empty rectangular table. Returns its stable table ID.
     pub fn insert_table(&mut self, rows: usize, columns: usize) -> io::Result<u64> {
-        if rows == 0 || columns == 0 || rows > 1024 || columns > 1024
-            || rows.checked_mul(columns).is_none_or(|n| n > 65_536) {
+        if rows == 0
+            || columns == 0
+            || rows > 1024
+            || columns > 1024
+            || rows.checked_mul(columns).is_none_or(|n| n > 65_536)
+        {
             return Err(invalid_input("table dimensions exceed supported limits"));
         }
         let mut next_id = self.document.next_block_id;
         let mut take_id = || -> io::Result<u64> {
             let id = next_id;
-            next_id = next_id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            next_id = next_id
+                .checked_add(1)
+                .ok_or_else(|| invalid_input("block ID space exhausted"))?;
             Ok(id)
         };
         let table_id = take_id()?;
@@ -875,13 +973,20 @@ impl DocumentSession {
             let row_id = take_id()?;
             let mut cells = Vec::with_capacity(columns);
             for _ in 0..columns {
-                cells.push(TableCell { id: take_id()?, text: String::new() });
+                cells.push(TableCell {
+                    id: take_id()?,
+                    text: String::new(),
+                });
             }
             table_rows.push(TableRow { id: row_id, cells });
         }
         let mut next = self.document.clone();
         self.document.increment_revision(&mut next)?;
-        next.tables.push(Table { id: table_id, rows: table_rows, columns });
+        next.tables.push(Table {
+            id: table_id,
+            rows: table_rows,
+            columns,
+        });
         next.next_block_id = next_id;
         validate_document_size(&next)?;
         self.record_change(next)?;
@@ -890,12 +995,22 @@ impl DocumentSession {
 
     /// Set text in a table cell using zero-based row and column indices.
     pub fn set_table_cell_text(
-        &mut self, table_id: u64, row_index: usize, column_index: usize, text: impl Into<String>,
+        &mut self,
+        table_id: u64,
+        row_index: usize,
+        column_index: usize,
+        text: impl Into<String>,
     ) -> io::Result<u64> {
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let cell = table.rows.get_mut(row_index).and_then(|row| row.cells.get_mut(column_index))
+        let cell = table
+            .rows
+            .get_mut(row_index)
+            .and_then(|row| row.cells.get_mut(column_index))
             .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
         cell.text = text.into();
         self.document.increment_revision(&mut next)?;
@@ -1675,8 +1790,12 @@ mod tests {
             let mut session = DocumentSession::open(&directory.0).unwrap();
             table_id = session.insert_table(2, 3).unwrap();
             session.set_table_cell_text(table_id, 0, 0, "Nom").unwrap();
-            session.set_table_cell_text(table_id, 0, 1, "Valeur").unwrap();
-            session.set_table_cell_text(table_id, 1, 0, "Élément 🧪").unwrap();
+            session
+                .set_table_cell_text(table_id, 0, 1, "Valeur")
+                .unwrap();
+            session
+                .set_table_cell_text(table_id, 1, 0, "Élément 🧪")
+                .unwrap();
             let table = &session.document().tables()[0];
             cell_id = table.rows()[0].cells()[0].id();
             assert_eq!(table.columns(), 3);
