@@ -499,9 +499,11 @@ impl<'a> Parser<'a> {
                 let last = self.cell_address()?;
                 total += self.sum_range(first, last)?;
             } else {
-                total += self.numeric_cell(first).or_else(|error| {
-                    if error == FormulaError::Type { Ok(0.0) } else { Err(error) }
-                })?;
+                match self.workbook.evaluate(self.sheet_id, first, self.visiting) {
+                    CellValue::Number(value) => total += value,
+                    CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
+                    CellValue::Error(error) => return Err(error),
+                }
             }
             arguments += 1;
             self.whitespace();
