@@ -19,19 +19,61 @@ use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
-const DOCUMENT_FORMAT_VERSION: u32 = 1;
+const DOCUMENT_FORMAT_VERSION: u32 = 2;
+const LEGACY_DOCUMENT_FORMAT_VERSION: u32 = 1;
 const DOCUMENT_HEADER_SIZE: usize = 32;
 const MAX_DOCUMENT_SIZE: usize = 64 * 1024 * 1024 - DOCUMENT_HEADER_SIZE;
 const MAX_TITLE_SIZE: usize = 1024 * 1024;
 const CHECKPOINT_FILE: &str = "document.checkpoint";
 const JOURNAL_FILE: &str = "document.journal";
 
-/// A minimal editable document. Revision increases once for each successful edit.
+/// Semantic formatting applied to a paragraph block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum ParagraphStyle {
+    #[default]
+    Normal = 0,
+    Heading1 = 1,
+    Heading2 = 2,
+    Quote = 3,
+    Code = 4,
+}
+
+impl ParagraphStyle {
+    fn from_byte(value: u8) -> io::Result<Self> {
+        match value {
+            0 => Ok(Self::Normal),
+            1 => Ok(Self::Heading1),
+            2 => Ok(Self::Heading2),
+            3 => Ok(Self::Quote),
+            4 => Ok(Self::Code),
+            _ => Err(invalid_data("unknown paragraph style")),
+        }
+    }
+}
+
+/// A stable, independently addressable paragraph block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paragraph {
+    id: u64,
+    text: String,
+    style: ParagraphStyle,
+}
+
+impl Paragraph {
+    pub fn id(&self) -> u64 { self.id }
+    pub fn text(&self) -> &str { &self.text }
+    pub fn style(&self) -> ParagraphStyle { self.style }
+}
+
+/// Editable document with stable paragraph IDs and a compatibility plain-text view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     title: String,
     body: String,
     revision: u64,
+    paragraphs: Vec<Paragraph>,
+    next_block_id: u64,
 }
 
 impl Document {
@@ -44,19 +86,20 @@ impl Document {
             title,
             body: String::new(),
             revision: 0,
+            paragraphs: vec![Paragraph { id: 1, text: String::new(), style: ParagraphStyle::Normal }],
+            next_block_id: 2,
         })
     }
 
-    pub fn title(&self) -> &str {
-        &self.title
-    }
+    pub fn title(&self) -> &str { &self.title }
+    pub fn body(&self) -> &str { &self.body }
+    pub fn revision(&self) -> u64 { self.revision }
+    pub fn paragraphs(&self) -> &[Paragraph] { &self.paragraphs }
 
-    pub fn body(&self) -> &str {
-        &self.body
-    }
-
-    pub fn revision(&self) -> u64 {
-        self.revision
+    fn increment_revision(&self, next: &mut Self) -> io::Result<()> {
+        next.revision = self.revision.checked_add(1)
+            .ok_or_else(|| invalid_input("document revision exhausted"))?;
+        Ok(())
     }
 
     fn with_title(&self, title: String) -> io::Result<Self> {
@@ -64,10 +107,7 @@ impl Document {
             return Err(invalid_input("document title exceeds 1 MiB"));
         }
         let mut next = self.clone();
-        next.revision = next
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| invalid_input("document revision exhausted"))?;
+        self.increment_revision(&mut next)?;
         next.title = title;
         validate_document_size(&next)?;
         Ok(next)
@@ -75,11 +115,35 @@ impl Document {
 
     fn with_body(&self, body: String) -> io::Result<Self> {
         let mut next = self.clone();
-        next.revision = next
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| invalid_input("document revision exhausted"))?;
+        self.increment_revision(&mut next)?;
+        let mut paragraphs = Vec::new();
+        let mut next_id = self.next_block_id;
+        for (index, text) in body.split('\n').enumerate() {
+            if let Some(previous) = self.paragraphs.get(index) {
+                paragraphs.push(Paragraph { id: previous.id, text: text.to_owned(), style: previous.style });
+            } else {
+                let id = next_id;
+                next_id = next_id.checked_add(1)
+                    .ok_or_else(|| invalid_input("paragraph ID space exhausted"))?;
+                paragraphs.push(Paragraph { id, text: text.to_owned(), style: ParagraphStyle::Normal });
+            }
+        }
         next.body = body;
+        next.paragraphs = paragraphs;
+        next.next_block_id = next_id;
+        validate_document_size(&next)?;
+        Ok(next)
+    }
+
+    fn with_paragraphs(&self, paragraphs: Vec<Paragraph>, next_block_id: u64) -> io::Result<Self> {
+        if paragraphs.is_empty() {
+            return Err(invalid_input("a document must contain at least one paragraph"));
+        }
+        let mut next = self.clone();
+        self.increment_revision(&mut next)?;
+        next.body = paragraphs.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n");
+        next.paragraphs = paragraphs;
+        next.next_block_id = next_block_id;
         validate_document_size(&next)?;
         Ok(next)
     }
@@ -102,6 +166,21 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
     bytes.extend_from_slice(&body_len.to_le_bytes());
     bytes.extend_from_slice(document.title.as_bytes());
     bytes.extend_from_slice(document.body.as_bytes());
+    let paragraph_count = u32::try_from(document.paragraphs.len())
+        .map_err(|_| invalid_input("paragraph count is not representable"))?;
+    bytes.extend_from_slice(&paragraph_count.to_le_bytes());
+    bytes.extend_from_slice(&document.next_block_id.to_le_bytes());
+    for paragraph in &document.paragraphs {
+        let text_len = u64::try_from(paragraph.text.len())
+            .map_err(|_| invalid_input("paragraph text length is not representable"))?;
+        bytes.extend_from_slice(&paragraph.id.to_le_bytes());
+        bytes.push(paragraph.style as u8);
+        bytes.extend_from_slice(&text_len.to_le_bytes());
+        bytes.extend_from_slice(paragraph.text.as_bytes());
+    }
+    if bytes.len() > MAX_DOCUMENT_SIZE {
+        return Err(invalid_input("structured document exceeds the recovery-record limit"));
+    }
     Ok(bytes)
 }
 
@@ -111,7 +190,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         return Err(invalid_data("invalid document header"));
     }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    if version != DOCUMENT_FORMAT_VERSION {
+    if version != DOCUMENT_FORMAT_VERSION && version != LEGACY_DOCUMENT_FORMAT_VERSION {
         return Err(invalid_data("unsupported document format version"));
     }
     let revision = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
@@ -119,38 +198,112 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
     let body_len = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
     let body_len = usize::try_from(body_len)
         .map_err(|_| invalid_data("document body length is not representable"))?;
-    let expected_len = DOCUMENT_HEADER_SIZE
-        .checked_add(title_len)
+    let text_end = DOCUMENT_HEADER_SIZE.checked_add(title_len)
         .and_then(|len| len.checked_add(body_len))
         .ok_or_else(|| invalid_data("document size overflow"))?;
-
-    if expected_len != bytes.len() || expected_len > MAX_DOCUMENT_SIZE || title_len > MAX_TITLE_SIZE
-    {
+    if text_end > bytes.len() || text_end > MAX_DOCUMENT_SIZE || title_len > MAX_TITLE_SIZE {
         return Err(invalid_data("document length is invalid"));
     }
-
     let title_end = DOCUMENT_HEADER_SIZE + title_len;
     let title = std::str::from_utf8(&bytes[DOCUMENT_HEADER_SIZE..title_end])
         .map_err(|_| invalid_data("document title is not valid UTF-8"))?;
-    let body = std::str::from_utf8(&bytes[title_end..])
+    let body = std::str::from_utf8(&bytes[title_end..text_end])
         .map_err(|_| invalid_data("document body is not valid UTF-8"))?;
 
-    Ok(Document {
+    let (paragraphs, next_block_id) = if version == LEGACY_DOCUMENT_FORMAT_VERSION {
+        if text_end != bytes.len() {
+            return Err(invalid_data("legacy document contains trailing data"));
+        }
+        let mut paragraphs = Vec::new();
+        for (index, text) in body.split('\n').enumerate() {
+            let id = u64::try_from(index + 1)
+                .map_err(|_| invalid_data("legacy paragraph ID overflow"))?;
+            paragraphs.push(Paragraph { id, text: text.to_owned(), style: ParagraphStyle::Normal });
+        }
+        let next_id = u64::try_from(paragraphs.len())
+            .ok().and_then(|count| count.checked_add(1))
+            .ok_or_else(|| invalid_data("legacy paragraph ID overflow"))?;
+        (paragraphs, next_id)
+    } else {
+        let mut cursor = text_end;
+        let count_end = cursor.checked_add(4).ok_or_else(|| invalid_data("paragraph metadata overflow"))?;
+        if count_end > bytes.len() { return Err(invalid_data("truncated paragraph metadata")); }
+        let count = u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
+        cursor = count_end;
+        let next_end = cursor.checked_add(8).ok_or_else(|| invalid_data("paragraph metadata overflow"))?;
+        if next_end > bytes.len() { return Err(invalid_data("truncated next paragraph ID")); }
+        let next_id = u64::from_le_bytes(bytes[cursor..next_end].try_into().unwrap());
+        cursor = next_end;
+        if count == 0 || count > body_len.saturating_add(1) {
+            return Err(invalid_data("paragraph count is invalid"));
+        }
+        let mut paragraphs = Vec::with_capacity(count);
+        let mut ids = std::collections::HashSet::with_capacity(count);
+        for _ in 0..count {
+            let fixed_end = cursor.checked_add(17).ok_or_else(|| invalid_data("paragraph metadata overflow"))?;
+            if fixed_end > bytes.len() { return Err(invalid_data("truncated paragraph record")); }
+            let id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
+            let style = ParagraphStyle::from_byte(bytes[cursor + 8])?;
+            let text_len = u64::from_le_bytes(bytes[cursor + 9..fixed_end].try_into().unwrap());
+            cursor = fixed_end;
+            let text_len = usize::try_from(text_len).map_err(|_| invalid_data("paragraph text length overflow"))?;
+            let paragraph_end = cursor.checked_add(text_len).ok_or_else(|| invalid_data("paragraph text length overflow"))?;
+            if id == 0 || !ids.insert(id) || paragraph_end > bytes.len() {
+                return Err(invalid_data("invalid paragraph ID or text length"));
+            }
+            let text = std::str::from_utf8(&bytes[cursor..paragraph_end])
+                .map_err(|_| invalid_data("paragraph text is not valid UTF-8"))?;
+            paragraphs.push(Paragraph { id, text: text.to_owned(), style });
+            cursor = paragraph_end;
+        }
+        if cursor != bytes.len() || next_id == 0 || ids.iter().any(|id| *id >= next_id) {
+            return Err(invalid_data("paragraph metadata is inconsistent"));
+        }
+        let reconstructed = paragraphs.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n");
+        if reconstructed != body {
+            return Err(invalid_data("paragraphs do not match the plain-text document view"));
+        }
+        (paragraphs, next_id)
+    };
+
+    let document = Document {
         title: title.to_owned(),
         body: body.to_owned(),
         revision,
-    })
+        paragraphs,
+        next_block_id,
+    };
+    validate_document_size(&document).map_err(|_| invalid_data("document exceeds size limit"))?;
+    Ok(document)
 }
 
 fn validate_document_size(document: &Document) -> io::Result<()> {
-    let size = DOCUMENT_HEADER_SIZE
-        .checked_add(document.title.len())
+    let mut size = DOCUMENT_HEADER_SIZE.checked_add(document.title.len())
         .and_then(|len| len.checked_add(document.body.len()))
+        .and_then(|len| len.checked_add(12))
         .ok_or_else(|| invalid_input("document size overflow"))?;
+    if document.paragraphs.is_empty() {
+        return Err(invalid_input("a document must contain at least one paragraph"));
+    }
+    let mut ids = std::collections::HashSet::with_capacity(document.paragraphs.len());
+    let mut max_id = 0;
+    for paragraph in &document.paragraphs {
+        if paragraph.id == 0 || !ids.insert(paragraph.id) {
+            return Err(invalid_input("paragraph IDs must be unique and nonzero"));
+        }
+        max_id = max_id.max(paragraph.id);
+        size = size.checked_add(17).and_then(|len| len.checked_add(paragraph.text.len()))
+            .ok_or_else(|| invalid_input("document size overflow"))?;
+    }
+    if document.next_block_id <= max_id {
+        return Err(invalid_input("next paragraph ID must exceed every existing ID"));
+    }
+    let reconstructed = document.paragraphs.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n");
+    if reconstructed != document.body {
+        return Err(invalid_input("paragraphs do not match the plain-text document view"));
+    }
     if size > MAX_DOCUMENT_SIZE {
-        return Err(invalid_input(
-            "document exceeds the 64 MiB recovery-record limit",
-        ));
+        return Err(invalid_input("document exceeds the 64 MiB recovery-record limit"));
     }
     Ok(())
 }
@@ -294,6 +447,51 @@ impl DocumentSession {
         }
         body.replace_range(range, replacement);
         let next = self.document.with_body(body)?;
+        self.record_change(next)
+    }
+
+    /// Change semantic formatting for a paragraph without changing its stable ID.
+    pub fn set_paragraph_style(&mut self, paragraph_id: u64, style: ParagraphStyle) -> io::Result<u64> {
+        let mut paragraphs = self.document.paragraphs.clone();
+        let paragraph = paragraphs.iter_mut().find(|paragraph| paragraph.id == paragraph_id)
+            .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        paragraph.style = style;
+        let next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        self.record_change(next)
+    }
+
+    /// Insert a paragraph after the supplied ID, or append when no ID is supplied.
+    pub fn insert_paragraph_after(
+        &mut self,
+        after_id: Option<u64>,
+        text: impl Into<String>,
+        style: ParagraphStyle,
+    ) -> io::Result<u64> {
+        let mut paragraphs = self.document.paragraphs.clone();
+        let index = match after_id {
+            Some(id) => paragraphs.iter().position(|paragraph| paragraph.id == id)
+                .map(|index| index + 1)
+                .ok_or_else(|| invalid_input("paragraph ID does not exist"))?,
+            None => paragraphs.len(),
+        };
+        let id = self.document.next_block_id;
+        let next_id = id.checked_add(1).ok_or_else(|| invalid_input("paragraph ID space exhausted"))?;
+        paragraphs.insert(index, Paragraph { id, text: text.into(), style });
+        let next = self.document.with_paragraphs(paragraphs, next_id)?;
+        self.record_change(next)?;
+        Ok(id)
+    }
+
+    /// Remove a paragraph while preserving at least one editable paragraph.
+    pub fn delete_paragraph(&mut self, paragraph_id: u64) -> io::Result<u64> {
+        if self.document.paragraphs.len() == 1 {
+            return Err(invalid_input("cannot delete the document's only paragraph"));
+        }
+        let mut paragraphs = self.document.paragraphs.clone();
+        let index = paragraphs.iter().position(|paragraph| paragraph.id == paragraph_id)
+            .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        paragraphs.remove(index);
+        let next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
         self.record_change(next)
     }
 
@@ -527,6 +725,45 @@ mod tests {
         let recovered = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(recovered.document().body(), "Hello OpenFS");
         assert_eq!(recovered.document().revision(), 2);
+    }
+
+    #[test]
+    fn structured_paragraphs_keep_stable_ids_and_styles_through_recovery() {
+        let directory = TestDirectory::new();
+        let (first_id, second_id);
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            first_id = session.document().paragraphs()[0].id();
+            second_id = session.insert_paragraph_after(
+                Some(first_id), "Second paragraph", ParagraphStyle::Heading1
+            ).unwrap();
+            session.insert_paragraph_after(
+                Some(second_id), "A quotation", ParagraphStyle::Quote
+            ).unwrap();
+            session.set_paragraph_style(first_id, ParagraphStyle::Heading2).unwrap();
+            session.delete_paragraph(second_id).unwrap();
+            assert_eq!(session.document().body(), "\nA quotation");
+        }
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.document().paragraphs()[0].id(), first_id);
+        assert_eq!(recovered.document().paragraphs()[0].style(), ParagraphStyle::Heading2);
+        assert_eq!(recovered.document().paragraphs()[1].style(), ParagraphStyle::Quote);
+        assert_ne!(recovered.document().paragraphs()[1].id(), second_id);
+    }
+
+    #[test]
+    fn structured_document_format_round_trips_and_rejects_invalid_style() {
+        let mut document = Document::new("Structured").unwrap();
+        document.paragraphs[0].text = "Heading".to_owned();
+        document.paragraphs[0].style = ParagraphStyle::Heading1;
+        document.body = "Heading".to_owned();
+        let encoded = encode_document(&document).unwrap();
+        assert_eq!(decode_document(&encoded).unwrap(), document);
+
+        let mut corrupted = encoded;
+        let style_offset = DOCUMENT_HEADER_SIZE + document.title.len() + document.body.len() + 12 + 8;
+        corrupted[style_offset] = 255;
+        assert_eq!(decode_document(&corrupted).unwrap_err().kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
