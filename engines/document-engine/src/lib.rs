@@ -382,9 +382,12 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         cursor = next_end;
         if count == 0
             || count > body_len.saturating_add(1)
-            || count
-                > bytes.len().saturating_sub(cursor)
-                    / if version == DOCUMENT_FORMAT_VERSION { 19 } else if version == PREVIOUS_DOCUMENT_FORMAT_VERSION { 19 } else { 17 }
+            || count > bytes.len().saturating_sub(cursor)
+                / if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
+                    19
+                } else {
+                    17
+                }
         {
             return Err(invalid_data("paragraph count is invalid"));
         }
@@ -413,7 +416,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             } else {
                 (ListKind::None, 0, cursor + 9)
             };
-            let text_len = u64::from_le_bytes(bytes[length_offset..length_offset + 8].try_into().unwrap());
+            let text_len =
+                u64::from_le_bytes(bytes[length_offset..length_offset + 8].try_into().unwrap());
             cursor = fixed_end;
             let text_len = usize::try_from(text_len)
                 .map_err(|_| invalid_data("paragraph text length overflow"))?;
@@ -428,27 +432,34 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             cursor = paragraph_end;
             let mut spans = Vec::new();
             if version == DOCUMENT_FORMAT_VERSION {
-                let count_end = cursor.checked_add(4)
+                let count_end = cursor
+                    .checked_add(4)
                     .ok_or_else(|| invalid_data("inline span metadata overflow"))?;
                 if count_end > bytes.len() {
                     return Err(invalid_data("truncated inline span count"));
                 }
-                let span_count = u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
+                let span_count =
+                    u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
                 cursor = count_end;
                 if span_count > bytes.len().saturating_sub(cursor) / 17 {
                     return Err(invalid_data("inline span count is invalid"));
                 }
                 spans.reserve(span_count);
                 for _ in 0..span_count {
-                    let span_end = cursor.checked_add(17)
+                    let span_end = cursor
+                        .checked_add(17)
                         .ok_or_else(|| invalid_data("inline span metadata overflow"))?;
                     if span_end > bytes.len() {
                         return Err(invalid_data("truncated inline span"));
                     }
-                    let start = usize::try_from(u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap()))
-                        .map_err(|_| invalid_data("inline span offset overflow"))?;
-                    let end = usize::try_from(u64::from_le_bytes(bytes[cursor + 8..cursor + 16].try_into().unwrap()))
-                        .map_err(|_| invalid_data("inline span offset overflow"))?;
+                    let start = usize::try_from(u64::from_le_bytes(
+                        bytes[cursor..cursor + 8].try_into().unwrap(),
+                    ))
+                    .map_err(|_| invalid_data("inline span offset overflow"))?;
+                    let end = usize::try_from(u64::from_le_bytes(
+                        bytes[cursor + 8..cursor + 16].try_into().unwrap(),
+                    ))
+                    .map_err(|_| invalid_data("inline span offset overflow"))?;
                     let mark = InlineMark::from_byte(bytes[cursor + 16])?;
                     spans.push(TextSpan { start, end, mark });
                     cursor = span_end;
@@ -518,7 +529,10 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             return Err(invalid_input("paragraph list level is invalid"));
         }
         max_id = max_id.max(paragraph.id);
-        let span_bytes = paragraph.spans.len().checked_mul(17)
+        let span_bytes = paragraph
+            .spans
+            .len()
+            .checked_mul(17)
             .and_then(|len| len.checked_add(4))
             .ok_or_else(|| invalid_input("inline span size overflow"))?;
         let mut previous_span: Option<&TextSpan> = None;
@@ -531,7 +545,8 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
                 return Err(invalid_input("inline span range is invalid"));
             }
             if let Some(previous) = previous_span {
-                if (span.mark, span.start, span.end) <= (previous.mark, previous.start, previous.end)
+                if (span.mark, span.start, span.end)
+                    <= (previous.mark, previous.start, previous.end)
                     || (span.mark == previous.mark && span.start < previous.end)
                 {
                     return Err(invalid_input("inline spans are not canonical"));
@@ -739,7 +754,8 @@ impl DocumentSession {
         enabled: bool,
     ) -> io::Result<u64> {
         let mut paragraphs = self.document.paragraphs.clone();
-        let paragraph = paragraphs.iter_mut()
+        let paragraph = paragraphs
+            .iter_mut()
             .find(|paragraph| paragraph.id == paragraph_id)
             .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
         if range.start >= range.end
@@ -749,7 +765,9 @@ impl DocumentSession {
         {
             return Err(invalid_input("inline formatting range is invalid"));
         }
-        let mut intervals: Vec<(usize, usize)> = paragraph.spans.iter()
+        let mut intervals: Vec<(usize, usize)> = paragraph
+            .spans
+            .iter()
             .filter(|span| span.mark == mark)
             .map(|span| (span.start, span.end))
             .collect();
@@ -773,8 +791,12 @@ impl DocumentSession {
                 if end <= range.start || start >= range.end {
                     remaining.push((start, end));
                 } else {
-                    if start < range.start { remaining.push((start, range.start)); }
-                    if end > range.end { remaining.push((range.end, end)); }
+                    if start < range.start {
+                        remaining.push((start, range.start));
+                    }
+                    if end > range.end {
+                        remaining.push((range.end, end));
+                    }
                 }
             }
             intervals = remaining;
