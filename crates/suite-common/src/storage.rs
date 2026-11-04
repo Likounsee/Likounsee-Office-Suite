@@ -63,9 +63,12 @@ where
     F: FnOnce(&mut File) -> io::Result<()>,
 {
     let parent = destination_parent(path)?;
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "destination must name a file")
-    })?;
+    if path.file_name().is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "destination must name a file",
+        ));
+    }
 
     let existing_permissions = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -85,7 +88,7 @@ where
         Err(error) => return Err(error),
     };
 
-    let (temp_path, mut temp_file) = create_temporary_file(parent, file_name)?;
+    let (temp_path, mut temp_file) = create_temporary_file(parent)?;
     let cleanup = TempFileCleanup(temp_path.clone());
 
     producer(&mut temp_file)?;
@@ -107,15 +110,10 @@ fn destination_parent(path: &Path) -> io::Result<&Path> {
     }
 }
 
-fn create_temporary_file(
-    parent: &Path,
-    file_name: &std::ffi::OsStr,
-) -> io::Result<(PathBuf, File)> {
+fn create_temporary_file(parent: &Path) -> io::Result<(PathBuf, File)> {
     for _ in 0..128 {
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let mut temp_name = std::ffi::OsString::from(".");
-        temp_name.push(file_name);
-        temp_name.push(format!(".likounsee-tmp-{}-{sequence}", std::process::id()));
+        let temp_name = format!(".likounsee-tmp-{}-{sequence}", std::process::id());
         let temp_path = parent.join(temp_name);
 
         match OpenOptions::new()
