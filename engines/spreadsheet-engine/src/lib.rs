@@ -479,9 +479,13 @@ impl<'a> Parser<'a> {
         let identifier = std::str::from_utf8(&self.input[start..self.cursor])
             .map_err(|_| FormulaError::Parse)?;
         self.whitespace();
-        if identifier.eq_ignore_ascii_case("SUM") && self.peek() == Some(b'(') {
+        if matches!(
+            identifier.to_ascii_uppercase().as_str(),
+            "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT"
+        ) && self.peek() == Some(b'(')
+        {
             self.cursor += 1;
-            return self.sum_arguments();
+            return self.aggregate_arguments(identifier);
         }
         if self.peek() == Some(b'!') {
             self.cursor += 1;
@@ -527,8 +531,8 @@ impl<'a> Parser<'a> {
             CellValue::Text(_) | CellValue::Boolean(_) => Err(FormulaError::Type),
         }
     }
-    fn sum_arguments(&mut self) -> Result<f64, FormulaError> {
-        let mut total = 0.0;
+    fn aggregate_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
+        let mut values = Vec::new();
         let mut arguments = 0usize;
         loop {
             self.whitespace();
@@ -537,10 +541,10 @@ impl<'a> Parser<'a> {
             if self.peek() == Some(b':') {
                 self.cursor += 1;
                 let last = self.cell_address()?;
-                total += self.sum_range(first, last)?;
+                self.collect_range_values(first, last, &mut values)?;
             } else {
                 match self.workbook.evaluate(self.sheet_id, first, self.visiting) {
-                    CellValue::Number(value) => total += value,
+                    CellValue::Number(value) => values.push(value),
                     CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                     CellValue::Error(error) => return Err(error),
                 }
@@ -551,15 +555,57 @@ impl<'a> Parser<'a> {
                 Some(b',') => self.cursor += 1,
                 Some(b')') if arguments > 0 => {
                     self.cursor += 1;
-                    return if total.is_finite() {
-                        Ok(total)
-                    } else {
-                        Err(FormulaError::Number)
-                    };
+                    break;
                 }
                 _ => return Err(FormulaError::Parse),
             }
         }
+        let result = match function.to_ascii_uppercase().as_str() {
+            "SUM" => values.iter().sum(),
+            "AVERAGE" => {
+                if values.is_empty() {
+                    return Err(FormulaError::DivisionByZero);
+                }
+                values.iter().sum::<f64>() / values.len() as f64
+            }
+            "MIN" => values.iter().copied().reduce(f64::min).unwrap_or(0.0),
+            "MAX" => values.iter().copied().reduce(f64::max).unwrap_or(0.0),
+            "COUNT" => values.len() as f64,
+            _ => return Err(FormulaError::Parse),
+        };
+        if result.is_finite() {
+            Ok(result)
+        } else {
+            Err(FormulaError::Number)
+        }
+    }
+    fn collect_range_values(
+        &mut self,
+        first: CellAddress,
+        last: CellAddress,
+        values: &mut Vec<f64>,
+    ) -> Result<(), FormulaError> {
+        let min_row = first.row().min(last.row());
+        let max_row = first.row().max(last.row());
+        let min_column = first.column().min(last.column());
+        let max_column = first.column().max(last.column());
+        let rows = (max_row - min_row + 1) as u64;
+        let columns = (max_column - min_column + 1) as u64;
+        if rows.saturating_mul(columns) > MAX_CELLS as u64 {
+            return Err(FormulaError::Number);
+        }
+        for row in min_row..=max_row {
+            for column in min_column..=max_column {
+                let address =
+                    CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
+                match self.workbook.evaluate(self.sheet_id, address, self.visiting) {
+                    CellValue::Number(value) => values.push(value),
+                    CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
+                    CellValue::Error(error) => return Err(error),
+                }
+            }
+        }
+        Ok(())
     }
     fn cell_address(&mut self) -> Result<CellAddress, FormulaError> {
         self.whitespace();
@@ -912,6 +958,29 @@ mod tests {
             book.value(summary, b1),
             CellValue::Error(FormulaError::Reference)
         );
+    }
+    #[test]
+    fn aggregate_functions_average_min_max_and_count_ranges() {
+        let mut book = Workbook::new();
+        let sheet = 1;
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        book.set_number(sheet, a1, 4.0).unwrap();
+        book.set_number(sheet, a2, 8.0).unwrap();
+        book.set_text(sheet, a3, "skip").unwrap();
+        for (address, formula, expected) in [
+            ("B1", "=AVERAGE(A1:A3)", 6.0),
+            ("B2", "=MIN(A1:A3)", 4.0),
+            ("B3", "=MAX(A1:A3)", 8.0),
+            ("B4", "=COUNT(A1:A3)", 2.0),
+        ] {
+            book.set_formula(1, CellAddress::parse_a1(address).unwrap(), formula).unwrap();
+            assert_eq!(
+                book.value(1, CellAddress::parse_a1(address).unwrap()),
+                CellValue::Number(expected)
+            );
+        }
     }
     #[test]
     fn sum_propagates_errors_and_rejects_invalid_or_oversized_ranges() {
