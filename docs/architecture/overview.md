@@ -25,7 +25,7 @@ rendering and file operations must not block the UI thread once a GUI exists.
 
 ## Implemented persistence primitives
 - Autosave scheduling policy (2-second debounce, 15-second maximum dirty age by default).
-- Recovery checkpoints, version history and journal compaction are still planned.
+- Recovery checkpoints and journal compaction are implemented as shared primitives\n  and are now integrated into the first document-engine persistence session.\n- Document editing remains a minimal text model; rich-text structures, document\n  formats, collaboration and UI integration are not implemented yet.
 - Filesystem capability validation matrix across real filesystems.
 - Import/export adapters for OOXML, ODF, legacy Office formats and PDF.
 - Crash-report consent flow and shared UI components.
