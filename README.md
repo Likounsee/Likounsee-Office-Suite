@@ -42,9 +42,10 @@ The initial persistence layer now includes:
 - A portable filesystem interface with a local Windows/Linux implementation.
 - Safer replacement writes using a same-directory temporary file, file synchronization and platform-specific replacement.
 - An append-only recovery journal with monotonically increasing record numbers, CRC-32 validation and detection of incomplete/corrupt tail records.
-- Tests for replacement, simulated write failure, journal replay and torn-tail recovery.
+- A thread-free autosave scheduler: save after 2 seconds of inactivity or after 15 seconds of continuous unsaved work by default.
+- Tests for replacement, simulated write failure, journal replay, torn-tail recovery and autosave deadlines.
 
-These are foundations, not a complete autosave feature. The autosave scheduler, document-specific journal serialization, checkpoint management, compaction, concurrent-process locking and filesystem-specific validation are still to be implemented. No software can guarantee survival of every hardware or power failure.
+These are foundations, not a complete autosave feature. Document-specific journal serialization, checkpoint management, compaction, concurrent-process locking and filesystem-specific validation are still to be implemented. The scheduler defines when to save; the applications still need to connect it to their document models. No software can guarantee survival of every hardware or power failure.
 
 ## File compatibility goals
 

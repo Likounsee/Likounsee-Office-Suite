@@ -1,4 +1,5 @@
 //! Shared, UI-independent foundations.
+pub mod autosave;
 pub mod error;
 pub mod logging;
 pub mod recovery;

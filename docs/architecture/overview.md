@@ -23,8 +23,9 @@ rendering and file operations must not block the UI thread once a GUI exists.
   detection/recovery.
 - Windows/Linux CI workflow for formatting, linting, tests and builds.
 
-## Still planned
-- Autosave scheduler, recovery checkpoints, version history and journal compaction.
+## Implemented persistence primitives
+- Autosave scheduling policy (2-second debounce, 15-second maximum dirty age by default).
+- Recovery checkpoints, version history and journal compaction are still planned.
 - Filesystem capability validation matrix across real filesystems.
 - Import/export adapters for OOXML, ODF, legacy Office formats and PDF.
 - Crash-report consent flow and shared UI components.
