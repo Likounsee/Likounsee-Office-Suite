@@ -4,7 +4,7 @@
 //! and CRC-32. Replay stops at the first incomplete or invalid tail record.
 
 use crc32fast::Hasher;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -42,7 +42,13 @@ impl RecoveryJournal {
     /// Open or initialize a journal. Parent directories must already exist.
     pub fn open(path: impl Into<PathBuf>) -> io::Result<Self> {
         let path = path.into();
-        let mut file = OpenOptions::new().read(true).write(true).create(true).open(&path)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+
         if file.metadata()?.len() == 0 {
             file.write_all(FILE_MAGIC)?;
             file.sync_all()?;
@@ -50,38 +56,64 @@ impl RecoveryJournal {
             let mut magic = [0_u8; 8];
             file.read_exact(&mut magic)?;
             if &magic != FILE_MAGIC {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid recovery journal header"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid recovery journal header",
+                ));
             }
         }
-        Ok(Self { path, gate: Mutex::new(()) })
+
+        Ok(Self {
+            path,
+            gate: Mutex::new(()),
+        })
     }
 
     /// Append one record and synchronously flush it to the storage device.
     pub fn append(&self, payload: &[u8]) -> io::Result<u64> {
         if payload.len() > MAX_RECORD_SIZE {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "recovery record exceeds 64 MiB"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "recovery record exceeds 64 MiB",
+            ));
         }
-        let _guard = self.gate.lock()
+
+        let _guard = self
+            .gate
+            .lock()
             .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
-        let mut file = OpenOptions::new().read(true).write(true).open(&self.path)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)?;
         let replay = scan(&mut file)?;
+
         file.set_len(replay.valid_bytes)?;
         file.seek(SeekFrom::Start(replay.valid_bytes))?;
 
-        let sequence = replay.records.last().map_or(1, |record| record.sequence + 1);
+        let sequence = match replay.records.last() {
+            Some(record) => record.sequence.checked_add(1).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "recovery sequence exhausted")
+            })?,
+            None => 1,
+        };
         let length = payload.len() as u32;
         let checksum = checksum(payload);
+
         file.write_all(&sequence.to_le_bytes())?;
         file.write_all(&length.to_le_bytes())?;
         file.write_all(&checksum.to_le_bytes())?;
         file.write_all(payload)?;
         file.sync_data()?;
+
         Ok(sequence)
     }
 
     /// Replay all complete, checksum-valid records.
     pub fn replay(&self) -> io::Result<JournalReplay> {
-        let _guard = self.gate.lock()
+        let _guard = self
+            .gate
+            .lock()
             .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
         let mut file = File::open(&self.path)?;
         scan(&mut file)
@@ -89,9 +121,14 @@ impl RecoveryJournal {
 
     /// Remove all records after a caller has safely persisted a checkpoint.
     pub fn reset_after_checkpoint(&self) -> io::Result<()> {
-        let _guard = self.gate.lock()
+        let _guard = self
+            .gate
+            .lock()
             .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
-        let mut file = OpenOptions::new().write(true).truncate(true).open(&self.path)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&self.path)?;
         file.write_all(FILE_MAGIC)?;
         file.sync_all()
     }
@@ -106,8 +143,12 @@ fn scan(file: &mut File) -> io::Result<JournalReplay> {
     file.seek(SeekFrom::Start(0))?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
+
     if bytes.len() < FILE_MAGIC.len() || &bytes[..FILE_MAGIC.len()] != FILE_MAGIC {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid recovery journal header"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid recovery journal header",
+        ));
     }
 
     let mut offset = FILE_MAGIC.len();
@@ -120,24 +161,42 @@ fn scan(file: &mut File) -> io::Result<JournalReplay> {
             had_truncated_tail = true;
             break;
         }
+
         let sequence = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
-        let length = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap()) as usize;
-        let expected_checksum = u32::from_le_bytes(bytes[offset + 12..offset + 16].try_into().unwrap());
-        if length > MAX_RECORD_SIZE || sequence != expected_sequence
+        let length =
+            u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap()) as usize;
+        let expected_checksum =
+            u32::from_le_bytes(bytes[offset + 12..offset + 16].try_into().unwrap());
+
+        if length > MAX_RECORD_SIZE
+            || sequence != expected_sequence
             || bytes.len() - offset - RECORD_HEADER_SIZE < length
         {
             had_truncated_tail = true;
             break;
         }
+
         let payload_start = offset + RECORD_HEADER_SIZE;
         let payload_end = payload_start + length;
         let payload = &bytes[payload_start..payload_end];
+
         if checksum(payload) != expected_checksum {
             had_truncated_tail = true;
             break;
         }
-        records.push(JournalRecord { sequence, payload: payload.to_vec() });
-        expected_sequence += 1;
+
+        records.push(JournalRecord {
+            sequence,
+            payload: payload.to_vec(),
+        });
+        expected_sequence = match expected_sequence.checked_add(1) {
+            Some(next) => next,
+            None => {
+                had_truncated_tail = offset + RECORD_HEADER_SIZE + length < bytes.len();
+                offset = payload_end;
+                break;
+            }
+        };
         offset = payload_end;
     }
 
@@ -157,20 +216,31 @@ fn checksum(payload: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TestJournal(PathBuf);
+
     impl TestJournal {
         fn new() -> Self {
-            let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let dir = std::env::temp_dir().join(format!("likounsee-journal-{}-{nonce}", std::process::id()));
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "likounsee-journal-{}-{nonce}",
+                std::process::id()
+            ));
             fs::create_dir_all(&dir).unwrap();
             Self(dir.join("recovery.journal"))
         }
     }
+
     impl Drop for TestJournal {
         fn drop(&mut self) {
-            if let Some(parent) = self.0.parent() { let _ = fs::remove_dir_all(parent); }
+            if let Some(parent) = self.0.parent() {
+                let _ = fs::remove_dir_all(parent);
+            }
         }
     }
 
@@ -178,14 +248,25 @@ mod tests {
     fn appends_and_replays_sequenced_records() {
         let path = TestJournal::new();
         let journal = RecoveryJournal::open(&path.0).unwrap();
+
         assert_eq!(journal.append(b"snapshot one").unwrap(), 1);
         assert_eq!(journal.append(b"snapshot two").unwrap(), 2);
+
         let replay = journal.replay().unwrap();
         assert!(!replay.had_truncated_tail);
-        assert_eq!(replay.records, vec![
-            JournalRecord { sequence: 1, payload: b"snapshot one".to_vec() },
-            JournalRecord { sequence: 2, payload: b"snapshot two".to_vec() },
-        ]);
+        assert_eq!(
+            replay.records,
+            vec![
+                JournalRecord {
+                    sequence: 1,
+                    payload: b"snapshot one".to_vec()
+                },
+                JournalRecord {
+                    sequence: 2,
+                    payload: b"snapshot two".to_vec()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -194,8 +275,14 @@ mod tests {
         let journal = RecoveryJournal::open(&path.0).unwrap();
         journal.append(b"valid").unwrap();
         drop(journal);
-        OpenOptions::new().append(true).open(&path.0).unwrap()
-            .write_all(&[2, 0, 0, 0]).unwrap();
+
+        OpenOptions::new()
+            .append(true)
+            .open(&path.0)
+            .unwrap()
+            .write_all(&[2, 0, 0, 0])
+            .unwrap();
+
         let journal = RecoveryJournal::open(&path.0).unwrap();
         let replay = journal.replay().unwrap();
         assert!(replay.had_truncated_tail);
@@ -209,10 +296,17 @@ mod tests {
         let journal = RecoveryJournal::open(&path.0).unwrap();
         journal.append(b"first").unwrap();
         drop(journal);
-        OpenOptions::new().append(true).open(&path.0).unwrap()
-            .write_all(&[9, 9, 9]).unwrap();
+
+        OpenOptions::new()
+            .append(true)
+            .open(&path.0)
+            .unwrap()
+            .write_all(&[9, 9, 9])
+            .unwrap();
+
         let journal = RecoveryJournal::open(&path.0).unwrap();
         assert_eq!(journal.append(b"second").unwrap(), 2);
+
         let replay = journal.replay().unwrap();
         assert!(!replay.had_truncated_tail);
         assert_eq!(replay.records.len(), 2);
@@ -224,6 +318,10 @@ mod tests {
         let path = TestJournal::new();
         let journal = RecoveryJournal::open(&path.0).unwrap();
         let payload = vec![0; MAX_RECORD_SIZE + 1];
-        assert_eq!(journal.append(&payload).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+
+        assert_eq!(
+            journal.append(&payload).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
     }
 }

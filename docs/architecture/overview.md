@@ -7,19 +7,27 @@
 - Initial apps: Document Editor, Spreadsheet and Presentation.
 
 ## Workspace boundaries
-- `apps/*`: thin application entry points and platform integration.
-- `engines/*`: UI-independent document, spreadsheet and presentation logic.
-- `crates/suite-common`: shared primitives used by apps and engines.
+- apps/*: thin application entry points and platform integration.
+- engines/*: UI-independent document, spreadsheet and presentation logic.
+- crates/suite-common: shared primitives used by apps and engines.
 
 Engines must be testable without a window. Parsing, layout, recalculation,
 rendering and file operations must not block the UI thread once a GUI exists.
 
-## Planned foundations (not implemented yet)
-- Portable filesystem abstraction and safe-save operations.
-- Autosave scheduler, recovery journal and version checkpoints.
+## Implemented foundations on foundation/initial-architecture
+- Shared error handling and process-local logging.
+- Portable FileSystem interface and local filesystem implementation.
+- Safer replacement writes using same-directory temporary files, synchronization
+  and platform-specific replacement primitives.
+- Append-only recovery journal with sequence validation, CRC-32 and torn-tail
+  detection/recovery.
+- Windows/Linux CI workflow for formatting, linting, tests and builds.
+
+## Still planned
+- Autosave scheduler, recovery checkpoints, version history and journal compaction.
+- Filesystem capability validation matrix across real filesystems.
 - Import/export adapters for OOXML, ODF, legacy Office formats and PDF.
-- Diagnostic logging and crash-report consent flow.
-- Shared UI components, localization and accessibility.
+- Crash-report consent flow and shared UI components.
 
 Correct local editing must not depend on cloud access, filesystem snapshots or
 filesystem-specific features. Detect and document durability capabilities rather
