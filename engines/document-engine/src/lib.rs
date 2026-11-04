@@ -1284,10 +1284,10 @@ impl DocumentSession {
                 });
             }
             table_rows.push(TableRow {
-                        id: row_id,
-                        cells,
-                        height_twips: 0,
-                    });
+                id: row_id,
+                cells,
+                height_twips: 0,
+            });
         }
         let mut next = self.document.clone();
         self.document.increment_revision(&mut next)?;
