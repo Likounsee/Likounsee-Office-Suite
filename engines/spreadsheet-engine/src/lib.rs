@@ -452,6 +452,7 @@ impl<'a> Parser<'a> {
                 Ok(value)
             }
             Some(byte) if byte.is_ascii_digit() || byte == b'.' => self.number(),
+            Some(b'\'') => self.quoted_sheet_reference(),
             Some(byte) if byte.is_ascii_alphabetic() => self.identifier_or_function(),
             _ => Err(FormulaError::Parse),
         }
@@ -469,7 +470,10 @@ impl<'a> Parser<'a> {
     }
     fn identifier_or_function(&mut self) -> Result<f64, FormulaError> {
         let start = self.cursor;
-        while matches!(self.peek(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_')) {
+        while matches!(
+            self.peek(),
+            Some(b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_')
+        ) {
             self.cursor += 1;
         }
         let identifier = std::str::from_utf8(&self.input[start..self.cursor])
@@ -479,13 +483,49 @@ impl<'a> Parser<'a> {
             self.cursor += 1;
             return self.sum_arguments();
         }
-        while matches!(self.peek(), Some(b'0'..=b'9')) {
+        if self.peek() == Some(b'!') {
+            self.cursor += 1;
+            return self.reference_on_sheet(identifier);
+        }
+        let address = CellAddress::parse_a1(identifier).map_err(|_| FormulaError::Reference)?;
+        self.numeric_cell(address)
+    }
+    fn quoted_sheet_reference(&mut self) -> Result<f64, FormulaError> {
+        self.cursor += 1;
+        let start = self.cursor;
+        while let Some(byte) = self.peek() {
+            if byte == b'\\'' {
+                break;
+            }
             self.cursor += 1;
         }
-        let text = std::str::from_utf8(&self.input[start..self.cursor])
+        if self.peek() != Some(b'\\'') || start == self.cursor {
+            return Err(FormulaError::Parse);
+        }
+        let sheet_name = std::str::from_utf8(&self.input[start..self.cursor])
             .map_err(|_| FormulaError::Parse)?;
-        let address = CellAddress::parse_a1(text).map_err(|_| FormulaError::Reference)?;
-        self.numeric_cell(address)
+        self.cursor += 1;
+        if self.peek() != Some(b'!') {
+            return Err(FormulaError::Parse);
+        }
+        self.cursor += 1;
+        self.reference_on_sheet(sheet_name)
+    }
+    fn reference_on_sheet(&mut self, sheet_name: &str) -> Result<f64, FormulaError> {
+        let address = self.cell_address()?;
+        let sheet_id = self
+            .workbook
+            .sheets
+            .iter()
+            .find(|sheet| sheet.name.eq_ignore_ascii_case(sheet_name))
+            .map(|sheet| sheet.id)
+            .ok_or(FormulaError::Reference)?;
+        match self.workbook.evaluate(sheet_id, address, self.visiting) {
+            CellValue::Number(value) => Ok(value),
+            CellValue::Blank => Ok(0.0),
+            CellValue::Error(error) => Err(error),
+            CellValue::Text(_) | CellValue::Boolean(_) => Err(FormulaError::Type),
+        }
     }
     fn sum_arguments(&mut self) -> Result<f64, FormulaError> {
         let mut total = 0.0;
@@ -561,8 +601,7 @@ impl<'a> Parser<'a> {
         let mut total = 0.0;
         for row in min_row..=max_row {
             for column in min_column..=max_column {
-                let address =
-                    CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
+                let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
                 match self
                     .workbook
                     .evaluate(self.sheet_id, address, self.visiting)
@@ -852,6 +891,23 @@ mod tests {
         assert_eq!(book.value(sheet, c1), CellValue::Number(9.5));
         book.set_number(sheet, a2, 10.0).unwrap();
         assert_eq!(book.value(sheet, c1), CellValue::Number(16.0));
+    }
+    #[test]
+    fn formulas_resolve_unquoted_and_quoted_cross_sheet_references() {
+        let mut book = Workbook::new();
+        let summary = 1;
+        let data = book.add_sheet("Data2026").unwrap();
+        let sales = book.add_sheet("Sales Data").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        book.set_number(data, a1, 12.0).unwrap();
+        book.set_number(sales, a1, 8.5).unwrap();
+        book.set_formula(summary, b1, "=Data2026!A1+'Sales Data'!A1").unwrap();
+        assert_eq!(book.value(summary, b1), CellValue::Number(20.5));
+        book.set_number(data, a1, 20.0).unwrap();
+        assert_eq!(book.value(summary, b1), CellValue::Number(28.5));
+        book.set_formula(summary, b1, "=Missing!A1").unwrap();
+        assert_eq!(book.value(summary, b1), CellValue::Error(FormulaError::Reference));
     }
     #[test]
     fn sum_propagates_errors_and_rejects_invalid_or_oversized_ranges() {
