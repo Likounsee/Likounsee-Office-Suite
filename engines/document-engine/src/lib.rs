@@ -513,7 +513,11 @@ fn adjust_inline_spans_for_edit(
         } else if span.start >= range.end {
             let start = range.start + replacement_len + (span.start - range.end);
             let end = range.start + replacement_len + (span.end - range.end);
-            adjusted.push(TextSpan { start, end, mark: span.mark });
+            adjusted.push(TextSpan {
+                start,
+                end,
+                mark: span.mark,
+            });
         } else {
             if span.start < range.start {
                 adjusted.push(TextSpan {
@@ -532,7 +536,11 @@ fn adjust_inline_spans_for_edit(
             if span.end > range.end {
                 let start = range.start + replacement_len;
                 let end = start + (span.end - range.end);
-                adjusted.push(TextSpan { start, end, mark: span.mark });
+                adjusted.push(TextSpan {
+                    start,
+                    end,
+                    mark: span.mark,
+                });
             }
         }
     }
@@ -772,7 +780,12 @@ impl DocumentSession {
         }
         let same_paragraph = !body[range.clone()].contains('\n') && !replacement.contains('\n');
         let paragraph_index = if same_paragraph {
-            Some(body[..range.start].bytes().filter(|byte| *byte == b'\n').count())
+            Some(
+                body[..range.start]
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count(),
+            )
         } else {
             None
         };
@@ -1426,13 +1439,21 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_body("Bold text").unwrap();
         let id = session.document().paragraphs()[0].id();
-        session.set_inline_mark(id, 0..4, InlineMark::Bold, true).unwrap();
+        session
+            .set_inline_mark(id, 0..4, InlineMark::Bold, true)
+            .unwrap();
         session.insert_text(2, "XX").unwrap();
         let span = &session.document().paragraphs()[0].spans()[0];
-        assert_eq!((span.start(), span.end(), span.mark()), (0, 6, InlineMark::Bold));
+        assert_eq!(
+            (span.start(), span.end(), span.mark()),
+            (0, 6, InlineMark::Bold)
+        );
         session.replace_range(1..4, "Y").unwrap();
         let span = &session.document().paragraphs()[0].spans()[0];
-        assert_eq!((span.start(), span.end(), span.mark()), (0, 4, InlineMark::Bold));
+        assert_eq!(
+            (span.start(), span.end(), span.mark()),
+            (0, 4, InlineMark::Bold)
+        );
         let recovered = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(recovered.document().paragraphs()[0].spans()[0].end(), 4);
     }
