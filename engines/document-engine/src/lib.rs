@@ -1078,6 +1078,92 @@ impl DocumentSession {
         Ok(table_id)
     }
 
+    /// Insert an empty row before the given zero-based row index.
+    /// Existing row and cell IDs remain stable; only newly created objects get new IDs.
+    pub fn insert_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let next_id = next.next_block_id;
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        if row_index > table.rows.len() || table.rows.len() >= 1024
+            || table.rows.len().checked_add(1).and_then(|n| n.checked_mul(table.columns))
+                .is_none_or(|n| n > 65_536)
+        {
+            return Err(invalid_input("table row insertion exceeds supported limits"));
+        }
+        let mut id = next_id;
+        let row_id = id;
+        id = id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
+        let mut cells = Vec::with_capacity(table.columns);
+        for _ in 0..table.columns {
+            let cell_id = id;
+            id = id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            cells.push(TableCell { id: cell_id, text: String::new() });
+        }
+        table.rows.insert(row_index, TableRow { id: row_id, cells });
+        next.next_block_id = id;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(row_id)
+    }
+
+    /// Remove a row by zero-based index. A table always retains at least one row.
+    pub fn delete_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        if table.rows.len() <= 1 || row_index >= table.rows.len() {
+            return Err(invalid_input("cannot remove the requested table row"));
+        }
+        table.rows.remove(row_index);
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
+    /// Insert an empty column before the given zero-based column index.
+    /// Existing row and cell IDs remain stable.
+    pub fn insert_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let mut id = next.next_block_id;
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        if column_index > table.columns || table.columns >= 1024
+            || table.rows.len().checked_mul(table.columns + 1).is_none_or(|n| n > 65_536)
+        {
+            return Err(invalid_input("table column insertion exceeds supported limits"));
+        }
+        for row in &mut table.rows {
+            let cell_id = id;
+            id = id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            row.cells.insert(column_index, TableCell { id: cell_id, text: String::new() });
+        }
+        table.columns += 1;
+        next.next_block_id = id;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(id - table.rows.len() as u64)
+    }
+
+    /// Remove a column by zero-based index. A table always retains at least one column.
+    pub fn delete_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        if table.columns <= 1 || column_index >= table.columns {
+            return Err(invalid_input("cannot remove the requested table column"));
+        }
+        for row in &mut table.rows {
+            row.cells.remove(column_index);
+        }
+        table.columns -= 1;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
     /// Set text in a table cell using zero-based row and column indices.
     pub fn set_table_cell_text(
         &mut self,
@@ -1921,6 +2007,55 @@ mod tests {
         assert!(session.set_table_cell_text(table_id, 1, 0, "bad").is_err());
         assert!(session.set_table_cell_text(table_id, 0, 1, "bad").is_err());
         assert_eq!(session.document(), &before_invalid_cell);
+    }
+
+    #[test]
+    fn table_rows_and_columns_can_be_inserted_deleted_and_recovered() {
+        let directory = TestDirectory::new();
+        let table_id;
+        let original_row_id;
+        let original_cell_id;
+        let inserted_row_id;
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            table_id = session.insert_table(2, 2).unwrap();
+            original_row_id = session.document().tables()[0].rows()[0].id();
+            original_cell_id = session.document().tables()[0].rows()[0].cells()[0].id();
+            inserted_row_id = session.insert_table_row(table_id, 1).unwrap();
+            let inserted_column_cell = session.insert_table_column(table_id, 1).unwrap();
+            assert_eq!(session.document().tables()[0].rows().len(), 3);
+            assert_eq!(session.document().tables()[0].columns(), 3);
+            assert_eq!(session.document().tables()[0].rows()[0].id(), original_row_id);
+            assert_eq!(session.document().tables()[0].rows()[0].cells()[0].id(), original_cell_id);
+            assert_eq!(session.document().tables()[0].rows()[1].id(), inserted_row_id);
+            assert!(session.document().tables()[0].rows().iter()
+                .all(|row| row.cells()[1].id() >= inserted_column_cell - 2));
+            session.delete_table_row(table_id, 1).unwrap();
+            session.delete_table_column(table_id, 1).unwrap();
+            assert_eq!(session.document().tables()[0].rows().len(), 2);
+            assert_eq!(session.document().tables()[0].columns(), 2);
+            let encoded = encode_document(session.document()).unwrap();
+            assert_eq!(decode_document(&encoded).unwrap(), *session.document());
+        }
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.document().tables()[0].rows().len(), 2);
+        assert_eq!(recovered.document().tables()[0].columns(), 2);
+        assert_eq!(recovered.document().tables()[0].rows()[0].id(), original_row_id);
+    }
+
+    #[test]
+    fn table_row_and_column_deletion_preserve_minimum_dimensions() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(1, 1).unwrap();
+        let before = session.document().clone();
+        assert!(session.delete_table_row(table_id, 0).is_err());
+        assert!(session.delete_table_column(table_id, 0).is_err());
+        assert!(session.delete_table_row(table_id, 1).is_err());
+        assert!(session.delete_table_column(table_id, 1).is_err());
+        assert!(session.insert_table_row(table_id, 2).is_err());
+        assert!(session.insert_table_column(table_id, 2).is_err());
+        assert_eq!(session.document(), &before);
     }
 
     #[test]
