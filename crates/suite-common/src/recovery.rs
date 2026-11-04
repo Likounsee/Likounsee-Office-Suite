@@ -432,7 +432,7 @@ mod tests {
         let path = TestJournal::new();
         let journal = RecoveryJournal::open(&path.0).unwrap();
         journal.append(b"old snapshot").unwrap();
-        journal.reset_after_checkpoint(1).unwrap()
+        journal.reset_after_checkpoint(1).unwrap();
 
         let replay = journal.replay().unwrap();
         assert!(!replay.had_truncated_tail);
