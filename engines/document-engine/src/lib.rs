@@ -264,7 +264,9 @@ impl DocumentSession {
     pub fn insert_text(&mut self, offset: usize, text: &str) -> io::Result<u64> {
         let mut body = self.document.body.clone();
         if offset > body.len() || !body.is_char_boundary(offset) {
-            return Err(invalid_input("text insertion offset is not a UTF-8 character boundary"));
+            return Err(invalid_input(
+                "text insertion offset is not a UTF-8 character boundary",
+            ));
         }
         body.insert_str(offset, text);
         let next = self.document.with_body(body)?;
