@@ -218,6 +218,7 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
             None
         };
         let mut remaining_payload = length;
+        let mut payload_incomplete = false;
         let mut buffer = [0_u8; SCAN_BUFFER_SIZE];
 
         while remaining_payload > 0 {
@@ -225,7 +226,7 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
             if let Err(error) = file.read_exact(&mut buffer[..chunk_len]) {
                 if error.kind() == io::ErrorKind::UnexpectedEof {
                     had_truncated_tail = true;
-                    remaining_payload = 0;
+                    payload_incomplete = true;
                     break;
                 }
                 return Err(error);
@@ -237,7 +238,7 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
             remaining_payload -= chunk_len;
         }
 
-        if remaining_payload != 0 || hasher.finalize() != expected_checksum {
+        if payload_incomplete || hasher.finalize() != expected_checksum {
             had_truncated_tail = true;
             break;
         }
