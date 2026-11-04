@@ -180,12 +180,12 @@ impl DocumentSession {
         };
 
         let (mut document, checkpoint_generation, replay) = if let Some(checkpoint) = checkpoint {
-                let replay = journal.replay_after(checkpoint.journal_sequence)?;
-                (
-                    decode_document(&checkpoint.payload)?,
-                    checkpoint.generation,
-                    replay,
-                )
+            let replay = journal.replay_after(checkpoint.journal_sequence)?;
+            (
+                decode_document(&checkpoint.payload)?,
+                checkpoint.generation,
+                replay,
+            )
         } else {
             let replay = journal.replay()?;
             if replay.base_sequence != 0 {
