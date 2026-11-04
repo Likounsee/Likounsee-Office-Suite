@@ -9,8 +9,8 @@ use std::io;
 use std::path::Path;
 
 const MAGIC: &[u8; 8] = b"LOUSCHK1";
-const FORMAT_VERSION: u32 = 1;
-const HEADER_SIZE: usize = 36;
+const FORMAT_VERSION: u32 = 2;
+const HEADER_SIZE: usize = 44;
 const MAX_CHECKPOINT_SIZE: usize = 128 * 1024 * 1024;
 
 /// Maximum serialized document payload accepted by this checkpoint format.
@@ -21,16 +21,15 @@ pub const MAX_CHECKPOINT_PAYLOAD: usize = MAX_CHECKPOINT_SIZE;
 pub struct Checkpoint {
     /// Monotonically increasing generation assigned by the document owner.
     pub generation: u64,
+    /// Highest recovery-journal sequence included in this document state.
+    pub journal_sequence: u64,
     /// Opaque, versioned document-engine serialization.
     pub payload: Vec<u8>,
 }
 
 impl Checkpoint {
-    pub fn new(generation: u64, payload: Vec<u8>) -> Self {
-        Self {
-            generation,
-            payload,
-        }
+    pub fn new(generation: u64, journal_sequence: u64, payload: Vec<u8>) -> Self {
+        Self { generation, journal_sequence, payload }
     }
 }
 
@@ -45,6 +44,7 @@ pub fn encode(checkpoint: &Checkpoint) -> io::Result<Vec<u8>> {
     bytes.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     bytes.extend_from_slice(&0_u32.to_le_bytes());
     bytes.extend_from_slice(&checkpoint.generation.to_le_bytes());
+    bytes.extend_from_slice(&checkpoint.journal_sequence.to_le_bytes());
     bytes.extend_from_slice(&(checkpoint.payload.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&checksum(&checkpoint.payload).to_le_bytes());
     bytes.extend_from_slice(&checkpoint.payload);
@@ -64,8 +64,9 @@ pub fn decode(bytes: &[u8]) -> io::Result<Checkpoint> {
     }
 
     let generation = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
-    let payload_len = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
-    let expected_checksum = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
+    let journal_sequence = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
+    let payload_len = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
+    let expected_checksum = u32::from_le_bytes(bytes[40..44].try_into().unwrap());
     let payload_len = usize::try_from(payload_len)
         .map_err(|_| invalid_data("checkpoint payload length is not representable"))?;
 
@@ -87,6 +88,7 @@ pub fn decode(bytes: &[u8]) -> io::Result<Checkpoint> {
 
     Ok(Checkpoint {
         generation,
+        journal_sequence,
         payload: payload.to_vec(),
     })
 }
@@ -173,13 +175,13 @@ mod tests {
 
     #[test]
     fn round_trips_generation_and_payload() {
-        let original = Checkpoint::new(42, b"complete document state".to_vec());
+        let original = Checkpoint::new(42, 17, b"complete document state".to_vec());
         assert_eq!(decode(&encode(&original).unwrap()).unwrap(), original);
     }
 
     #[test]
     fn rejects_corrupt_payload() {
-        let checkpoint = Checkpoint::new(1, b"document".to_vec());
+        let checkpoint = Checkpoint::new(1, 0, b"document".to_vec());
         let mut encoded = encode(&checkpoint).unwrap();
         *encoded.last_mut().unwrap() ^= 0x80;
         assert_eq!(
@@ -190,7 +192,7 @@ mod tests {
 
     #[test]
     fn rejects_truncated_and_trailing_data() {
-        let encoded = encode(&Checkpoint::new(1, b"abc".to_vec())).unwrap();
+        let encoded = encode(&Checkpoint::new(1, 0, b"abc".to_vec())).unwrap();
         assert_eq!(
             decode(&encoded[..encoded.len() - 1]).unwrap_err().kind(),
             io::ErrorKind::InvalidData
@@ -205,9 +207,12 @@ mod tests {
 
     #[test]
     fn rejects_unknown_format_version() {
-        let mut encoded = encode(&Checkpoint::new(1, b"abc".to_vec())).unwrap();
+        let mut encoded = encode(&Checkpoint::new(1, 0, b"abc".to_vec())).unwrap();
         encoded[8..12].copy_from_slice(&2_u32.to_le_bytes());
-        assert_eq!(decode(&encoded).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            decode(&encoded).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
@@ -215,7 +220,7 @@ mod tests {
         let directory = TestDirectory::new();
         let path = directory.file();
         let filesystem = LocalFileSystem;
-        let checkpoint = Checkpoint::new(7, b"saved document".to_vec());
+        let checkpoint = Checkpoint::new(7, 3, b"saved document".to_vec());
 
         write_checkpoint(&filesystem, &path, &checkpoint).unwrap();
 
@@ -234,7 +239,7 @@ mod tests {
         let directory = TestDirectory::new();
         let path = directory.file();
         fs::write(&path, b"previous checkpoint").unwrap();
-        let oversized = Checkpoint::new(2, vec![0; MAX_CHECKPOINT_PAYLOAD + 1]);
+        let oversized = Checkpoint::new(2, 3, vec![0; MAX_CHECKPOINT_PAYLOAD + 1]);
 
         assert_eq!(
             write_checkpoint(&LocalFileSystem, &path, &oversized)
