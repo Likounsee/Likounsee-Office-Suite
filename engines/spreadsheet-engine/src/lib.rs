@@ -552,7 +552,7 @@ impl<'a> Parser<'a> {
             .find(|sheet| sheet.name.eq_ignore_ascii_case(sheet_name))
             .map(|sheet| sheet.id)
             .ok_or(FormulaError::Reference)?;
-        match self.workbook.evaluate(sheet_id, $1, self.visiting, self.cache) {
+        match self.workbook.evaluate(sheet_id, address, self.visiting, self.cache) {
             CellValue::Number(value) => Ok(value),
             CellValue::Blank => Ok(0.0),
             CellValue::Error(error) => Err(error),
@@ -629,7 +629,7 @@ impl<'a> Parser<'a> {
                         let last = self.cell_address()?;
                         self.collect_range_values(sheet_id, first, last, &mut values)?;
                     } else {
-                        match self.workbook.evaluate(sheet_id, $1, self.visiting, self.cache) {
+                        match self.workbook.evaluate(sheet_id, first, self.visiting, self.cache) {
                             CellValue::Number(value) => values.push(value),
                             CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                             CellValue::Error(error) => return Err(error),
@@ -686,7 +686,7 @@ impl<'a> Parser<'a> {
         for row in min_row..=max_row {
             for column in min_column..=max_column {
                 let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
-                match self.workbook.evaluate(sheet_id, $1, self.visiting, self.cache) {
+                match self.workbook.evaluate(sheet_id, address, self.visiting, self.cache) {
                     CellValue::Number(value) => values.push(value),
                     CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                     CellValue::Error(error) => return Err(error),
