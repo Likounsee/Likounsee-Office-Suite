@@ -540,7 +540,7 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             previous_span = Some(span);
         }
         size = size
-            .checked_add(23)
+            .checked_add(19)
             .and_then(|len| len.checked_add(span_bytes))
             .and_then(|len| len.checked_add(paragraph.text.len()))
             .ok_or_else(|| invalid_input("document size overflow"))?;
