@@ -11,10 +11,13 @@ increasing revision. Its binary representation is versioned (`LOUSDOC1`) and
 rejects unknown versions, malformed UTF-8, inconsistent lengths and payloads
 larger than the 64 MiB journal-record limit.
 
-Each successful title or body replacement increments the revision exactly once.
-The engine journals a complete serialized document snapshot before publishing
-the new in-memory state. If the append fails, the visible in-memory document is
-not changed.
+Each successful title or body edit increments the revision exactly once. The
+session exposes targeted UTF-8 text operations (insert_text, delete_range and
+replace_range) using byte offsets. Both range endpoints must be valid UTF-8
+character boundaries; invalid offsets are rejected before any mutation. The
+engine journals a complete serialized document snapshot before publishing the
+new in-memory state. If the append fails, the visible in-memory document is not
+changed.
 
 ## Session files
 
@@ -51,7 +54,9 @@ partially truncated journal header.
 
 ## Current limitations
 
-- The model is plain text with whole-body replacement, not a rich-text editor.
+- The model is still plain text, not a rich-text editor. Targeted text edits are
+  available, but paragraphs, blocks, styles and stable block identifiers are
+  not modelled yet.
 - A single encoded document snapshot must fit within the journal record limit
   (64 MiB), so the current model caps total encoded document size below 64 MiB.
 - Every edit writes a complete document snapshot to the journal; this is
