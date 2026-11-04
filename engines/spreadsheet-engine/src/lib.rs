@@ -452,7 +452,7 @@ impl<'a> Parser<'a> {
                 Ok(value)
             }
             Some(byte) if byte.is_ascii_digit() || byte == b'.' => self.number(),
-            Some(byte) if byte.is_ascii_alphabetic() => self.reference(),
+            Some(byte) if byte.is_ascii_alphabetic() => self.identifier_or_function(),
             _ => Err(FormulaError::Parse),
         }
     }
@@ -467,10 +467,17 @@ impl<'a> Parser<'a> {
             .filter(|number| number.is_finite())
             .ok_or(FormulaError::Parse)
     }
-    fn reference(&mut self) -> Result<f64, FormulaError> {
+    fn identifier_or_function(&mut self) -> Result<f64, FormulaError> {
         let start = self.cursor;
-        while matches!(self.peek(), Some(b'A'..=b'Z' | b'a'..=b'z')) {
+        while matches!(self.peek(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_')) {
             self.cursor += 1;
+        }
+        let identifier = std::str::from_utf8(&self.input[start..self.cursor])
+            .map_err(|_| FormulaError::Parse)?;
+        self.whitespace();
+        if identifier.eq_ignore_ascii_case("SUM") && self.peek() == Some(b'(') {
+            self.cursor += 1;
+            return self.sum_arguments();
         }
         while matches!(self.peek(), Some(b'0'..=b'9')) {
             self.cursor += 1;
@@ -478,15 +485,85 @@ impl<'a> Parser<'a> {
         let text = std::str::from_utf8(&self.input[start..self.cursor])
             .map_err(|_| FormulaError::Parse)?;
         let address = CellAddress::parse_a1(text).map_err(|_| FormulaError::Reference)?;
-        match self
-            .workbook
-            .evaluate(self.sheet_id, address, self.visiting)
-        {
+        self.numeric_cell(address)
+    }
+    fn sum_arguments(&mut self) -> Result<f64, FormulaError> {
+        let mut total = 0.0;
+        let mut arguments = 0usize;
+        loop {
+            self.whitespace();
+            let first = self.cell_address()?;
+            self.whitespace();
+            if self.peek() == Some(b':') {
+                self.cursor += 1;
+                let last = self.cell_address()?;
+                total += self.sum_range(first, last)?;
+            } else {
+                total += self.numeric_cell(first).or_else(|error| {
+                    if error == FormulaError::Type { Ok(0.0) } else { Err(error) }
+                })?;
+            }
+            arguments += 1;
+            self.whitespace();
+            match self.peek() {
+                Some(b',') => self.cursor += 1,
+                Some(b')') if arguments > 0 => {
+                    self.cursor += 1;
+                    return if total.is_finite() { Ok(total) } else { Err(FormulaError::Number) };
+                }
+                _ => return Err(FormulaError::Parse),
+            }
+        }
+    }
+    fn cell_address(&mut self) -> Result<CellAddress, FormulaError> {
+        self.whitespace();
+        let start = self.cursor;
+        while matches!(self.peek(), Some(b'A'..=b'Z' | b'a'..=b'z')) {
+            self.cursor += 1;
+        }
+        while matches!(self.peek(), Some(b'0'..=b'9')) {
+            self.cursor += 1;
+        }
+        if start == self.cursor {
+            return Err(FormulaError::Parse);
+        }
+        let text = std::str::from_utf8(&self.input[start..self.cursor])
+            .map_err(|_| FormulaError::Parse)?;
+        CellAddress::parse_a1(text).map_err(|_| FormulaError::Reference)
+    }
+    fn numeric_cell(&mut self, address: CellAddress) -> Result<f64, FormulaError> {
+        match self.workbook.evaluate(self.sheet_id, address, self.visiting) {
             CellValue::Number(value) => Ok(value),
             CellValue::Blank => Ok(0.0),
             CellValue::Error(error) => Err(error),
             CellValue::Text(_) | CellValue::Boolean(_) => Err(FormulaError::Type),
         }
+    }
+    fn sum_range(&mut self, first: CellAddress, last: CellAddress) -> Result<f64, FormulaError> {
+        let min_row = first.row().min(last.row());
+        let max_row = first.row().max(last.row());
+        let min_column = first.column().min(last.column());
+        let max_column = first.column().max(last.column());
+        let rows = (max_row - min_row + 1) as u64;
+        let columns = (max_column - min_column + 1) as u64;
+        if rows.saturating_mul(columns) > MAX_CELLS as u64 {
+            return Err(FormulaError::Number);
+        }
+        let mut total = 0.0;
+        for row in min_row..=max_row {
+            for column in min_column..=max_column {
+                let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
+                match self.workbook.evaluate(self.sheet_id, address, self.visiting) {
+                    CellValue::Number(value) => total += value,
+                    CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
+                    CellValue::Error(error) => return Err(error),
+                }
+                if !total.is_finite() {
+                    return Err(FormulaError::Number);
+                }
+            }
+        }
+        Ok(total)
     }
     fn whitespace(&mut self) {
         while matches!(self.peek(), Some(b' ' | b'\t' | b'\r' | b'\n')) {
@@ -744,6 +821,36 @@ mod tests {
         assert_eq!(book.value(sheet, c1), CellValue::Number(20.0));
         book.set_number(sheet, b1, 7.0).unwrap();
         assert_eq!(book.value(sheet, c1), CellValue::Number(24.0));
+    }
+    #[test]
+    fn sum_supports_ranges_multiple_arguments_and_live_recalculation() {
+        let mut book = Workbook::new();
+        let sheet = 1;
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        book.set_number(sheet, a1, 2.0).unwrap();
+        book.set_number(sheet, a2, 3.5).unwrap();
+        book.set_text(sheet, a3, "ignored").unwrap();
+        book.set_formula(sheet, b1, "=SUM(A1:A3, 4)").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Number(9.5));
+        book.set_number(sheet, a2, 10.0).unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Number(16.0));
+    }
+    #[test]
+    fn sum_propagates_errors_and_rejects_invalid_or_oversized_ranges() {
+        let mut book = Workbook::new();
+        let sheet = 1;
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        book.set_formula(sheet, a1, "=1/0").unwrap();
+        book.set_formula(sheet, b1, "=SUM(A1:A2)").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::DivisionByZero));
+        book.set_formula(sheet, b1, "=SUM(A1:XFD1048576)").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Number));
+        book.set_formula(sheet, b1, "=SUM(A1:)").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
     #[test]
     fn formulas_detect_cycles_and_division_by_zero() {
