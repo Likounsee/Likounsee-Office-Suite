@@ -19,8 +19,9 @@ use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
-const DOCUMENT_FORMAT_VERSION: u32 = 5;
-const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 4;
+const DOCUMENT_FORMAT_VERSION: u32 = 6;
+const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 5;
+const LEGACY_TABLE_FORMAT_VERSION: u32 = 5;
 const LEGACY_LIST_FORMAT_VERSION: u32 = 3;
 const LEGACY_STRUCTURED_FORMAT_VERSION: u32 = 2;
 const LEGACY_DOCUMENT_FORMAT_VERSION: u32 = 1;
@@ -194,7 +195,14 @@ impl Table {
         self.columns
     }
 }
-/// Editable document with stable paragraph/table IDs and a compatibility plain-text view.
+/// A reference to a block in the document's persistent reading order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DocumentBlock {
+    Paragraph(u64),
+    Table(u64),
+}
+
+/// Editable document with stable IDs and a compatibility plain-text view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     title: String,
@@ -202,6 +210,7 @@ pub struct Document {
     revision: u64,
     paragraphs: Vec<Paragraph>,
     tables: Vec<Table>,
+    block_order: Vec<DocumentBlock>,
     next_block_id: u64,
 }
 
@@ -224,6 +233,7 @@ impl Document {
                 spans: Vec::new(),
             }],
             tables: Vec::new(),
+            block_order: vec![DocumentBlock::Paragraph(1)],
             next_block_id: 2,
         })
     }
@@ -242,6 +252,10 @@ impl Document {
     }
     pub fn tables(&self) -> &[Table] {
         &self.tables
+    }
+    /// Return paragraph and table references in persistent reading order.
+    pub fn blocks(&self) -> &[DocumentBlock] {
+        &self.block_order
     }
 
     fn increment_revision(&self, next: &mut Self) -> io::Result<()> {
@@ -297,6 +311,15 @@ impl Document {
                 });
             }
         }
+        let paragraph_ids: std::collections::HashSet<u64> = paragraphs.iter().map(|p| p.id).collect();
+        next.block_order.retain(|block| match block {
+            DocumentBlock::Paragraph(id) => paragraph_ids.contains(id),
+            DocumentBlock::Table(_) => true,
+        });
+        for paragraph in &paragraphs {
+            let block = DocumentBlock::Paragraph(paragraph.id);
+            if !next.block_order.contains(&block) { next.block_order.push(block); }
+        }
         next.body = body;
         next.paragraphs = paragraphs;
         next.next_block_id = next_id;
@@ -312,10 +335,19 @@ impl Document {
         }
         let mut next = self.clone();
         self.increment_revision(&mut next)?;
+        let paragraph_ids: std::collections::HashSet<u64> = paragraphs.iter().map(|p| p.id).collect();
+        next.block_order.retain(|block| match block {
+            DocumentBlock::Paragraph(id) => paragraph_ids.contains(id),
+            DocumentBlock::Table(_) => true,
+        });
+        for paragraph in &paragraphs {
+            let block = DocumentBlock::Paragraph(paragraph.id);
+            if !next.block_order.contains(&block) { next.block_order.push(block); }
+        }
         next.body = paragraphs
             .iter()
             .map(|p| p.text.as_str())
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>()
             .join("\n");
         next.paragraphs = paragraphs;
         next.next_block_id = next_block_id;
@@ -379,6 +411,15 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
             }
         }
     }
+    let block_count = u32::try_from(document.block_order.len())
+        .map_err(|_| invalid_input("block count is not representable"))?;
+    bytes.extend_from_slice(&block_count.to_le_bytes());
+    for block in &document.block_order {
+        match block {
+            DocumentBlock::Paragraph(id) => { bytes.push(0); bytes.extend_from_slice(&id.to_le_bytes()); }
+            DocumentBlock::Table(id) => { bytes.push(1); bytes.extend_from_slice(&id.to_le_bytes()); }
+        }
+    }
     if bytes.len() > MAX_DOCUMENT_SIZE {
         return Err(invalid_input(
             "structured document exceeds the recovery-record limit",
@@ -420,7 +461,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         .map_err(|_| invalid_data("document body is not valid UTF-8"))?;
 
     let mut tables = Vec::new();
-    let (paragraphs, next_block_id) = if version == LEGACY_DOCUMENT_FORMAT_VERSION {
+    let (paragraphs, next_block_id, block_order) = if version == LEGACY_DOCUMENT_FORMAT_VERSION {
         if text_end != bytes.len() {
             return Err(invalid_data("legacy document contains trailing data"));
         }
@@ -441,7 +482,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             .ok()
             .and_then(|count| count.checked_add(1))
             .ok_or_else(|| invalid_data("legacy paragraph ID overflow"))?;
-        (paragraphs, next_id)
+        let order = paragraphs.iter().map(|p| DocumentBlock::Paragraph(p.id)).collect();
+        (paragraphs, next_id, order)
     } else {
         let mut cursor = text_end;
         let count_end = cursor
@@ -555,7 +597,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 spans,
             });
         }
-        if version >= DOCUMENT_FORMAT_VERSION {
+        if version >= LEGACY_TABLE_FORMAT_VERSION {
             let count_end = cursor
                 .checked_add(4)
                 .ok_or_else(|| invalid_data("table count overflow"))?;
@@ -647,6 +689,30 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 });
             }
         }
+        let order = if version >= DOCUMENT_FORMAT_VERSION {
+            let count_end = cursor.checked_add(4).ok_or_else(|| invalid_data("block order count overflow"))?;
+            if count_end > bytes.len() { return Err(invalid_data("truncated block order count")); }
+            let count = u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
+            cursor = count_end;
+            if count > bytes.len().saturating_sub(cursor) / 9 { return Err(invalid_data("block order count is invalid")); }
+            let mut order = Vec::with_capacity(count);
+            for _ in 0..count {
+                let end = cursor.checked_add(9).ok_or_else(|| invalid_data("block order overflow"))?;
+                if end > bytes.len() { return Err(invalid_data("truncated block order entry")); }
+                let id = u64::from_le_bytes(bytes[cursor + 1..end].try_into().unwrap());
+                let block = match bytes[cursor] {
+                    0 => DocumentBlock::Paragraph(id),
+                    1 => DocumentBlock::Table(id),
+                    _ => return Err(invalid_data("unknown block order kind")),
+                };
+                order.push(block);
+                cursor = end;
+            }
+            order
+        } else {
+            paragraphs.iter().map(|p| DocumentBlock::Paragraph(p.id))
+                .chain(tables.iter().map(|t| DocumentBlock::Table(t.id))).collect()
+        };
         if cursor != bytes.len() || next_id == 0 || ids.iter().any(|id| *id >= next_id) {
             return Err(invalid_data("paragraph metadata is inconsistent"));
         }
@@ -660,7 +726,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 "paragraphs do not match the plain-text document view",
             ));
         }
-        (paragraphs, next_id)
+        (paragraphs, next_id, order)
     };
 
     let document = Document {
@@ -669,6 +735,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         revision,
         paragraphs,
         tables,
+        block_order,
         next_block_id,
     };
     validate_document_size(&document).map_err(|_| invalid_data("document exceeds size limit"))?;
@@ -833,6 +900,19 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
     size = size
         .checked_add(4)
         .ok_or_else(|| invalid_input("table count size overflow"))?;
+    let expected_blocks = document.paragraphs.len() + document.tables.len();
+    if document.block_order.len() != expected_blocks {
+        return Err(invalid_input("block order must reference every paragraph and table exactly once"));
+    }
+    let mut ordered_ids = std::collections::HashSet::with_capacity(expected_blocks);
+    for block in &document.block_order {
+        let id = match block {
+            DocumentBlock::Paragraph(id) if document.paragraphs.iter().any(|p| p.id == *id) => *id,
+            DocumentBlock::Table(id) if document.tables.iter().any(|t| t.id == *id) => *id,
+            _ => return Err(invalid_input("block order references an unknown block")),
+        };
+        if !ordered_ids.insert(id) { return Err(invalid_input("block order contains a duplicate block")); }
+    }
     if document.next_block_id <= max_id {
         return Err(invalid_input(
             "next paragraph ID must exceed every existing ID",
@@ -988,6 +1068,7 @@ impl DocumentSession {
             rows: table_rows,
             columns,
         });
+        next.block_order.push(DocumentBlock::Table(table_id));
         next.next_block_id = next_id;
         validate_document_size(&next)?;
         self.record_change(next)?;
@@ -1237,7 +1318,15 @@ impl DocumentSession {
                 spans: Vec::new(),
             },
         );
-        let next = self.document.with_paragraphs(paragraphs, next_id)?;
+        let mut next = self.document.with_paragraphs(paragraphs, next_id)?;
+        let new_block = DocumentBlock::Paragraph(id);
+        let order_index = match after_id {
+            Some(anchor) => next.block_order.iter().position(|block| *block == DocumentBlock::Paragraph(anchor))
+                .map(|i| i + 1).ok_or_else(|| invalid_input("paragraph block position is missing"))?,
+            None => next.block_order.len(),
+        };
+        next.block_order.insert(order_index, new_block);
+        validate_document_size(&next)?;
         self.record_change(next)?;
         Ok(id)
     }
@@ -1253,9 +1342,9 @@ impl DocumentSession {
             .position(|paragraph| paragraph.id == paragraph_id)
             .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
         paragraphs.remove(index);
-        let next = self
-            .document
-            .with_paragraphs(paragraphs, self.document.next_block_id)?;
+        let mut next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        next.block_order.retain(|block| *block != DocumentBlock::Paragraph(paragraph_id));
+        validate_document_size(&next)?;
         self.record_change(next)
     }
 
@@ -1843,6 +1932,7 @@ mod tests {
         let decoded = decode_document(&bytes).unwrap();
         assert_eq!(decoded.body(), "legacy");
         assert!(decoded.tables().is_empty());
+        assert_eq!(decoded.blocks(), &[DocumentBlock::Paragraph(decoded.paragraphs()[0].id())]);
     }
 
     #[test]
