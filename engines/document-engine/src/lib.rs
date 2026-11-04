@@ -2495,9 +2495,15 @@ mod tests {
             table_id = session.insert_table(2, 2).unwrap();
             session.set_table_column_width(table_id, 0, 3600).unwrap();
             session.set_table_row_height(table_id, 1, 720).unwrap();
-            session.set_table_cell_alignment(table_id, 0, 1, CellAlignment::Center).unwrap();
-            session.set_table_cell_background(table_id, 0, 1, Some(0x12_34_56)).unwrap();
-            session.set_table_cell_borders(table_id, 0, 1, 0b0101).unwrap();
+            session
+                .set_table_cell_alignment(table_id, 0, 1, CellAlignment::Center)
+                .unwrap();
+            session
+                .set_table_cell_background(table_id, 0, 1, Some(0x12_34_56))
+                .unwrap();
+            session
+                .set_table_cell_borders(table_id, 0, 1, 0b0101)
+                .unwrap();
 
             let table = &session.document().tables()[0];
             assert_eq!(table.column_widths_twips(), &[3600, 2400]);
@@ -2515,7 +2521,10 @@ mod tests {
         assert_eq!(table.id(), table_id);
         assert_eq!(table.column_widths_twips(), &[3600, 2400]);
         assert_eq!(table.rows()[1].height_twips(), 720);
-        assert_eq!(table.rows()[0].cells()[1].alignment(), CellAlignment::Center);
+        assert_eq!(
+            table.rows()[0].cells()[1].alignment(),
+            CellAlignment::Center
+        );
         assert_eq!(table.rows()[0].cells()[1].background(), Some(0x12_34_56));
         assert_eq!(table.rows()[0].cells()[1].borders(), 0b0101);
     }
@@ -2557,9 +2566,21 @@ mod tests {
         assert!(session.set_table_column_width(table_id, 0, 99).is_err());
         assert!(session.set_table_column_width(table_id, 1, 2400).is_err());
         assert!(session.set_table_row_height(table_id, 0, 99).is_err());
-        assert!(session.set_table_cell_background(table_id, 0, 0, Some(0x01_00_00_00)).is_err());
-        assert!(session.set_table_cell_borders(table_id, 0, 0, 0x10).is_err());
-        assert!(session.set_table_cell_alignment(table_id, 1, 0, CellAlignment::Right).is_err());
+        assert!(
+            session
+                .set_table_cell_background(table_id, 0, 0, Some(0x01_00_00_00))
+                .is_err()
+        );
+        assert!(
+            session
+                .set_table_cell_borders(table_id, 0, 0, 0x10)
+                .is_err()
+        );
+        assert!(
+            session
+                .set_table_cell_alignment(table_id, 1, 0, CellAlignment::Right)
+                .is_err()
+        );
         assert_eq!(session.document(), &before);
     }
 
