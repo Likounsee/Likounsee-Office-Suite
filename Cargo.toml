@@ -9,5 +9,6 @@ repository = "https://github.com/Likounsee/Likounsee-Office-Suite"
 
 [workspace.dependencies]
 thiserror = "2"
+crc32fast = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

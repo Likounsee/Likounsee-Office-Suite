@@ -61,7 +61,7 @@ where
     temp_file.sync_all()?;
     drop(temp_file);
     replace_file(&temp_path, path)?;
-    std::mem::forget(cleanup);
+    drop(cleanup); // The temporary path no longer exists after a successful replacement.
     sync_parent_directory(parent)?;
     Ok(())
 }
