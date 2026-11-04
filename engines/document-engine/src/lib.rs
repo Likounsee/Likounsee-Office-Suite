@@ -1827,6 +1827,9 @@ impl DocumentSession {
         );
         let mut next = self.document.with_paragraphs(paragraphs, next_id)?;
         let new_block = DocumentBlock::Paragraph(id);
+        // with_paragraphs ensures every paragraph is represented; reposition
+        // the newly created block instead of retaining its temporary append.
+        next.block_order.retain(|block| *block != new_block);
         let order_index = match after_id {
             Some(anchor) => next
                 .block_order
@@ -2605,8 +2608,8 @@ mod tests {
         document.body = "legacy".to_owned();
         document.paragraphs[0].text = "legacy".to_owned();
         let mut bytes = encode_document(&document).unwrap();
-        // Remove the v5 table trailer and v6 block-order trailer.
-        bytes.truncate(bytes.len() - 17);
+        // Remove the v5 table trailer, v6 block-order trailer and v7 formatting count.
+        bytes.truncate(bytes.len() - 21);
         bytes[8..12].copy_from_slice(&4_u32.to_le_bytes());
         let decoded = decode_document(&bytes).unwrap();
         assert_eq!(decoded.body(), "legacy");
