@@ -187,7 +187,10 @@ impl RecoveryJournal {
 
     /// Return the latest valid sequence, or the base sequence for an empty journal.
     pub fn latest_sequence(&self) -> io::Result<u64> {
-        let _guard = self.gate.lock().map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
+        let _guard = self
+            .gate
+            .lock()
+            .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
         let mut file = File::open(&self.path)?;
         Ok(scan(&mut file, false)?.last_sequence)
     }
@@ -214,7 +217,10 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
     let mut header = [0_u8; FILE_HEADER_SIZE as usize];
     file.read_exact(&mut header)?;
     if &header[..8] != FILE_MAGIC {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid recovery journal header"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid recovery journal header",
+        ));
     }
 
     let base_sequence = u64::from_le_bytes(header[8..16].try_into().unwrap());
