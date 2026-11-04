@@ -312,14 +312,17 @@ impl Document {
                 });
             }
         }
-        let paragraph_ids: std::collections::HashSet<u64> = paragraphs.iter().map(|p| p.id).collect();
+        let paragraph_ids: std::collections::HashSet<u64> =
+            paragraphs.iter().map(|p| p.id).collect();
         next.block_order.retain(|block| match block {
             DocumentBlock::Paragraph(id) => paragraph_ids.contains(id),
             DocumentBlock::Table(_) => true,
         });
         for paragraph in &paragraphs {
             let block = DocumentBlock::Paragraph(paragraph.id);
-            if !next.block_order.contains(&block) { next.block_order.push(block); }
+            if !next.block_order.contains(&block) {
+                next.block_order.push(block);
+            }
         }
         next.body = body;
         next.paragraphs = paragraphs;
@@ -336,14 +339,17 @@ impl Document {
         }
         let mut next = self.clone();
         self.increment_revision(&mut next)?;
-        let paragraph_ids: std::collections::HashSet<u64> = paragraphs.iter().map(|p| p.id).collect();
+        let paragraph_ids: std::collections::HashSet<u64> =
+            paragraphs.iter().map(|p| p.id).collect();
         next.block_order.retain(|block| match block {
             DocumentBlock::Paragraph(id) => paragraph_ids.contains(id),
             DocumentBlock::Table(_) => true,
         });
         for paragraph in &paragraphs {
             let block = DocumentBlock::Paragraph(paragraph.id);
-            if !next.block_order.contains(&block) { next.block_order.push(block); }
+            if !next.block_order.contains(&block) {
+                next.block_order.push(block);
+            }
         }
         next.body = paragraphs
             .iter()
@@ -417,8 +423,14 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
     bytes.extend_from_slice(&block_count.to_le_bytes());
     for block in &document.block_order {
         match block {
-            DocumentBlock::Paragraph(id) => { bytes.push(0); bytes.extend_from_slice(&id.to_le_bytes()); }
-            DocumentBlock::Table(id) => { bytes.push(1); bytes.extend_from_slice(&id.to_le_bytes()); }
+            DocumentBlock::Paragraph(id) => {
+                bytes.push(0);
+                bytes.extend_from_slice(&id.to_le_bytes());
+            }
+            DocumentBlock::Table(id) => {
+                bytes.push(1);
+                bytes.extend_from_slice(&id.to_le_bytes());
+            }
         }
     }
     if bytes.len() > MAX_DOCUMENT_SIZE {
@@ -483,7 +495,10 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             .ok()
             .and_then(|count| count.checked_add(1))
             .ok_or_else(|| invalid_data("legacy paragraph ID overflow"))?;
-        let order = paragraphs.iter().map(|p| DocumentBlock::Paragraph(p.id)).collect();
+        let order = paragraphs
+            .iter()
+            .map(|p| DocumentBlock::Paragraph(p.id))
+            .collect();
         (paragraphs, next_id, order)
     } else {
         let mut cursor = text_end;
@@ -691,15 +706,25 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             }
         }
         let order = if version >= DOCUMENT_FORMAT_VERSION {
-            let count_end = cursor.checked_add(4).ok_or_else(|| invalid_data("block order count overflow"))?;
-            if count_end > bytes.len() { return Err(invalid_data("truncated block order count")); }
+            let count_end = cursor
+                .checked_add(4)
+                .ok_or_else(|| invalid_data("block order count overflow"))?;
+            if count_end > bytes.len() {
+                return Err(invalid_data("truncated block order count"));
+            }
             let count = u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
             cursor = count_end;
-            if count > bytes.len().saturating_sub(cursor) / 9 { return Err(invalid_data("block order count is invalid")); }
+            if count > bytes.len().saturating_sub(cursor) / 9 {
+                return Err(invalid_data("block order count is invalid"));
+            }
             let mut order = Vec::with_capacity(count);
             for _ in 0..count {
-                let end = cursor.checked_add(9).ok_or_else(|| invalid_data("block order overflow"))?;
-                if end > bytes.len() { return Err(invalid_data("truncated block order entry")); }
+                let end = cursor
+                    .checked_add(9)
+                    .ok_or_else(|| invalid_data("block order overflow"))?;
+                if end > bytes.len() {
+                    return Err(invalid_data("truncated block order entry"));
+                }
                 let id = u64::from_le_bytes(bytes[cursor + 1..end].try_into().unwrap());
                 let block = match bytes[cursor] {
                     0 => DocumentBlock::Paragraph(id),
@@ -711,8 +736,11 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             }
             order
         } else {
-            paragraphs.iter().map(|p| DocumentBlock::Paragraph(p.id))
-                .chain(tables.iter().map(|t| DocumentBlock::Table(t.id))).collect()
+            paragraphs
+                .iter()
+                .map(|p| DocumentBlock::Paragraph(p.id))
+                .chain(tables.iter().map(|t| DocumentBlock::Table(t.id)))
+                .collect()
         };
         if cursor != bytes.len() || next_id == 0 || ids.iter().any(|id| *id >= next_id) {
             return Err(invalid_data("paragraph metadata is inconsistent"));
@@ -905,7 +933,9 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
         .ok_or_else(|| invalid_input("block metadata size overflow"))?;
     let expected_blocks = document.paragraphs.len() + document.tables.len();
     if document.block_order.len() != expected_blocks {
-        return Err(invalid_input("block order must reference every paragraph and table exactly once"));
+        return Err(invalid_input(
+            "block order must reference every paragraph and table exactly once",
+        ));
     }
     let mut ordered_ids = std::collections::HashSet::with_capacity(expected_blocks);
     for block in &document.block_order {
@@ -914,7 +944,9 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             DocumentBlock::Table(id) if document.tables.iter().any(|t| t.id == *id) => *id,
             _ => return Err(invalid_input("block order references an unknown block")),
         };
-        if !ordered_ids.insert(id) { return Err(invalid_input("block order contains a duplicate block")); }
+        if !ordered_ids.insert(id) {
+            return Err(invalid_input("block order contains a duplicate block"));
+        }
     }
     if document.next_block_id <= max_id {
         return Err(invalid_input(
@@ -1083,22 +1115,39 @@ impl DocumentSession {
     pub fn insert_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
         let next_id = next.next_block_id;
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        if row_index > table.rows.len() || table.rows.len() >= 1024
-            || table.rows.len().checked_add(1).and_then(|n| n.checked_mul(table.columns))
+        if row_index > table.rows.len()
+            || table.rows.len() >= 1024
+            || table
+                .rows
+                .len()
+                .checked_add(1)
+                .and_then(|n| n.checked_mul(table.columns))
                 .is_none_or(|n| n > 65_536)
         {
-            return Err(invalid_input("table row insertion exceeds supported limits"));
+            return Err(invalid_input(
+                "table row insertion exceeds supported limits",
+            ));
         }
         let mut id = next_id;
         let row_id = id;
-        id = id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
+        id = id
+                .checked_add(1)
+                .ok_or_else(|| invalid_input("block ID space exhausted"))?;
         let mut cells = Vec::with_capacity(table.columns);
         for _ in 0..table.columns {
             let cell_id = id;
-            id = id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
-            cells.push(TableCell { id: cell_id, text: String::new() });
+            id = id
+                .checked_add(1)
+                .ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            cells.push(TableCell {
+                id: cell_id,
+                text: String::new(),
+            });
         }
         table.rows.insert(row_index, TableRow { id: row_id, cells });
         next.next_block_id = id;
@@ -1111,7 +1160,10 @@ impl DocumentSession {
     /// Remove a row by zero-based index. A table always retains at least one row.
     pub fn delete_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
         if table.rows.len() <= 1 || row_index >= table.rows.len() {
             return Err(invalid_input("cannot remove the requested table row"));
@@ -1127,18 +1179,36 @@ impl DocumentSession {
     pub fn insert_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
         let mut id = next.next_block_id;
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        if column_index > table.columns || table.columns >= 1024
-            || table.rows.len().checked_mul(table.columns + 1).is_none_or(|n| n > 65_536)
+        if column_index > table.columns
+            || table.columns >= 1024
+            || table
+                .rows
+                .len()
+                .checked_mul(table.columns + 1)
+                .is_none_or(|n| n > 65_536)
         {
-            return Err(invalid_input("table column insertion exceeds supported limits"));
+            return Err(invalid_input(
+                "table column insertion exceeds supported limits",
+            ));
         }
         let first_cell_id = id;
         for row in &mut table.rows {
             let cell_id = id;
-            id = id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
-            row.cells.insert(column_index, TableCell { id: cell_id, text: String::new() });
+            id = id
+                .checked_add(1)
+                .ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            row.cells.insert(
+                column_index,
+                TableCell {
+                    id: cell_id,
+                    text: String::new(),
+                },
+            );
         }
         table.columns += 1;
         next.next_block_id = id;
@@ -1151,7 +1221,10 @@ impl DocumentSession {
     /// Remove a column by zero-based index. A table always retains at least one column.
     pub fn delete_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
         if table.columns <= 1 || column_index >= table.columns {
             return Err(invalid_input("cannot remove the requested table column"));
@@ -1411,8 +1484,12 @@ impl DocumentSession {
         let mut next = self.document.with_paragraphs(paragraphs, next_id)?;
         let new_block = DocumentBlock::Paragraph(id);
         let order_index = match after_id {
-            Some(anchor) => next.block_order.iter().position(|block| *block == DocumentBlock::Paragraph(anchor))
-                .map(|i| i + 1).ok_or_else(|| invalid_input("paragraph block position is missing"))?,
+            Some(anchor) => next
+                .block_order
+                .iter()
+                .position(|block| *block == DocumentBlock::Paragraph(anchor))
+                .map(|i| i + 1)
+                .ok_or_else(|| invalid_input("paragraph block position is missing"))?,
             None => next.block_order.len(),
         };
         next.block_order.insert(order_index, new_block);
@@ -1432,8 +1509,11 @@ impl DocumentSession {
             .position(|paragraph| paragraph.id == paragraph_id)
             .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
         paragraphs.remove(index);
-        let mut next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
-        next.block_order.retain(|block| *block != DocumentBlock::Paragraph(paragraph_id));
+        let mut next = self
+            .document
+            .with_paragraphs(paragraphs, self.document.next_block_id)?;
+        next.block_order
+            .retain(|block| *block != DocumentBlock::Paragraph(paragraph_id));
         validate_document_size(&next)?;
         self.record_change(next)
     }
@@ -2028,11 +2108,24 @@ mod tests {
             assert_eq!(inserted_column_cell, previous_next_id);
             assert_eq!(session.document().tables()[0].rows().len(), 3);
             assert_eq!(session.document().tables()[0].columns(), 3);
-            assert_eq!(session.document().tables()[0].rows()[0].id(), original_row_id);
-            assert_eq!(session.document().tables()[0].rows()[0].cells()[0].id(), original_cell_id);
-            assert_eq!(session.document().tables()[0].rows()[1].id(), inserted_row_id);
-            assert!(session.document().tables()[0].rows().iter()
-                .all(|row| row.cells()[1].id() >= inserted_column_cell));
+            assert_eq!(
+                session.document().tables()[0].rows()[0].id(),
+                original_row_id
+            );
+            assert_eq!(
+                session.document().tables()[0].rows()[0].cells()[0].id(),
+                original_cell_id
+            );
+            assert_eq!(
+                session.document().tables()[0].rows()[1].id(),
+                inserted_row_id
+            );
+            assert!(
+                session.document().tables()[0]
+                    .rows()
+                    .iter()
+                    .all(|row| row.cells()[1].id() >= inserted_column_cell)
+            );
             session.delete_table_row(table_id, 1).unwrap();
             session.delete_table_column(table_id, 1).unwrap();
             assert_eq!(session.document().tables()[0].rows().len(), 2);
@@ -2043,7 +2136,10 @@ mod tests {
         let recovered = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(recovered.document().tables()[0].rows().len(), 2);
         assert_eq!(recovered.document().tables()[0].columns(), 2);
-        assert_eq!(recovered.document().tables()[0].rows()[0].id(), original_row_id);
+        assert_eq!(
+            recovered.document().tables()[0].rows()[0].id(),
+            original_row_id
+        );
     }
 
     #[test]
@@ -2073,7 +2169,10 @@ mod tests {
         let decoded = decode_document(&bytes).unwrap();
         assert_eq!(decoded.body(), "legacy");
         assert!(decoded.tables().is_empty());
-        assert_eq!(decoded.blocks(), &[DocumentBlock::Paragraph(decoded.paragraphs()[0].id())]);
+        assert_eq!(
+            decoded.blocks(),
+            &[DocumentBlock::Paragraph(decoded.paragraphs()[0].id())]
+        );
     }
 
     #[test]
@@ -2086,11 +2185,13 @@ mod tests {
             let mut session = DocumentSession::open(&directory.0).unwrap();
             first_id = session.document().paragraphs()[0].id();
             table_id = session.insert_table(1, 2).unwrap();
-            inserted_id = session.insert_paragraph_after(
-                Some(first_id),
-                "Paragraph between blocks",
-                ParagraphStyle::Normal,
-            ).unwrap();
+            inserted_id = session
+                .insert_paragraph_after(
+                    Some(first_id),
+                    "Paragraph between blocks",
+                    ParagraphStyle::Normal,
+                )
+                .unwrap();
             assert_eq!(
                 session.document().blocks(),
                 &[
