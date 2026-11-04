@@ -6,7 +6,8 @@ journal, checkpoint and crash-recovery loop before a rich-text GUI is introduced
 ## Current document model
 
 A document contains a UTF-8 title, a plain-text compatibility view, a monotonically
-increasing revision and an paragraph collection and a persistent ordered sequence of paragraph and table block references. Each paragraph has
+increasing revision, a paragraph collection and a persistent ordered sequence of
+paragraph and table block references. Each paragraph has
 a stable nonzero ID, UTF-8 text, a semantic style (`Normal`, `Heading1`,
 `Heading2`, `Quote` or `Code`), and list metadata.
 
@@ -26,11 +27,11 @@ features they did not contain. Version 5 adds rectangular tables with stable
 IDs for tables, rows and cells. Version 6 adds a validated block-order stream so
 paragraphs and tables can be interleaved without moving or renumbering their stable IDs. Version 7 adds persistent table column widths, row heights, cell alignment, optional RGB backgrounds and per-edge borders; older documents receive safe defaults during migration. The decoder rejects
 unknown styles, list kinds or inline marks, invalid list levels, invalid UTF-8
-boundaries, duplicate IDs, invalid or overlapping same-mark spans,
-duplicate IDs, malformed UTF-8, inconsistent lengths and payloads larger than
+boundaries, duplicate IDs, invalid or overlapping same-mark spans, malformed UTF-8,
+inconsistent lengths and payloads larger than
 the 64 MiB journal-record limit.
 
-Tables and paragraphs remain stored in type-specific collections for efficient access, while `Document::blocks()` exposes their unified persistent reading order. New paragraphs can be inserted after an existing paragraph without moving adjacent tables. The legacy plain-text compatibility view still contains paragraph text only. The session can create bounded rectangular tables (up to 1,024 rows or columns and 65,536 cells per table) edit cell text by table ID and zero-based coordinates, and insert or delete rows and columns by zero-based index. Row and column edits preserve IDs of surviving rows and cells; new cells receive fresh document-wide IDs. Tables always retain at least one row and one column, and edits that exceed dimension or cell-count limits are rejected before journaling. Column widths and fixed row heights use twips; zero row height means automatic sizing. Cell alignment supports left, center and right; backgrounds use 24-bit RGB; border bits represent top, right, bottom and left edges. Invalid dimensions, colors, widths, heights and border masks are rejected before journaling. All table text and formatting are persisted in checkpoints and recovery snapshots.
+Tables and paragraphs remain stored in type-specific collections for efficient access, while `Document::blocks()` exposes their unified persistent reading order. New paragraphs can be inserted after an existing paragraph without moving adjacent tables. The legacy plain-text compatibility view still contains paragraph text only. The session can create bounded rectangular tables (up to 1,024 rows or columns and 65,536 cells per table), edit cell text by table ID and zero-based coordinates, and insert or delete rows and columns by zero-based index. Row and column edits preserve IDs of surviving rows and cells; new cells receive fresh document-wide IDs. Tables always retain at least one row and one column, and edits that exceed dimension or cell-count limits are rejected before journaling. Column widths and fixed row heights use twips; zero row height means automatic sizing. Cell alignment supports left, center and right; backgrounds use 24-bit RGB; border bits represent top, right, bottom and left edges. Invalid dimensions, colors, widths, heights and border masks are rejected before journaling. All table text and formatting are persisted in checkpoints and recovery snapshots.
 
 The session exposes targeted UTF-8 text operations (`insert_text`,
 `delete_range` and `replace_range`) using byte offsets. It also supports
