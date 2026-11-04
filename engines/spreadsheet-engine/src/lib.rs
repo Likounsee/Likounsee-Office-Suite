@@ -824,7 +824,7 @@ mod tests {
 // -----------------------------------------------------------------------------
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use suite_common::autosave::AutosaveScheduler;
 use suite_common::checkpoint::{Checkpoint, read_checkpoint, verify_checkpoint, write_checkpoint};
 use suite_common::recovery::RecoveryJournal;
@@ -1048,10 +1048,6 @@ impl WorkbookSession {
     fn checkpoint_path(&self) -> PathBuf {
         self.directory.join(CHECKPOINT_FILE)
     }
-}
-
-fn invalid_data(message: &'static str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
 #[cfg(test)]
