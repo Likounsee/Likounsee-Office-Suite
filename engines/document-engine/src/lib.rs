@@ -19,8 +19,10 @@ use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
-const DOCUMENT_FORMAT_VERSION: u32 = 6;
-const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 5;
+const DOCUMENT_FORMAT_VERSION: u32 = 7;
+const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 6;
+const BLOCK_ORDER_FORMAT_VERSION: u32 = 6;
+const TABLE_FORMATTING_FORMAT_VERSION: u32 = 7;
 const INLINE_MARK_FORMAT_VERSION: u32 = 4;
 const LEGACY_TABLE_FORMAT_VERSION: u32 = 5;
 const LEGACY_LIST_FORMAT_VERSION: u32 = 3;
@@ -150,11 +152,35 @@ impl Paragraph {
     }
 }
 
-/// A table cell with a stable ID and UTF-8 text.
+/// Horizontal alignment used by a table cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum CellAlignment {
+    #[default]
+    Left = 0,
+    Center = 1,
+    Right = 2,
+}
+
+impl CellAlignment {
+    fn from_byte(value: u8) -> io::Result<Self> {
+        match value {
+            0 => Ok(Self::Left),
+            1 => Ok(Self::Center),
+            2 => Ok(Self::Right),
+            _ => Err(invalid_data("unknown table cell alignment")),
+        }
+    }
+}
+
+/// A table cell with stable identity, text and persistent presentation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableCell {
     id: u64,
     text: String,
+    alignment: CellAlignment,
+    background: Option<u32>,
+    borders: u8,
 }
 impl TableCell {
     pub fn id(&self) -> u64 {
@@ -163,12 +189,24 @@ impl TableCell {
     pub fn text(&self) -> &str {
         &self.text
     }
+    pub fn alignment(&self) -> CellAlignment {
+        self.alignment
+    }
+    /// Optional 24-bit RGB background color (0xRRGGBB).
+    pub fn background(&self) -> Option<u32> {
+        self.background
+    }
+    /// Border bit mask: top=1, right=2, bottom=4, left=8.
+    pub fn borders(&self) -> u8 {
+        self.borders
+    }
 }
 /// A row in a rectangular table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableRow {
     id: u64,
     cells: Vec<TableCell>,
+    height_twips: u32,
 }
 impl TableRow {
     pub fn id(&self) -> u64 {
@@ -177,6 +215,10 @@ impl TableRow {
     pub fn cells(&self) -> &[TableCell] {
         &self.cells
     }
+    /// Zero means automatic row height; otherwise the value is in twips.
+    pub fn height_twips(&self) -> u32 {
+        self.height_twips
+    }
 }
 /// A rectangular table with stable table, row and cell IDs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +226,7 @@ pub struct Table {
     id: u64,
     rows: Vec<TableRow>,
     columns: usize,
+    column_widths_twips: Vec<u32>,
 }
 impl Table {
     pub fn id(&self) -> u64 {
@@ -194,6 +237,10 @@ impl Table {
     }
     pub fn columns(&self) -> usize {
         self.columns
+    }
+    /// Column widths in twips (1/20 point).
+    pub fn column_widths_twips(&self) -> &[u32] {
+        &self.column_widths_twips
     }
 }
 /// A reference to a block in the document's persistent reading order.
