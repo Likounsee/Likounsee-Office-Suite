@@ -291,6 +291,9 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
         if paragraph.id == 0 || !ids.insert(paragraph.id) {
             return Err(invalid_input("paragraph IDs must be unique and nonzero"));
         }
+        if paragraph.text.contains('\n') {
+            return Err(invalid_input("paragraph text cannot contain line-feed characters"));
+        }
         max_id = max_id.max(paragraph.id);
         size = size.checked_add(17).and_then(|len| len.checked_add(paragraph.text.len()))
             .ok_or_else(|| invalid_input("document size overflow"))?;
@@ -749,6 +752,28 @@ mod tests {
         assert_eq!(recovered.document().paragraphs()[0].style(), ParagraphStyle::Heading2);
         assert_eq!(recovered.document().paragraphs()[1].style(), ParagraphStyle::Quote);
         assert_ne!(recovered.document().paragraphs()[1].id(), second_id);
+    }
+
+    #[test]
+    fn legacy_v1_documents_decode_into_normal_paragraphs() {
+        let title = "Old";
+        let body = "first\nsecond";
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(DOCUMENT_MAGIC);
+        bytes.extend_from_slice(&LEGACY_DOCUMENT_FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&7_u64.to_le_bytes());
+        bytes.extend_from_slice(&(title.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(title.as_bytes());
+        bytes.extend_from_slice(body.as_bytes());
+
+        let document = decode_document(&bytes).unwrap();
+        assert_eq!(document.title(), title);
+        assert_eq!(document.body(), body);
+        assert_eq!(document.revision(), 7);
+        assert_eq!(document.paragraphs().len(), 2);
+        assert_eq!(document.paragraphs()[0].style(), ParagraphStyle::Normal);
+        assert_eq!(document.paragraphs()[1].text(), "second");
     }
 
     #[test]
