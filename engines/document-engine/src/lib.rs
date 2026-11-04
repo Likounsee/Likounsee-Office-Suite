@@ -19,8 +19,9 @@ use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
 const DOCUMENT_MAGIC: &[u8; 8] = b"LOUSDOC1";
-const DOCUMENT_FORMAT_VERSION: u32 = 4;
-const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 3;
+const DOCUMENT_FORMAT_VERSION: u32 = 5;
+const PREVIOUS_DOCUMENT_FORMAT_VERSION: u32 = 4;
+const LEGACY_LIST_FORMAT_VERSION: u32 = 3;
 const LEGACY_STRUCTURED_FORMAT_VERSION: u32 = 2;
 const LEGACY_DOCUMENT_FORMAT_VERSION: u32 = 1;
 const DOCUMENT_HEADER_SIZE: usize = 32;
@@ -147,13 +148,36 @@ impl Paragraph {
     }
 }
 
-/// Editable document with stable paragraph IDs and a compatibility plain-text view.
+/// A table cell with a stable ID and UTF-8 text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableCell { id: u64, text: String }
+impl TableCell {
+    pub fn id(&self) -> u64 { self.id }
+    pub fn text(&self) -> &str { &self.text }
+}
+/// A row in a rectangular table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableRow { id: u64, cells: Vec<TableCell> }
+impl TableRow {
+    pub fn id(&self) -> u64 { self.id }
+    pub fn cells(&self) -> &[TableCell] { &self.cells }
+}
+/// A rectangular table with stable table, row and cell IDs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Table { id: u64, rows: Vec<TableRow>, columns: usize }
+impl Table {
+    pub fn id(&self) -> u64 { self.id }
+    pub fn rows(&self) -> &[TableRow] { &self.rows }
+    pub fn columns(&self) -> usize { self.columns }
+}
+/// Editable document with stable paragraph/table IDs and a compatibility plain-text view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     title: String,
     body: String,
     revision: u64,
     paragraphs: Vec<Paragraph>,
+    tables: Vec<Table>,
     next_block_id: u64,
 }
 
@@ -175,6 +199,7 @@ impl Document {
                 list_level: 0,
                 spans: Vec::new(),
             }],
+            tables: Vec::new(),
             next_block_id: 2,
         })
     }
@@ -188,9 +213,8 @@ impl Document {
     pub fn revision(&self) -> u64 {
         self.revision
     }
-    pub fn paragraphs(&self) -> &[Paragraph] {
-        &self.paragraphs
-    }
+    pub fn paragraphs(&self) -> &[Paragraph] { &self.paragraphs }
+    pub fn tables(&self) -> &[Table] { &self.tables }
 
     fn increment_revision(&self, next: &mut Self) -> io::Result<()> {
         next.revision = self
@@ -311,6 +335,22 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
             bytes.push(span.mark as u8);
         }
     }
+    let table_count = u32::try_from(document.tables.len())
+        .map_err(|_| invalid_input("table count is not representable"))?;
+    bytes.extend_from_slice(&table_count.to_le_bytes());
+    for table in &document.tables {
+        bytes.extend_from_slice(&table.id.to_le_bytes());
+        bytes.extend_from_slice(&(table.rows.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(table.columns as u32).to_le_bytes());
+        for row in &table.rows {
+            bytes.extend_from_slice(&row.id.to_le_bytes());
+            for cell in &row.cells {
+                bytes.extend_from_slice(&cell.id.to_le_bytes());
+                bytes.extend_from_slice(&(cell.text.len() as u64).to_le_bytes());
+                bytes.extend_from_slice(cell.text.as_bytes());
+            }
+        }
+    }
     if bytes.len() > MAX_DOCUMENT_SIZE {
         return Err(invalid_input(
             "structured document exceeds the recovery-record limit",
@@ -350,6 +390,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
     let body = std::str::from_utf8(&bytes[title_end..text_end])
         .map_err(|_| invalid_data("document body is not valid UTF-8"))?;
 
+    let mut tables = Vec::new();
     let (paragraphs, next_block_id) = if version == LEGACY_DOCUMENT_FORMAT_VERSION {
         if text_end != bytes.len() {
             return Err(invalid_data("legacy document contains trailing data"));
@@ -394,7 +435,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             || count > body_len.saturating_add(1)
             || count
                 > bytes.len().saturating_sub(cursor)
-                    / if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
+                    / if version >= LEGACY_LIST_FORMAT_VERSION {
                         19
                     } else {
                         17
@@ -405,7 +446,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         let mut paragraphs = Vec::with_capacity(count);
         let mut ids = std::collections::HashSet::with_capacity(count);
         for _ in 0..count {
-            let fixed_size = if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
+            let fixed_size = if version >= LEGACY_LIST_FORMAT_VERSION {
                 19
             } else {
                 17
@@ -419,7 +460,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             let id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
             let style = ParagraphStyle::from_byte(bytes[cursor + 8])?;
             let (list_kind, list_level, length_offset) =
-                if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
+                if version >= LEGACY_LIST_FORMAT_VERSION {
                     (
                         ListKind::from_byte(bytes[cursor + 9])?,
                         bytes[cursor + 10],
@@ -443,7 +484,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 .map_err(|_| invalid_data("paragraph text is not valid UTF-8"))?;
             cursor = paragraph_end;
             let mut spans = Vec::new();
-            if version == DOCUMENT_FORMAT_VERSION {
+            if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
                 let count_end = cursor
                     .checked_add(4)
                     .ok_or_else(|| invalid_data("inline span metadata overflow"))?;
@@ -486,6 +527,52 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 spans,
             });
         }
+        if version >= DOCUMENT_FORMAT_VERSION {
+            let count_end = cursor.checked_add(4).ok_or_else(|| invalid_data("table count overflow"))?;
+            if count_end > bytes.len() { return Err(invalid_data("truncated table count")); }
+            let table_count = u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
+            cursor = count_end;
+            if table_count > bytes.len().saturating_sub(cursor) / 16 { return Err(invalid_data("table count is invalid")); }
+            for _ in 0..table_count {
+                let end = cursor.checked_add(16).ok_or_else(|| invalid_data("table header overflow"))?;
+                if end > bytes.len() { return Err(invalid_data("truncated table header")); }
+                let table_id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
+                let row_count = u32::from_le_bytes(bytes[cursor + 8..cursor + 12].try_into().unwrap()) as usize;
+                let columns = u32::from_le_bytes(bytes[cursor + 12..end].try_into().unwrap()) as usize;
+                cursor = end;
+                if table_id == 0 || row_count == 0 || columns == 0 || row_count > 1024 || columns > 1024
+                    || row_count.checked_mul(columns).is_none_or(|n| n > 65_536) {
+                    return Err(invalid_data("table dimensions or ID are invalid"));
+                }
+                let mut rows = Vec::with_capacity(row_count);
+                for _ in 0..row_count {
+                    let row_end = cursor.checked_add(8).ok_or_else(|| invalid_data("row header overflow"))?;
+                    if row_end > bytes.len() { return Err(invalid_data("truncated table row")); }
+                    let row_id = u64::from_le_bytes(bytes[cursor..row_end].try_into().unwrap());
+                    cursor = row_end;
+                    let mut cells = Vec::with_capacity(columns);
+                    for _ in 0..columns {
+                        let cell_end = cursor.checked_add(16).ok_or_else(|| invalid_data("cell header overflow"))?;
+                        if cell_end > bytes.len() { return Err(invalid_data("truncated table cell")); }
+                        let cell_id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
+                        let text_len = usize::try_from(u64::from_le_bytes(bytes[cursor + 8..cell_end].try_into().unwrap()))
+                            .map_err(|_| invalid_data("cell text length overflow"))?;
+                        cursor = cell_end;
+                        let text_end = cursor.checked_add(text_len).ok_or_else(|| invalid_data("cell text length overflow"))?;
+                        if text_end > bytes.len() { return Err(invalid_data("truncated cell text")); }
+                        let text = std::str::from_utf8(&bytes[cursor..text_end])
+                            .map_err(|_| invalid_data("table cell text is not valid UTF-8"))?;
+                        cursor = text_end;
+                        if cell_id == 0 || !ids.insert(cell_id) { return Err(invalid_data("duplicate or zero block ID")); }
+                        cells.push(TableCell { id: cell_id, text: text.to_owned() });
+                    }
+                    if row_id == 0 || !ids.insert(row_id) { return Err(invalid_data("duplicate or zero block ID")); }
+                    rows.push(TableRow { id: row_id, cells });
+                }
+                if !ids.insert(table_id) { return Err(invalid_data("duplicate table ID")); }
+                tables.push(Table { id: table_id, rows, columns });
+            }
+        }
         if cursor != bytes.len() || next_id == 0 || ids.iter().any(|id| *id >= next_id) {
             return Err(invalid_data("paragraph metadata is inconsistent"));
         }
@@ -507,6 +594,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
         body: body.to_owned(),
         revision,
         paragraphs,
+        tables,
         next_block_id,
     };
     validate_document_size(&document).map_err(|_| invalid_data("document exceeds size limit"))?;
@@ -629,6 +717,29 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
             .and_then(|len| len.checked_add(paragraph.text.len()))
             .ok_or_else(|| invalid_input("document size overflow"))?;
     }
+    for table in &document.tables {
+        if table.id == 0 || !ids.insert(table.id) || table.rows.is_empty()
+            || table.columns == 0 || table.rows.len() > 1024 || table.columns > 1024
+            || table.rows.len().checked_mul(table.columns).is_none_or(|n| n > 65_536) {
+            return Err(invalid_input("table dimensions or ID are invalid"));
+        }
+        max_id = max_id.max(table.id);
+        for row in &table.rows {
+            if row.id == 0 || !ids.insert(row.id) || row.cells.len() != table.columns {
+                return Err(invalid_input("table row ID or cell count is invalid"));
+            }
+            max_id = max_id.max(row.id);
+            for cell in &row.cells {
+                if cell.id == 0 || !ids.insert(cell.id) { return Err(invalid_input("table cell ID is invalid")); }
+                max_id = max_id.max(cell.id);
+                size = size.checked_add(16).and_then(|n| n.checked_add(cell.text.len()))
+                    .ok_or_else(|| invalid_input("table size overflow"))?;
+            }
+            size = size.checked_add(8).ok_or_else(|| invalid_input("table size overflow"))?;
+        }
+        size = size.checked_add(16).ok_or_else(|| invalid_input("table size overflow"))?;
+    }
+    size = size.checked_add(4).ok_or_else(|| invalid_input("table count size overflow"))?;
     if document.next_block_id <= max_id {
         return Err(invalid_input(
             "next paragraph ID must exceed every existing ID",
@@ -744,6 +855,52 @@ impl DocumentSession {
 
     pub fn journal_had_truncated_tail(&self) -> bool {
         self.journal_had_truncated_tail
+    }
+
+    /// Insert an empty rectangular table. Returns its stable table ID.
+    pub fn insert_table(&mut self, rows: usize, columns: usize) -> io::Result<u64> {
+        if rows == 0 || columns == 0 || rows > 1024 || columns > 1024
+            || rows.checked_mul(columns).is_none_or(|n| n > 65_536) {
+            return Err(invalid_input("table dimensions exceed supported limits"));
+        }
+        let mut next_id = self.document.next_block_id;
+        let mut take_id = || -> io::Result<u64> {
+            let id = next_id;
+            next_id = next_id.checked_add(1).ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            Ok(id)
+        };
+        let table_id = take_id()?;
+        let mut table_rows = Vec::with_capacity(rows);
+        for _ in 0..rows {
+            let row_id = take_id()?;
+            let mut cells = Vec::with_capacity(columns);
+            for _ in 0..columns {
+                cells.push(TableCell { id: take_id()?, text: String::new() });
+            }
+            table_rows.push(TableRow { id: row_id, cells });
+        }
+        let mut next = self.document.clone();
+        self.document.increment_revision(&mut next)?;
+        next.tables.push(Table { id: table_id, rows: table_rows, columns });
+        next.next_block_id = next_id;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(table_id)
+    }
+
+    /// Set text in a table cell using zero-based row and column indices.
+    pub fn set_table_cell_text(
+        &mut self, table_id: u64, row_index: usize, column_index: usize, text: impl Into<String>,
+    ) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let cell = table.rows.get_mut(row_index).and_then(|row| row.cells.get_mut(column_index))
+            .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
+        cell.text = text.into();
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
     }
 
     /// Change the title and durably journal the resulting document snapshot.
@@ -1488,7 +1645,7 @@ mod tests {
         let body = "legacy list model";
         let mut bytes = Vec::new();
         bytes.extend_from_slice(DOCUMENT_MAGIC);
-        bytes.extend_from_slice(&PREVIOUS_DOCUMENT_FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&LEGACY_LIST_FORMAT_VERSION.to_le_bytes());
         bytes.extend_from_slice(&4_u64.to_le_bytes());
         bytes.extend_from_slice(&(title.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
