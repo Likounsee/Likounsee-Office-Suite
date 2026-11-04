@@ -102,8 +102,7 @@ impl RecoveryJournal {
             .checked_add(record_size)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "journal size overflow"))?;
         if new_size > MAX_JOURNAL_SIZE {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "recovery journal reached 256 MiB; create a durable checkpoint first",
             ));
         }
@@ -223,7 +222,14 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
 
         while remaining_payload > 0 {
             let chunk_len = remaining_payload.min(buffer.len());
-            file.read_exact(&mut buffer[..chunk_len])?;
+            if let Err(error) = file.read_exact(&mut buffer[..chunk_len]) {
+                if error.kind() == io::ErrorKind::UnexpectedEof {
+                    had_truncated_tail = true;
+                    remaining_payload = 0;
+                    break;
+                }
+                return Err(error);
+            }
             hasher.update(&buffer[..chunk_len]);
             if let Some(bytes) = payload.as_mut() {
                 bytes.extend_from_slice(&buffer[..chunk_len]);
@@ -231,7 +237,7 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
             remaining_payload -= chunk_len;
         }
 
-        if hasher.finalize() != expected_checksum {
+        if remaining_payload != 0 || hasher.finalize() != expected_checksum {
             had_truncated_tail = true;
             break;
         }
