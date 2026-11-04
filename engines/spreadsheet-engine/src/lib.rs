@@ -976,7 +976,8 @@ mod tests {
             ("B3", "=MAX(A1:A3)", 8.0),
             ("B4", "=COUNT(A1:A3)", 2.0),
         ] {
-            book.set_formula(1, CellAddress::parse_a1(address).unwrap(), formula).unwrap();
+            book.set_formula(1, CellAddress::parse_a1(address).unwrap(), formula)
+                .unwrap();
             assert_eq!(
                 book.value(1, CellAddress::parse_a1(address).unwrap()),
                 CellValue::Number(expected)
