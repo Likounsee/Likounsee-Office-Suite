@@ -764,7 +764,11 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                     if row_id == 0 || !ids.insert(row_id) {
                         return Err(invalid_data("duplicate or zero block ID"));
                     }
-                    rows.push(TableRow { id: row_id, cells, height_twips: 0 });
+                    rows.push(TableRow {
+                        id: row_id,
+                        cells,
+                        height_twips: 0,
+                    });
                 }
                 if !ids.insert(table_id) {
                     return Err(invalid_data("duplicate table ID"));
@@ -860,8 +864,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                         return Err(invalid_data("truncated row formatting"));
                     }
                     let row_id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
-                    let height =
-                        u32::from_le_bytes(bytes[cursor + 8..row_end].try_into().unwrap());
+                    let height = u32::from_le_bytes(bytes[cursor + 8..row_end].try_into().unwrap());
                     cursor = row_end;
                     if row_id != row.id || (height != 0 && !(100..=100_000).contains(&height)) {
                         return Err(invalid_data("table row formatting is invalid"));
@@ -877,9 +880,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                         let cell_id =
                             u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
                         let alignment = CellAlignment::from_byte(bytes[cursor + 8])?;
-                        let background = u32::from_le_bytes(
-                            bytes[cursor + 9..cursor + 13].try_into().unwrap(),
-                        );
+                        let background =
+                            u32::from_le_bytes(bytes[cursor + 9..cursor + 13].try_into().unwrap());
                         let borders = bytes[cursor + 13];
                         cursor = end;
                         if cell_id != cell.id
@@ -1042,7 +1044,10 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
     }
     for table in &document.tables {
         if table.column_widths_twips.len() != table.columns
-            || table.column_widths_twips.iter().any(|width| !(100..=100_000).contains(width))
+            || table
+                .column_widths_twips
+                .iter()
+                .any(|width| !(100..=100_000).contains(width))
             || table.id == 0
             || !ids.insert(table.id)
             || table.rows.is_empty()
@@ -1097,7 +1102,14 @@ fn validate_document_size(document: &Document) -> io::Result<()> {
         let table_format_bytes = table
             .columns
             .checked_mul(4)
-            .and_then(|n| table.rows.len().checked_mul(table.columns)?.checked_mul(14)?.checked_add(n))
+            .and_then(|n| {
+                table
+                    .rows
+                    .len()
+                    .checked_mul(table.columns)?
+                    .checked_mul(14)?
+                    .checked_add(n)
+            })
             .and_then(|n| table.rows.len().checked_mul(12)?.checked_add(n))
             .and_then(|n| n.checked_add(8))
             .ok_or_else(|| invalid_input("table formatting size overflow"))?;
@@ -1271,7 +1283,11 @@ impl DocumentSession {
                     borders: 0x0f,
                 });
             }
-            table_rows.push(TableRow { id: row_id, cells, height_twips: 0 });
+            table_rows.push(TableRow {
+                        id: row_id,
+                        cells,
+                        height_twips: 0,
+                    });
         }
         let mut next = self.document.clone();
         self.document.increment_revision(&mut next)?;
@@ -1332,7 +1348,11 @@ impl DocumentSession {
         }
         table.rows.insert(
             row_index,
-            TableRow { id: row_id, cells, height_twips: 0 },
+            TableRow {
+                id: row_id,
+                cells,
+                height_twips: 0,
+            },
         );
         next.next_block_id = id;
         self.document.increment_revision(&mut next)?;
@@ -1438,9 +1458,14 @@ impl DocumentSession {
             return Err(invalid_input("table column width is out of range"));
         }
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let width = table.column_widths_twips.get_mut(column_index)
+        let width = table
+            .column_widths_twips
+            .get_mut(column_index)
             .ok_or_else(|| invalid_input("table column index is out of range"))?;
         *width = width_twips;
         self.document.increment_revision(&mut next)?;
@@ -1459,9 +1484,14 @@ impl DocumentSession {
             return Err(invalid_input("table row height is out of range"));
         }
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let row = table.rows.get_mut(row_index)
+        let row = table
+            .rows
+            .get_mut(row_index)
             .ok_or_else(|| invalid_input("table row index is out of range"))?;
         row.height_twips = height_twips;
         self.document.increment_revision(&mut next)?;
@@ -1478,9 +1508,14 @@ impl DocumentSession {
         alignment: CellAlignment,
     ) -> io::Result<u64> {
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let cell = table.rows.get_mut(row_index)
+        let cell = table
+            .rows
+            .get_mut(row_index)
             .and_then(|row| row.cells.get_mut(column_index))
             .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
         cell.alignment = alignment;
@@ -1498,12 +1533,19 @@ impl DocumentSession {
         background: Option<u32>,
     ) -> io::Result<u64> {
         if background.is_some_and(|color| color > 0x00ff_ffff) {
-            return Err(invalid_input("table cell background must be a 24-bit RGB color"));
+            return Err(invalid_input(
+                "table cell background must be a 24-bit RGB color",
+            ));
         }
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let cell = table.rows.get_mut(row_index)
+        let cell = table
+            .rows
+            .get_mut(row_index)
             .and_then(|row| row.cells.get_mut(column_index))
             .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
         cell.background = background;
@@ -1524,9 +1566,14 @@ impl DocumentSession {
             return Err(invalid_input("table cell border mask is invalid"));
         }
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let cell = table.rows.get_mut(row_index)
+        let cell = table
+            .rows
+            .get_mut(row_index)
             .and_then(|row| row.cells.get_mut(column_index))
             .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
         cell.borders = borders;
