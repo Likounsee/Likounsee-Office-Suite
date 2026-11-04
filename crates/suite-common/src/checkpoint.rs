@@ -182,7 +182,10 @@ mod tests {
         let checkpoint = Checkpoint::new(1, b"document".to_vec());
         let mut encoded = encode(&checkpoint).unwrap();
         *encoded.last_mut().unwrap() ^= 0x80;
-        assert_eq!(decode(&encoded).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            decode(&encoded).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
@@ -210,7 +213,10 @@ mod tests {
 
         write_checkpoint(&filesystem, &path, &checkpoint).unwrap();
 
-        assert_eq!(verify_checkpoint(&filesystem, &path, 7).unwrap(), checkpoint);
+        assert_eq!(
+            verify_checkpoint(&filesystem, &path, 7).unwrap(),
+            checkpoint
+        );
         assert_eq!(
             verify_checkpoint(&filesystem, &path, 8).unwrap_err().kind(),
             io::ErrorKind::InvalidData
@@ -224,7 +230,12 @@ mod tests {
         fs::write(&path, b"previous checkpoint").unwrap();
         let oversized = Checkpoint::new(2, vec![0; MAX_CHECKPOINT_PAYLOAD + 1]);
 
-        assert_eq!(write_checkpoint(&LocalFileSystem, &path, &oversized).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            write_checkpoint(&LocalFileSystem, &path, &oversized)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
         assert_eq!(fs::read(path).unwrap(), b"previous checkpoint");
     }
 }
