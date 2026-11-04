@@ -15,17 +15,21 @@ from zero through eight. A paragraph without list semantics must have level zero
 The engine stores these semantics; numbering continuity, marker generation and
 visual indentation are responsibilities of later layout and UI layers.
 
-The versioned binary format (`LOUSDOC1`, v4) persists block IDs, paragraph
-styles, list kinds, nesting levels, inline formatting ranges and the next-ID
+The versioned binary format (`LOUSDOC1`, v5) persists paragraph IDs, table/row/cell IDs, paragraph
+styles, list kinds, nesting levels, inline formatting ranges, table dimensions and the next-ID
 counter. Inline marks support bold, italic and underline as independently
 addressable UTF-8 byte ranges; overlapping marks of different kinds are allowed,
 while ranges of the same kind are canonicalized. Version 1 documents migrate to
-normal paragraphs, version 2 adds paragraph styles, and version 3 adds list
-metadata; all older formats migrate with no inline marks. The decoder rejects
+normal paragraphs, version 2 adds paragraph styles, version 3 adds list
+metadata, and version 4 adds inline marks; older formats migrate without the
+features they did not contain. Version 5 adds rectangular tables with stable
+IDs for tables, rows and cells. The decoder rejects
 unknown styles, list kinds or inline marks, invalid list levels, invalid UTF-8
 boundaries, duplicate IDs, invalid or overlapping same-mark spans,
 duplicate IDs, malformed UTF-8, inconsistent lengths and payloads larger than
 the 64 MiB journal-record limit.
+
+Tables are stored as a separate collection alongside the paragraph stream at this stage; they are not yet interleaved into a single ordered block sequence or included in the compatibility plain-text view. The session can create bounded rectangular tables (up to 1,024 rows or columns and 65,536 cells per table) and edit cell text by table ID and zero-based coordinates. Table cell text is UTF-8 and is persisted in checkpoints and recovery snapshots.
 
 The session exposes targeted UTF-8 text operations (`insert_text`,
 `delete_range` and `replace_range`) using byte offsets. It also supports
@@ -72,8 +76,8 @@ partially truncated journal header.
 
 ## Current limitations
 
-- Tables,
-  images, page layout and rendered list numbering are not implemented.
+- Tables are persisted and editable in the engine, but block ordering/interleaving, table formatting, row/column insertion/deletion and GUI rendering are not implemented.
+- Images, page layout and rendered list numbering are not implemented.
 - A single encoded document snapshot must fit within the journal record limit
   (64 MiB), so the current model caps total encoded document size below 64 MiB.
 - Every edit writes a complete document snapshot to the journal; this is
