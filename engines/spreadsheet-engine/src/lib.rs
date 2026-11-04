@@ -987,6 +987,8 @@ mod tests {
         assert_eq!(book.value(summary, b1), CellValue::Number(28.5));
         book.set_number(data, CellAddress::parse_a1("A2").unwrap(), 4.0)
             .unwrap();
+        book.set_number(sales, CellAddress::parse_a1("A2").unwrap(), 0.0)
+            .unwrap();
         book.set_formula(summary, b1, "=SUM(Data2026!A1:A2)")
             .unwrap();
         assert_eq!(book.value(summary, b1), CellValue::Number(24.0));
