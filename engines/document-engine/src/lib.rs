@@ -1667,6 +1667,65 @@ mod tests {
     }
 
     #[test]
+    fn tables_round_trip_and_survive_journal_recovery() {
+        let directory = TestDirectory::new();
+        let table_id;
+        let cell_id;
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            table_id = session.insert_table(2, 3).unwrap();
+            session.set_table_cell_text(table_id, 0, 0, "Nom").unwrap();
+            session.set_table_cell_text(table_id, 0, 1, "Valeur").unwrap();
+            session.set_table_cell_text(table_id, 1, 0, "Élément 🧪").unwrap();
+            let table = &session.document().tables()[0];
+            cell_id = table.rows()[0].cells()[0].id();
+            assert_eq!(table.columns(), 3);
+            assert_eq!(table.rows().len(), 2);
+            assert_eq!(table.rows()[1].cells()[0].text(), "Élément 🧪");
+            let encoded = encode_document(session.document()).unwrap();
+            assert_eq!(decode_document(&encoded).unwrap(), *session.document());
+        }
+
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        let table = &recovered.document().tables()[0];
+        assert_eq!(table.id(), table_id);
+        assert_eq!(table.rows()[0].cells()[0].id(), cell_id);
+        assert_eq!(table.rows()[0].cells()[0].text(), "Nom");
+        assert_eq!(table.rows()[0].cells()[1].text(), "Valeur");
+        assert_eq!(table.rows()[1].cells()[0].text(), "Élément 🧪");
+    }
+
+    #[test]
+    fn invalid_table_dimensions_and_cell_coordinates_do_not_mutate_document() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let before = session.document().clone();
+        assert!(session.insert_table(0, 2).is_err());
+        assert!(session.insert_table(1025, 1).is_err());
+        assert_eq!(session.document(), &before);
+
+        let table_id = session.insert_table(1, 1).unwrap();
+        let before_invalid_cell = session.document().clone();
+        assert!(session.set_table_cell_text(table_id, 1, 0, "bad").is_err());
+        assert!(session.set_table_cell_text(table_id, 0, 1, "bad").is_err());
+        assert_eq!(session.document(), &before_invalid_cell);
+    }
+
+    #[test]
+    fn version_four_documents_decode_without_tables() {
+        let mut document = Document::new("Version four").unwrap();
+        document.body = "legacy".to_owned();
+        document.paragraphs[0].text = "legacy".to_owned();
+        let mut bytes = encode_document(&document).unwrap();
+        // Remove the v5 table-count trailer and mark the payload as v4.
+        bytes.truncate(bytes.len() - 4);
+        bytes[8..12].copy_from_slice(&PREVIOUS_DOCUMENT_FORMAT_VERSION.to_le_bytes());
+        let decoded = decode_document(&bytes).unwrap();
+        assert_eq!(decoded.body(), "legacy");
+        assert!(decoded.tables().is_empty());
+    }
+
+    #[test]
     fn failed_edit_does_not_change_in_memory_document() {
         let mut document = Document::new("Title").unwrap();
         document.revision = u64::MAX;
