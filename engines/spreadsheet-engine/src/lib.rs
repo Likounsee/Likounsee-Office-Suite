@@ -557,7 +557,10 @@ impl<'a> Parser<'a> {
             Some(name.to_owned())
         } else {
             let name_start = self.cursor;
-            while matches!(self.peek(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_')) {
+            while matches!(
+                self.peek(),
+                Some(b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_')
+            ) {
                 self.cursor += 1;
             }
             if self.peek() == Some(b'!') {
@@ -656,10 +659,7 @@ impl<'a> Parser<'a> {
         for row in min_row..=max_row {
             for column in min_column..=max_column {
                 let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
-                match self
-                    .workbook
-                    .evaluate(sheet_id, address, self.visiting)
-                {
+                match self.workbook.evaluate(sheet_id, address, self.visiting) {
                     CellValue::Number(value) => values.push(value),
                     CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                     CellValue::Error(error) => return Err(error),
