@@ -422,7 +422,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn replay_rejects_a_record_with_a_truncated_payload() {
         let path = TestJournal::new();
