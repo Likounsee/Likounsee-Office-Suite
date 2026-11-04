@@ -83,10 +83,7 @@ impl RecoveryJournal {
             .gate
             .lock()
             .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&self.path)?;
+        let mut file = OpenOptions::new().read(true).write(true).open(&self.path)?;
         let replay = scan(&mut file)?;
 
         file.set_len(replay.valid_bytes)?;
@@ -210,7 +207,10 @@ fn scan(file: &mut File) -> io::Result<JournalReplay> {
 
 #[cfg(unix)]
 fn sync_parent_directory(path: &Path) -> io::Result<()> {
-    let parent = path.parent().filter(|value| !value.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|value| !value.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     File::open(parent)?.sync_all()
 }
 
@@ -239,10 +239,8 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let dir = std::env::temp_dir().join(format!(
-                "likounsee-journal-{}-{nonce}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("likounsee-journal-{}-{nonce}", std::process::id()));
             fs::create_dir_all(&dir).unwrap();
             Self(dir.join("recovery.journal"))
         }

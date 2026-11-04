@@ -25,13 +25,25 @@ pub trait FileSystem: Send + Sync {
 pub struct LocalFileSystem;
 
 impl FileSystem for LocalFileSystem {
-    fn read(&self, path: &Path) -> io::Result<Vec<u8>> { fs::read(path) }
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        fs::read(path)
+    }
+
     fn write_atomic(&self, path: &Path, contents: &[u8]) -> io::Result<()> {
         write_atomic(path, contents)
     }
-    fn create_dir_all(&self, path: &Path) -> io::Result<()> { fs::create_dir_all(path) }
-    fn remove_file(&self, path: &Path) -> io::Result<()> { fs::remove_file(path) }
-    fn exists(&self, path: &Path) -> bool { path.exists() }
+
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        fs::create_dir_all(path)
+    }
+
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        fs::remove_file(path)
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
 }
 
 /// Write a complete replacement without truncating the previous file first.
@@ -54,6 +66,7 @@ where
     let file_name = path.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "destination must name a file")
     })?;
+
     let existing_permissions = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             return Err(io::Error::new(
@@ -94,26 +107,40 @@ fn destination_parent(path: &Path) -> io::Result<&Path> {
     }
 }
 
-fn create_temporary_file(parent: &Path, file_name: &std::ffi::OsStr) -> io::Result<(PathBuf, File)> {
+fn create_temporary_file(
+    parent: &Path,
+    file_name: &std::ffi::OsStr,
+) -> io::Result<(PathBuf, File)> {
     for _ in 0..128 {
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let mut temp_name = std::ffi::OsString::from(".");
         temp_name.push(file_name);
         temp_name.push(format!(".likounsee-tmp-{}-{sequence}", std::process::id()));
         let temp_path = parent.join(temp_name);
-        match OpenOptions::new().write(true).create_new(true).open(&temp_path) {
+
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
             Ok(file) => return Ok((temp_path, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
     }
-    Err(io::Error::new(io::ErrorKind::AlreadyExists,
-        "could not allocate a unique temporary file after 128 attempts"))
+
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate a unique temporary file after 128 attempts",
+    ))
 }
 
 struct TempFileCleanup(PathBuf);
+
 impl Drop for TempFileCleanup {
-    fn drop(&mut self) { let _ = fs::remove_file(&self.0); }
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 #[cfg(unix)]
@@ -125,15 +152,29 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
-        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
     };
+
     let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
-    let destination: Vec<u16> = destination.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
     let result = unsafe {
-        MoveFileExW(source.as_ptr(), destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
     };
-    if result == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -147,7 +188,9 @@ fn sync_parent_directory(parent: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> io::Result<()> { Ok(()) }
+fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -155,19 +198,30 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TestDirectory(PathBuf);
+
     impl TestDirectory {
         fn new() -> Self {
-            let nonce = SystemTime::now().duration_since(UNIX_EPOCH)
-                .expect("clock must be after epoch").as_nanos();
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock must be after epoch")
+                .as_nanos();
             let path = std::env::temp_dir().join(format!(
-                "likounsee-office-storage-{}-{nonce}", std::process::id()));
+                "likounsee-office-storage-{}-{nonce}",
+                std::process::id()
+            ));
             fs::create_dir_all(&path).expect("test directory should be created");
             Self(path)
         }
-        fn file(&self, name: &str) -> PathBuf { self.0.join(name) }
+
+        fn file(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
     }
+
     impl Drop for TestDirectory {
-        fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]
@@ -198,7 +252,8 @@ mod tests {
         });
         assert!(result.is_err());
         assert_eq!(fs::read(&target).unwrap(), b"old valid content");
-        let leftovers: Vec<_> = fs::read_dir(&dir.0).unwrap()
+        let leftovers: Vec<_> = fs::read_dir(&dir.0)
+            .unwrap()
             .map(|entry| entry.unwrap().file_name())
             .filter(|name| name.to_string_lossy().contains(".likounsee-tmp-"))
             .collect();
@@ -217,7 +272,10 @@ mod tests {
 
         write_atomic(&target, b"updated").unwrap();
 
-        assert_eq!(fs::metadata(target).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[cfg(unix)]
