@@ -395,6 +395,7 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
     if version != DOCUMENT_FORMAT_VERSION
         && version != PREVIOUS_DOCUMENT_FORMAT_VERSION
+        && version != LEGACY_LIST_FORMAT_VERSION
         && version != LEGACY_STRUCTURED_FORMAT_VERSION
         && version != LEGACY_DOCUMENT_FORMAT_VERSION
     {
