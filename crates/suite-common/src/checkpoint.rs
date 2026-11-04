@@ -191,10 +191,16 @@ mod tests {
     #[test]
     fn rejects_truncated_and_trailing_data() {
         let encoded = encode(&Checkpoint::new(1, b"abc".to_vec())).unwrap();
-        assert_eq!(decode(&encoded[..encoded.len() - 1]).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            decode(&encoded[..encoded.len() - 1]).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         let mut trailing = encoded;
         trailing.push(0);
-        assert_eq!(decode(&trailing).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            decode(&trailing).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
