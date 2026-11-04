@@ -485,7 +485,8 @@ impl<'a> Parser<'a> {
         ) && self.peek() == Some(b'(')
         {
             self.cursor += 1;
-            return self.aggregate_arguments(identifier);
+            let function = identifier.to_ascii_uppercase();
+            return self.aggregate_arguments(&function);
         }
         if self.peek() == Some(b'!') {
             self.cursor += 1;
