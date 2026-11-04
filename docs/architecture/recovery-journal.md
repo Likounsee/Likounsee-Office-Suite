@@ -9,7 +9,7 @@ recovery records.
 - Each record: sequence number (u64 LE), payload length (u32 LE), CRC-32 (u32 LE),
   then payload bytes.
 - Individual payloads are limited to 64 MiB.
-- Every append calls sync_data before returning.
+- Every append calls sync_data before returning. Initial journal creation also synchronizes the containing directory on Unix.
 
 ## Recovery behavior
 

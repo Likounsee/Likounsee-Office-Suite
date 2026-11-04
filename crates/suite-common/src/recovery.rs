@@ -52,6 +52,7 @@ impl RecoveryJournal {
         if file.metadata()?.len() == 0 {
             file.write_all(FILE_MAGIC)?;
             file.sync_all()?;
+            sync_parent_directory(&path)?;
         } else {
             let mut magic = [0_u8; 8];
             file.read_exact(&mut magic)?;
@@ -207,6 +208,17 @@ fn scan(file: &mut File) -> io::Result<JournalReplay> {
     })
 }
 
+#[cfg(unix)]
+fn sync_parent_directory(path: &Path) -> io::Result<()> {
+    let parent = path.parent().filter(|value| !value.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    File::open(parent)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 fn checksum(payload: &[u8]) -> u32 {
     let mut hasher = Hasher::new();
     hasher.update(payload);
@@ -311,6 +323,38 @@ mod tests {
         assert!(!replay.had_truncated_tail);
         assert_eq!(replay.records.len(), 2);
         assert_eq!(replay.records[1].payload, b"second");
+    }
+
+    #[test]
+    fn checksum_failure_preserves_earlier_records() {
+        let path = TestJournal::new();
+        let journal = RecoveryJournal::open(&path.0).unwrap();
+        journal.append(b"good record").unwrap();
+        journal.append(b"damaged record").unwrap();
+        drop(journal);
+
+        let mut bytes = fs::read(&path.0).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xFF;
+        fs::write(&path.0, bytes).unwrap();
+
+        let journal = RecoveryJournal::open(&path.0).unwrap();
+        let replay = journal.replay().unwrap();
+        assert!(replay.had_truncated_tail);
+        assert_eq!(replay.records.len(), 1);
+        assert_eq!(replay.records[0].payload, b"good record");
+    }
+
+    #[test]
+    fn checkpoint_reset_keeps_a_valid_empty_journal() {
+        let path = TestJournal::new();
+        let journal = RecoveryJournal::open(&path.0).unwrap();
+        journal.append(b"old snapshot").unwrap();
+        journal.reset_after_checkpoint().unwrap();
+
+        let replay = journal.replay().unwrap();
+        assert!(!replay.had_truncated_tail);
+        assert!(replay.records.is_empty());
     }
 
     #[test]
