@@ -760,15 +760,7 @@ impl DocumentSession {
 
     /// Insert UTF-8 text at a byte offset that must be a character boundary.
     pub fn insert_text(&mut self, offset: usize, text: &str) -> io::Result<u64> {
-        let mut body = self.document.body.clone();
-        if offset > body.len() || !body.is_char_boundary(offset) {
-            return Err(invalid_input(
-                "text insertion offset is not a UTF-8 character boundary",
-            ));
-        }
-        body.insert_str(offset, text);
-        let next = self.document.with_body(body)?;
-        self.record_change(next)
+        self.replace_range(offset..offset, text)
     }
 
     /// Delete a byte range whose endpoints must both be UTF-8 character boundaries.
