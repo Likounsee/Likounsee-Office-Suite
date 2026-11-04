@@ -819,7 +819,6 @@ mod tests {
     }
 }
 
-
 // -----------------------------------------------------------------------------
 // Durable workbook sessions: journal-before-memory edits, autosave and recovery.
 // -----------------------------------------------------------------------------
@@ -827,7 +826,7 @@ mod tests {
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use suite_common::autosave::AutosaveScheduler;
-use suite_common::checkpoint::{read_checkpoint, verify_checkpoint, write_checkpoint, Checkpoint};
+use suite_common::checkpoint::{Checkpoint, read_checkpoint, verify_checkpoint, write_checkpoint};
 use suite_common::recovery::RecoveryJournal;
 use suite_common::storage::{FileSystem, LocalFileSystem};
 
@@ -867,7 +866,11 @@ impl WorkbookSession {
 
         let (mut workbook, checkpoint_generation, replay) = if let Some(checkpoint) = checkpoint {
             let replay = journal.replay_after(checkpoint.journal_sequence)?;
-            (Workbook::decode(&checkpoint.payload)?, checkpoint.generation, replay)
+            (
+                Workbook::decode(&checkpoint.payload)?,
+                checkpoint.generation,
+                replay,
+            )
         } else {
             let replay = journal.replay()?;
             if replay.base_sequence != 0 {
@@ -938,25 +941,45 @@ impl WorkbookSession {
         self.record_change(next)
     }
 
-    pub fn set_number(&mut self, sheet_id: u64, address: CellAddress, value: f64) -> io::Result<()> {
+    pub fn set_number(
+        &mut self,
+        sheet_id: u64,
+        address: CellAddress,
+        value: f64,
+    ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_number(sheet_id, address, value)?;
         self.record_change(next)
     }
 
-    pub fn set_text(&mut self, sheet_id: u64, address: CellAddress, value: impl Into<String>) -> io::Result<()> {
+    pub fn set_text(
+        &mut self,
+        sheet_id: u64,
+        address: CellAddress,
+        value: impl Into<String>,
+    ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_text(sheet_id, address, value)?;
         self.record_change(next)
     }
 
-    pub fn set_boolean(&mut self, sheet_id: u64, address: CellAddress, value: bool) -> io::Result<()> {
+    pub fn set_boolean(
+        &mut self,
+        sheet_id: u64,
+        address: CellAddress,
+        value: bool,
+    ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_boolean(sheet_id, address, value)?;
         self.record_change(next)
     }
 
-    pub fn set_formula(&mut self, sheet_id: u64, address: CellAddress, formula: impl Into<String>) -> io::Result<()> {
+    pub fn set_formula(
+        &mut self,
+        sheet_id: u64,
+        address: CellAddress,
+        formula: impl Into<String>,
+    ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_formula(sheet_id, address, formula)?;
         self.record_change(next)
@@ -964,7 +987,10 @@ impl WorkbookSession {
 
     pub fn clear_cell(&mut self, sheet_id: u64, address: CellAddress) -> io::Result<()> {
         let mut next = self.workbook.clone();
-        let sheet = next.sheets.iter().find(|sheet| sheet.id == sheet_id)
+        let sheet = next
+            .sheets
+            .iter()
+            .find(|sheet| sheet.id == sheet_id)
             .ok_or_else(|| invalid_input("unknown worksheet"))?;
         if !sheet.cells.contains_key(&address) {
             return Ok(());
@@ -1006,7 +1032,9 @@ impl WorkbookSession {
     }
 
     fn write_checkpoint_without_compaction(&mut self) -> io::Result<u64> {
-        let generation = self.checkpoint_generation.checked_add(1)
+        let generation = self
+            .checkpoint_generation
+            .checked_add(1)
             .ok_or_else(|| invalid_input("workbook checkpoint generation exhausted"))?;
         let sequence = self.journal.latest_sequence()?;
         let checkpoint = Checkpoint::new(generation, sequence, self.workbook.encode()?);
@@ -1036,7 +1064,10 @@ mod session_tests {
 
     impl TestDirectory {
         fn new() -> Self {
-            let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
             let path = std::env::temp_dir().join(format!(
                 "likounsee-spreadsheet-engine-{}-{nonce}",
                 std::process::id()
@@ -1059,12 +1090,27 @@ mod session_tests {
         {
             let mut session = WorkbookSession::open(&directory.0).unwrap();
             session.set_number(1, address, 21.0).unwrap();
-            session.set_formula(1, CellAddress::parse_a1("B1").unwrap(), "=A1*2").unwrap();
-            assert_eq!(session.workbook().value(1, CellAddress::parse_a1("B1").unwrap()), CellValue::Number(42.0));
+            session
+                .set_formula(1, CellAddress::parse_a1("B1").unwrap(), "=A1*2")
+                .unwrap();
+            assert_eq!(
+                session
+                    .workbook()
+                    .value(1, CellAddress::parse_a1("B1").unwrap()),
+                CellValue::Number(42.0)
+            );
         }
         let recovered = WorkbookSession::open(&directory.0).unwrap();
-        assert_eq!(recovered.workbook().value(1, address), CellValue::Number(21.0));
-        assert_eq!(recovered.workbook().value(1, CellAddress::parse_a1("B1").unwrap()), CellValue::Number(42.0));
+        assert_eq!(
+            recovered.workbook().value(1, address),
+            CellValue::Number(21.0)
+        );
+        assert_eq!(
+            recovered
+                .workbook()
+                .value(1, CellAddress::parse_a1("B1").unwrap()),
+            CellValue::Number(42.0)
+        );
         assert_eq!(recovered.recovered_records(), 2);
         assert!(recovered.is_dirty());
     }
@@ -1102,11 +1148,22 @@ mod session_tests {
     fn autosave_waits_for_debounce_and_writes_checkpoint() {
         let directory = TestDirectory::new();
         let mut session = WorkbookSession::open(&directory.0).unwrap();
-        session.set_text(1, CellAddress::parse_a1("A1").unwrap(), "autosaved").unwrap();
+        session
+            .set_text(1, CellAddress::parse_a1("A1").unwrap(), "autosaved")
+            .unwrap();
         assert!(!session.autosave_if_due(Instant::now()).unwrap());
-        assert!(session.autosave_if_due(Instant::now() + Duration::from_secs(3)).unwrap());
+        assert!(
+            session
+                .autosave_if_due(Instant::now() + Duration::from_secs(3))
+                .unwrap()
+        );
         let reopened = WorkbookSession::open(&directory.0).unwrap();
-        assert_eq!(reopened.workbook().value(1, CellAddress::parse_a1("A1").unwrap()), CellValue::Text("autosaved".into()));
+        assert_eq!(
+            reopened
+                .workbook()
+                .value(1, CellAddress::parse_a1("A1").unwrap()),
+            CellValue::Text("autosaved".into())
+        );
         assert_eq!(reopened.recovered_records(), 0);
     }
 
@@ -1115,7 +1172,11 @@ mod session_tests {
         let directory = TestDirectory::new();
         let mut session = WorkbookSession::open(&directory.0).unwrap();
         let before = session.journal.latest_sequence().unwrap();
-        assert!(session.set_number(999, CellAddress::parse_a1("A1").unwrap(), 1.0).is_err());
+        assert!(
+            session
+                .set_number(999, CellAddress::parse_a1("A1").unwrap(), 1.0)
+                .is_err()
+        );
         assert_eq!(session.journal.latest_sequence().unwrap(), before);
         assert!(session.workbook().sheet(999).is_none());
     }
