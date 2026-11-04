@@ -1,0 +1,9 @@
+[package]
+name = "document-editor"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+[dependencies]
+document-engine = { path = "../../engines/document-engine" }
+suite-common = { path = "../../crates/suite-common" }
+tracing.workspace = true
