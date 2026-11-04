@@ -2,7 +2,7 @@
 
 A free, open-source, local-first office suite aiming to provide a modern alternative to Microsoft Office and LibreOffice.
 
-> **Project status:** Initial Rust foundation in progress on the `foundation/initial-architecture` branch. The workspace, three app/engine boundaries, shared errors/logging, portable file storage, safer replacement writes, a checksummed recovery journal and Windows/Linux CI have been added. The actual office features are not implemented yet.
+> **Project status:** Initial Rust foundation in progress on the `foundation/initial-architecture` branch. The workspace, three app/engine boundaries, shared errors/logging, portable file storage, safer replacement writes, a checksummed recovery journal, an autosave scheduling policy and Windows/Linux CI have been added. The actual office features are not implemented yet.
 
 ## Vision
 
@@ -29,43 +29,210 @@ Email, note-taking, database management, chat, and other applications are outsid
 - **Data-loss prevention:** frequent autosave, recovery journals, safe writes, and version history are architectural priorities.
 - **Extensible:** the architecture should allow future applications and third-party extensions without expanding the initial product scope.
 
+## Applications
+
+### Document Editor
+
+Planned capabilities:
+
+- Rich text editing, paragraphs, styles, fonts, and page layout
+- Sections, headers, footers, page numbering, and tables
+- Images, shapes, lists, and tables of contents
+- Search and replace, spell checking, comments, and tracked changes
+- Print preview and PDF export
+
+Target file compatibility:
+
+- DOCX, DOC, ODT, RTF, TXT
+- PDF import/export, with editing capabilities to be defined
+
+### Spreadsheet
+
+Planned capabilities:
+
+- Workbooks, worksheets, cells, and data types
+- Formula parser and calculation engine
+- Cell references, dependency graph, and incremental recalculation
+- Circular-reference detection and spreadsheet error handling
+- Parallel calculation where safe and beneficial
+- Formatting, sorting, filtering, conditional formatting, and data validation
+- Charts and pivot tables
+- Large-workbook virtualization and memory optimization
+- Autosave, recovery, and stress-tested calculation
+
+Target file compatibility:
+
+- XLSX, XLS, ODS, CSV
+
+### Presentation
+
+Planned capabilities:
+
+- Slides, layouts, themes, and templates
+- Text, images, shapes, tables, and charts
+- Object positioning, alignment, and ordering
+- Transitions, animations, and speaker notes
+- Full-screen slideshow mode
+- Print and PDF export
+
+Target file compatibility:
+
+- PPTX, PPT, ODP
+
+Compatibility is a goal, not a guarantee that every advanced feature in every third-party file will be supported from the first release. Importers and exporters should preserve unsupported content whenever possible rather than silently discarding it.
+
 ## Technical direction
 
 The implementation language is **Rust**. Windows and Linux are first-class targets from the start. The GUI framework is deliberately undecided until a documented comparison and cross-platform proof of concept are complete.
 
-The intended architecture separates three application frontends, three independent engines, shared components, import/export adapters, and platform integration behind portable interfaces. Engines remain independent of any GUI toolkit.
+The intended architecture separates:
 
-## Saving and recovery
+- Three independent application frontends
+- Three application-specific document engines
+- Shared components for common desktop behavior
+- File-format import/export adapters
+- Platform-specific integration behind portable interfaces
 
-The initial persistence layer now includes:
+The GUI framework remains to be evaluated. The interface should be native-feeling, accessible, responsive, and consistent across the three applications.
 
-- A portable filesystem interface with a local Windows/Linux implementation.
-- Safer replacement writes using a same-directory temporary file, file synchronization and platform-specific replacement.
-- An append-only recovery journal with monotonically increasing record numbers, CRC-32 validation and detection of incomplete/corrupt tail records.
-- A thread-free autosave scheduler: save after 2 seconds of inactivity or after 15 seconds of continuous unsaved work by default.
-- Tests for replacement, simulated write failure, journal replay, torn-tail recovery and autosave deadlines.
+## Saving, recovery, and data integrity
 
-These are foundations, not a complete autosave feature. Document-specific journal serialization, checkpoint management, compaction, concurrent-process locking and filesystem-specific validation are still to be implemented. The scheduler defines when to save; the applications still need to connect it to their document models. No software can guarantee survival of every hardware or power failure.
+Preventing lost work is a core requirement, not an optional convenience.
 
-## File compatibility goals
+The planned protection system includes:
 
-- **Document Editor:** DOCX, DOC, ODT, RTF, TXT and PDF import/export.
-- **Spreadsheet:** XLSX, XLS, ODS and CSV.
-- **Presentation:** PPTX, PPT, ODP and PDF export.
+1. Frequent autosave, with a short configurable interval and saves after important operations.
+2. A recovery journal that records enough information to restore recent work.
+3. Recovery checkpoints and retained safety versions.
+4. Safe-save procedures using temporary files, validation, synchronization, and atomic replacement where the platform and filesystem support it.
+5. Recovery after application crashes, operating-system failures, and unexpected power loss, subject to the guarantees of the storage hardware and filesystem.
+6. Version history so users can restore an earlier state.
+7. Explicit handling of failed or incomplete saves; a failed autosave must not overwrite the last known-good document.
 
-Compatibility is a goal, not a claim that every advanced third-party feature is supported. Unsupported content should be preserved whenever possible.
+The implementation must not promise absolute protection against every hardware failure. It must test and document the guarantees it can actually provide.
 
-## Development and architecture
+## Filesystem and operating-system compatibility
 
-See:
-- CONTRIBUTING.md
-- docs/development/setup.md
-- docs/architecture/overview.md
-- docs/architecture/gui-framework-evaluation.md
-- docs/architecture/safe-file-storage.md
-- docs/architecture/autosave-policy.md
-- docs/architecture/recovery-journal.md
+The suite should work with filesystems exposed by the operating system, rather than implementing its own filesystem access for each format.
 
-## Current scope
+Examples of intended environments include:
 
-The three application executables are still startup stubs. Editing, calculation, presentation design, import/export, autosave scheduling and version history are not implemented. The GUI toolkit remains undecided pending the cross-platform proof of concept.
+- **Windows:** NTFS, ReFS, exFAT, FAT32, and OpenFS when an appropriate Windows driver is available.
+- **Linux:** ext4, Btrfs, XFS, F2FS, exFAT, and OpenFS when an appropriate Linux driver is available.
+
+This list is a compatibility target, not a claim that every filesystem is currently supported or offers identical guarantees.
+
+A portable filesystem abstraction should detect or account for available capabilities such as:
+
+- Durable file synchronization
+- Atomic rename/replacement behavior
+- File locking and concurrent access
+- Permissions and metadata
+- Snapshots or copy-on-write features, when available
+
+The suite must retain its own recovery journal and safe-save logic even when a filesystem offers snapshots or journaling. Filesystem-specific features may improve protection, but must remain optional enhancements.
+
+## Logging and diagnostics
+
+Each application should provide local, inspectable logs for:
+
+- Application startup and shutdown
+- File open, save, import, export, rename, and delete operations
+- Autosave and recovery events
+- Errors and failed operations
+- Relevant diagnostic information
+
+Logs should support rotation, configurable retention, and user-initiated export. They must not record document contents, passwords, or unnecessary personal information. Logs stay local by default and are not silently uploaded.
+
+### Crash reporting
+
+Crash reporting should operate only while one or more suite applications are running.
+
+- No permanent Windows service, Linux daemon, or always-on monitoring process.
+- Monitoring stops when all suite applications have closed.
+- Reports may contain technical data such as application version, stack traces, and crash metadata.
+- Reports must exclude document contents, passwords, and unnecessary personal information.
+- Sending reports requires the user's authorization.
+- If offline, reports may be queued locally for a later session, subject to the user's consent settings.
+
+Crash handlers must remain minimal and safe; not every abrupt process termination can be intercepted.
+
+## Updates, installation, and online services
+
+- Applications launch directly; no always-running launcher or maintenance service is required.
+- Update checks happen when an application starts, and can be disabled in settings.
+- An update is downloaded and installed only after user consent.
+- Updates must be integrity-checked and signed; rollback should be supported where practical.
+- The suite must remain usable if the updater is disabled or the computer is offline.
+- Installation, repair, update, and uninstallation run only when explicitly invoked.
+- Uninstallation must not silently delete user documents.
+
+There is no mandatory account, subscription, proprietary cloud, or synchronization service. Optional integrations with existing providers such as Google Drive, Dropbox, Nextcloud, and WebDAV may be considered later. They must never be required for local editing.
+
+## Additional product requirements
+
+The architecture should also leave room for:
+
+- Printing, print preview, and page setup
+- Accessibility, keyboard navigation, and screen-reader support
+- Font discovery and font substitution
+- Safe handling of malformed or malicious documents and macros
+- Search across files and document content
+- Secure scripting or macros, if introduced
+- Third-party extensions with permission boundaries
+- Collaboration features in a later phase
+- Large documents, workbooks, and presentations
+- Clean installation, repair, update, and uninstall workflows
+
+
+## Implemented technical foundations
+
+The current development branch includes:
+
+- A Cargo workspace with separate application entry points and independent engines.
+- Shared error handling and process-local logging; no permanent background service.
+- A portable filesystem interface and local Windows/Linux implementation.
+- Safer replacement writes using a same-directory temporary file, synchronization,
+  and platform-specific replacement. Existing regular-file permissions are copied;
+  symbolic-link destinations are rejected rather than silently replaced.
+- An append-only recovery journal with sequence numbers, CRC-32 validation,
+  incomplete/corrupt-tail detection, and preservation of earlier valid records.
+- A thread-free autosave scheduler: by default it requests a save after 2 seconds
+  without edits or after 15 seconds of continuous unsaved work.
+- A CI workflow intended to format, lint, test, and build on Windows and Linux.
+
+These are low-level primitives, not a completed autosave feature. Document-specific
+serialization, checkpoint orchestration, journal compaction, cross-process locking,
+filesystem-specific validation, and end-to-end crash-recovery tests remain to do.
+
+## Development roadmap
+
+The order below is a planning baseline and may change as implementation and testing reveal dependencies.
+
+1. **Technical foundations** — Rust workspace, application/engine boundaries, shared errors and logging, portable storage, safe replacement writes, recovery journal, autosave policy, GUI evaluation, CI, and Windows/Linux development setup. The initial workspace and persistence primitives now exist; validation and integration remain in progress.
+2. **Shared components** — windows, menus, themes, settings, shortcuts, clipboard, undo/redo, file dialogs, printing interfaces, and localization.
+3. **Saving and recovery infrastructure** — portable filesystem abstraction, safe writes, autosave, recovery journal, checkpoints, version history, and fault-injection tests.
+4. **Document Editor** — document model, layout, editing, rendering, and file-format adapters.
+5. **Spreadsheet** — workbook model, formula engine, dependency tracking, recalculation, rendering, and file-format adapters.
+6. **Presentation** — slide model, rendering, editing, slideshow, and file-format adapters.
+7. **Native formats and interoperability** — versioned native formats, import/export validation, and preservation of unsupported content.
+8. **Consistent user experience** — accessibility, performance, customization, and cross-application consistency.
+9. **Distribution** — Windows and Linux packaging, selectable application installation, updates, repair, and uninstall.
+10. **Stabilization** — compatibility suites, security review, performance and memory tests, crash recovery, filesystem tests, and release preparation.
+11. **Version 1.0** — first stable public release when the quality and compatibility criteria are met.
+
+## Current status and scope
+
+The repository now contains an initial Rust/Cargo scaffold. The three application executables are startup stubs, not usable office applications. The persistence crate contains reusable foundations, but no document-specific save integration or full autosave/recovery workflow exists yet. No office editing, spreadsheet calculation, presentation editing, or file-format compatibility should be considered implemented until its code, tests, and documented behavior exist.
+
+Initial release scope remains limited to Document Editor, Spreadsheet, and Presentation. Future applications may be considered after the foundations are stable.
+
+## Contributing
+
+See `CONTRIBUTING.md`, `docs/development/setup.md`, and `docs/architecture/` for the initial development and architecture guidance.
+
+Until then, proposals should focus on the three initial applications, cross-platform reliability, interoperability, privacy, and preventing data loss.
+
+## License
+
+The project intends to be free and open source. The exact license must be selected and added before the first code contributions are published.
