@@ -606,7 +606,10 @@ impl<'a> Parser<'a> {
             for column in min_column..=max_column {
                 let address =
                     CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
-                match self.workbook.evaluate(self.sheet_id, address, self.visiting) {
+                match self
+                    .workbook
+                    .evaluate(self.sheet_id, address, self.visiting)
+                {
                     CellValue::Number(value) => values.push(value),
                     CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                     CellValue::Error(error) => return Err(error),
