@@ -268,8 +268,7 @@ impl DocumentSession {
         if !self.autosave.is_dirty() && self.filesystem.exists(&self.checkpoint_path()) {
             return Ok(());
         }
-        self.write_checkpoint_without_compaction()?;
-        let sequence = self.journal.latest_sequence()?;
+        let sequence = self.write_checkpoint_without_compaction()?;
         self.journal.reset_after_checkpoint(sequence)?;
         self.autosave.mark_saved();
         self.recovered_records = 0;
@@ -277,7 +276,7 @@ impl DocumentSession {
         Ok(())
     }
 
-    fn write_checkpoint_without_compaction(&mut self) -> io::Result<()> {
+    fn write_checkpoint_without_compaction(&mut self) -> io::Result<u64> {
         let generation = self.checkpoint_generation.checked_add(1)
             .ok_or_else(|| invalid_input("checkpoint generation exhausted"))?;
         let sequence = self.journal.latest_sequence()?;
@@ -286,7 +285,7 @@ impl DocumentSession {
         write_checkpoint(&self.filesystem, &path, &checkpoint)?;
         verify_checkpoint(&self.filesystem, &path, generation)?;
         self.checkpoint_generation = generation;
-        Ok(())
+        Ok(sequence)
     }
 
     fn checkpoint_path(&self) -> PathBuf {
@@ -377,6 +376,23 @@ mod tests {
         assert_eq!(recovered.document().body(), "persisted once");
         assert_eq!(recovered.document().revision(), 1);
         assert_eq!(recovered.recovered_records(), 0);
+    }
+
+    #[test]
+    fn edits_after_checkpoint_are_not_discarded_during_recovery() {
+        let directory = TestDirectory::new();
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            assert_eq!(session.set_body("checkpoint state").unwrap(), 1);
+            assert_eq!(session.write_checkpoint_without_compaction().unwrap(), 1);
+            assert_eq!(session.set_body("newer journal state").unwrap(), 2);
+            // Simulate a crash before compaction. Only sequence 1 is in the checkpoint.
+        }
+
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.document().body(), "newer journal state");
+        assert_eq!(recovered.document().revision(), 2);
+        assert_eq!(recovered.recovered_records(), 1);
     }
 
     #[test]
