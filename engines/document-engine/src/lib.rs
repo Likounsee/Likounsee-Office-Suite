@@ -1314,8 +1314,8 @@ impl DocumentSession {
         let mut id = next_id;
         let row_id = id;
         id = id
-                .checked_add(1)
-                .ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            .checked_add(1)
+            .ok_or_else(|| invalid_input("block ID space exhausted"))?;
         let mut cells = Vec::with_capacity(table.columns);
         for _ in 0..table.columns {
             let cell_id = id;
