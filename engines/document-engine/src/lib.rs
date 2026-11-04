@@ -384,16 +384,14 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
             || count > body_len.saturating_add(1)
             || count
                 > bytes.len().saturating_sub(cursor)
-                    / if version == DOCUMENT_FORMAT_VERSION { 23 } else if version == PREVIOUS_DOCUMENT_FORMAT_VERSION { 19 } else { 17 }
+                    / if version == DOCUMENT_FORMAT_VERSION { 19 } else if version == PREVIOUS_DOCUMENT_FORMAT_VERSION { 19 } else { 17 }
         {
             return Err(invalid_data("paragraph count is invalid"));
         }
         let mut paragraphs = Vec::with_capacity(count);
         let mut ids = std::collections::HashSet::with_capacity(count);
         for _ in 0..count {
-            let fixed_size = if version == DOCUMENT_FORMAT_VERSION {
-                23
-            } else if version == PREVIOUS_DOCUMENT_FORMAT_VERSION {
+            let fixed_size = if version >= PREVIOUS_DOCUMENT_FORMAT_VERSION {
                 19
             } else {
                 17
@@ -1273,6 +1271,70 @@ mod tests {
         assert_eq!(document.body(), body);
         assert_eq!(document.paragraphs()[0].list_kind(), ListKind::None);
         assert_eq!(document.paragraphs()[0].list_level(), 0);
+    }
+
+    #[test]
+    fn inline_marks_round_trip_and_survive_recovery() {
+        let directory = TestDirectory::new();
+        let paragraph_id;
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            session.set_body("Bold and italic text").unwrap();
+            paragraph_id = session.document().paragraphs()[0].id();
+            session.set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true).unwrap();
+            session.set_inline_mark(paragraph_id, 9..16, InlineMark::Italic, true).unwrap();
+            session.set_inline_mark(paragraph_id, 0..16, InlineMark::Underline, true).unwrap();
+            session.set_inline_mark(paragraph_id, 1..3, InlineMark::Underline, false).unwrap();
+            let spans = session.document().paragraphs()[0].spans();
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Bold && span.start() == 0 && span.end() == 4));
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Italic && span.start() == 9 && span.end() == 16));
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Underline && span.start() == 0 && span.end() == 1));
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Underline && span.start() == 3 && span.end() == 16));
+            let encoded = encode_document(session.document()).unwrap();
+            assert_eq!(decode_document(&encoded).unwrap(), *session.document());
+        }
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.document().paragraphs()[0].spans().len(), 4);
+        assert_eq!(recovered.document().paragraphs()[0].id(), paragraph_id);
+    }
+
+    #[test]
+    fn inline_marks_reject_invalid_utf8_ranges_without_mutation() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("Aé🧪Z").unwrap();
+        let id = session.document().paragraphs()[0].id();
+        let before = session.document().clone();
+        assert!(session.set_inline_mark(id, 2..4, InlineMark::Bold, true).is_err());
+        assert!(session.set_inline_mark(id, 1..1, InlineMark::Italic, true).is_err());
+        assert_eq!(session.document(), &before);
+    }
+
+    #[test]
+    fn version_three_documents_decode_without_inline_spans() {
+        let title = "Previous";
+        let body = "legacy list model";
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(DOCUMENT_MAGIC);
+        bytes.extend_from_slice(&PREVIOUS_DOCUMENT_FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&4_u64.to_le_bytes());
+        bytes.extend_from_slice(&(title.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(title.as_bytes());
+        bytes.extend_from_slice(body.as_bytes());
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&2_u64.to_le_bytes());
+        bytes.extend_from_slice(&1_u64.to_le_bytes());
+        bytes.push(ParagraphStyle::Normal as u8);
+        bytes.push(ListKind::Bullet as u8);
+        bytes.push(0);
+        bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(body.as_bytes());
+
+        let document = decode_document(&bytes).unwrap();
+        assert_eq!(document.body(), body);
+        assert_eq!(document.paragraphs()[0].list_kind(), ListKind::Bullet);
+        assert!(document.paragraphs()[0].spans().is_empty());
     }
 
     #[test]
