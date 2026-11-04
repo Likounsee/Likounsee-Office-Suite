@@ -824,7 +824,9 @@ mod tests {
 
         assert!(session.insert_text(2, "x").is_err());
         assert!(session.delete_range(2..3).is_err());
-        assert!(session.replace_range(3..2, "x").is_err());
+        let reversed_start = 3;
+        let reversed_end = 2;
+        assert!(session.replace_range(reversed_start..reversed_end, "x").is_err());
         assert_eq!(session.document(), &before);
     }
 
