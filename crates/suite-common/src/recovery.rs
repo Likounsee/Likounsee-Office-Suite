@@ -141,14 +141,24 @@ impl RecoveryJournal {
 
     /// Replay only records not already included in a verified checkpoint.
     pub fn replay_after(&self, checkpoint_sequence: u64) -> io::Result<JournalReplay> {
-        let _guard = self.gate.lock().map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
+        let _guard = self
+            .gate
+            .lock()
+            .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
         let mut file = File::open(&self.path)?;
         let scan = scan(&mut file, true)?;
-        if checkpoint_sequence < scan.replay.base_sequence || checkpoint_sequence > scan.last_sequence {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "checkpoint journal sequence is outside this journal segment"));
+        if checkpoint_sequence < scan.replay.base_sequence
+            || checkpoint_sequence > scan.last_sequence
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "checkpoint journal sequence is outside this journal segment",
+            ));
         }
         let mut replay = scan.replay;
-        replay.records.retain(|record| record.sequence > checkpoint_sequence);
+        replay
+            .records
+            .retain(|record| record.sequence > checkpoint_sequence);
         Ok(replay)
     }
 
@@ -162,7 +172,10 @@ impl RecoveryJournal {
         let mut journal_file = OpenOptions::new().read(true).write(true).open(&self.path)?;
         let scan = scan(&mut journal_file, false)?;
         if covered_sequence != scan.last_sequence {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "checkpoint must cover the latest valid journal sequence"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "checkpoint must cover the latest valid journal sequence",
+            ));
         }
         journal_file.set_len(0)?;
         journal_file.seek(SeekFrom::Start(0))?;
@@ -459,7 +472,10 @@ mod tests {
         assert_eq!(journal.append(b"first").unwrap(), 1);
         assert_eq!(journal.append(b"second").unwrap(), 2);
 
-        assert_eq!(journal.reset_after_checkpoint(1).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            journal.reset_after_checkpoint(1).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
         journal.reset_after_checkpoint(2).unwrap();
         assert_eq!(journal.latest_sequence().unwrap(), 2);
         assert_eq!(journal.append(b"after checkpoint").unwrap(), 3);
