@@ -480,6 +480,25 @@ pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
             }
         }
     }
+    let formatting_table_count = u32::try_from(document.tables.len())
+        .map_err(|_| invalid_input("table formatting count is not representable"))?;
+    bytes.extend_from_slice(&formatting_table_count.to_le_bytes());
+    for table in &document.tables {
+        bytes.extend_from_slice(&table.id.to_le_bytes());
+        for width in &table.column_widths_twips {
+            bytes.extend_from_slice(&width.to_le_bytes());
+        }
+        for row in &table.rows {
+            bytes.extend_from_slice(&row.id.to_le_bytes());
+            bytes.extend_from_slice(&row.height_twips.to_le_bytes());
+            for cell in &row.cells {
+                bytes.extend_from_slice(&cell.id.to_le_bytes());
+                bytes.push(cell.alignment as u8);
+                bytes.extend_from_slice(&cell.background.unwrap_or(u32::MAX).to_le_bytes());
+                bytes.push(cell.borders);
+            }
+        }
+    }
     if bytes.len() > MAX_DOCUMENT_SIZE {
         return Err(invalid_input(
             "structured document exceeds the recovery-record limit",
