@@ -812,6 +812,87 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
                 .chain(tables.iter().map(|t| DocumentBlock::Table(t.id)))
                 .collect()
         };
+        if version >= TABLE_FORMATTING_FORMAT_VERSION {
+            let count_end = cursor
+                .checked_add(4)
+                .ok_or_else(|| invalid_data("table formatting count overflow"))?;
+            if count_end > bytes.len() {
+                return Err(invalid_data("truncated table formatting count"));
+            }
+            let formatting_count =
+                u32::from_le_bytes(bytes[cursor..count_end].try_into().unwrap()) as usize;
+            cursor = count_end;
+            if formatting_count != tables.len() {
+                return Err(invalid_data("table formatting count does not match tables"));
+            }
+            for table in &mut tables {
+                let table_end = cursor
+                    .checked_add(8)
+                    .ok_or_else(|| invalid_data("table formatting header overflow"))?;
+                if table_end > bytes.len() {
+                    return Err(invalid_data("truncated table formatting header"));
+                }
+                let table_id = u64::from_le_bytes(bytes[cursor..table_end].try_into().unwrap());
+                cursor = table_end;
+                if table_id != table.id {
+                    return Err(invalid_data("table formatting ID mismatch"));
+                }
+                for width in &mut table.column_widths_twips {
+                    let end = cursor
+                        .checked_add(4)
+                        .ok_or_else(|| invalid_data("column width overflow"))?;
+                    if end > bytes.len() {
+                        return Err(invalid_data("truncated column width"));
+                    }
+                    *width = u32::from_le_bytes(bytes[cursor..end].try_into().unwrap());
+                    if !(100..=100_000).contains(width) {
+                        return Err(invalid_data("table column width is invalid"));
+                    }
+                    cursor = end;
+                }
+                for row in &mut table.rows {
+                    let row_end = cursor
+                        .checked_add(12)
+                        .ok_or_else(|| invalid_data("row formatting overflow"))?;
+                    if row_end > bytes.len() {
+                        return Err(invalid_data("truncated row formatting"));
+                    }
+                    let row_id = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
+                    let height =
+                        u32::from_le_bytes(bytes[cursor + 8..row_end].try_into().unwrap());
+                    cursor = row_end;
+                    if row_id != row.id || (height != 0 && !(100..=100_000).contains(&height)) {
+                        return Err(invalid_data("table row formatting is invalid"));
+                    }
+                    row.height_twips = height;
+                    for cell in &mut row.cells {
+                        let end = cursor
+                            .checked_add(14)
+                            .ok_or_else(|| invalid_data("cell formatting overflow"))?;
+                        if end > bytes.len() {
+                            return Err(invalid_data("truncated cell formatting"));
+                        }
+                        let cell_id =
+                            u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
+                        let alignment = CellAlignment::from_byte(bytes[cursor + 8])?;
+                        let background = u32::from_le_bytes(
+                            bytes[cursor + 9..cursor + 13].try_into().unwrap(),
+                        );
+                        let borders = bytes[cursor + 13];
+                        cursor = end;
+                        if cell_id != cell.id
+                            || borders & !0x0f != 0
+                            || (background != u32::MAX && background > 0x00ff_ffff)
+                        {
+                            return Err(invalid_data("table cell formatting is invalid"));
+                        }
+                        cell.alignment = alignment;
+                        cell.background = (background != u32::MAX).then_some(background);
+                        cell.borders = borders;
+                    }
+                }
+            }
+        }
         if cursor != bytes.len() || next_id == 0 || ids.iter().any(|id| *id >= next_id) {
             return Err(invalid_data("paragraph metadata is inconsistent"));
         }
