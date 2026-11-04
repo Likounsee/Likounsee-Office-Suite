@@ -537,17 +537,24 @@ impl<'a> Parser<'a> {
         let mut arguments = 0usize;
         loop {
             self.whitespace();
-            let first = self.cell_address()?;
-            self.whitespace();
-            if self.peek() == Some(b':') {
-                self.cursor += 1;
-                let last = self.cell_address()?;
-                self.collect_range_values(first, last, &mut values)?;
-            } else {
-                match self.workbook.evaluate(self.sheet_id, first, self.visiting) {
-                    CellValue::Number(value) => values.push(value),
-                    CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
-                    CellValue::Error(error) => return Err(error),
+            match self.peek() {
+                Some(b'0'..=b'9' | b'.' | b'+' | b'-' | b'(') => {
+                    values.push(self.expression()?);
+                }
+                _ => {
+                    let first = self.cell_address()?;
+                    self.whitespace();
+                    if self.peek() == Some(b':') {
+                        self.cursor += 1;
+                        let last = self.cell_address()?;
+                        self.collect_range_values(first, last, &mut values)?;
+                    } else {
+                        match self.workbook.evaluate(self.sheet_id, first, self.visiting) {
+                            CellValue::Number(value) => values.push(value),
+                            CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
+                            CellValue::Error(error) => return Err(error),
+                        }
+                    }
                 }
             }
             arguments += 1;
@@ -934,10 +941,10 @@ mod tests {
         book.set_number(sheet, a2, 3.5).unwrap();
         book.set_text(sheet, a3, "ignored").unwrap();
         book.set_number(sheet, b1, 4.0).unwrap();
-        book.set_formula(sheet, c1, "=SUM(A1:A3,B1)").unwrap();
-        assert_eq!(book.value(sheet, c1), CellValue::Number(9.5));
+        book.set_formula(sheet, c1, "=SUM(A1:A3,B1,4)").unwrap();
+        assert_eq!(book.value(sheet, c1), CellValue::Number(13.5));
         book.set_number(sheet, a2, 10.0).unwrap();
-        assert_eq!(book.value(sheet, c1), CellValue::Number(16.0));
+        assert_eq!(book.value(sheet, c1), CellValue::Number(20.0));
     }
     #[test]
     fn formulas_resolve_unquoted_and_quoted_cross_sheet_references() {
