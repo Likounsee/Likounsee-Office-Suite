@@ -179,23 +179,22 @@ impl DocumentSession {
             None
         };
 
-        let (mut document, checkpoint_generation, replay) =
-            if let Some(checkpoint) = checkpoint {
+        let (mut document, checkpoint_generation, replay) = if let Some(checkpoint) = checkpoint {
                 let replay = journal.replay_after(checkpoint.journal_sequence)?;
                 (
                     decode_document(&checkpoint.payload)?,
                     checkpoint.generation,
                     replay,
                 )
-            } else {
-                let replay = journal.replay()?;
-                if replay.base_sequence != 0 {
-                    return Err(invalid_data(
-                        "journal has a checkpoint base sequence but the checkpoint is missing",
-                    ));
-                }
-                (Document::new("Untitled")?, 0, replay)
-            };
+        } else {
+            let replay = journal.replay()?;
+            if replay.base_sequence != 0 {
+                return Err(invalid_data(
+                    "journal has a checkpoint base sequence but the checkpoint is missing",
+                ));
+            }
+            (Document::new("Untitled")?, 0, replay)
+        };
 
         let recovered_records = replay.records.len();
         let journal_had_truncated_tail = replay.had_truncated_tail;
