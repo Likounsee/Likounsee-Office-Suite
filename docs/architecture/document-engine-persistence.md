@@ -51,7 +51,9 @@ partially truncated journal header.
 
 ## Current limitations
 
-- The model is plain text with whole-body replacement, not a rich-text editor.\n- A single encoded document snapshot must fit within the journal record limit\n  (64 MiB), so the current model caps total encoded document size below 64 MiB.
+- The model is plain text with whole-body replacement, not a rich-text editor.
+- A single encoded document snapshot must fit within the journal record limit
+  (64 MiB), so the current model caps total encoded document size below 64 MiB.
 - Every edit writes a complete document snapshot to the journal; this is
   intentionally simple but can amplify writes for large documents.
 - The autosave scheduler is polled by the host application; there is no
