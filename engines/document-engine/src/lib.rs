@@ -780,9 +780,19 @@ impl DocumentSession {
             intervals = remaining;
         }
         paragraph.spans.retain(|span| span.mark != mark);
-        paragraph.spans.extend(intervals.into_iter().map(|(start, end)| TextSpan { start, end, mark }));
-        paragraph.spans.sort_by_key(|span| (span.mark, span.start, span.end));
-        let next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        paragraph
+            .spans
+            .extend(
+                intervals
+                    .into_iter()
+                    .map(|(start, end)| TextSpan { start, end, mark }),
+            );
+        paragraph
+            .spans
+            .sort_by_key(|span| (span.mark, span.start, span.end));
+        let next = self
+            .document
+            .with_paragraphs(paragraphs, self.document.next_block_id)?;
         self.record_change(next)
     }
 
@@ -1281,15 +1291,31 @@ mod tests {
             let mut session = DocumentSession::open(&directory.0).unwrap();
             session.set_body("Bold and italic text").unwrap();
             paragraph_id = session.document().paragraphs()[0].id();
-            session.set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true).unwrap();
-            session.set_inline_mark(paragraph_id, 9..16, InlineMark::Italic, true).unwrap();
-            session.set_inline_mark(paragraph_id, 0..16, InlineMark::Underline, true).unwrap();
-            session.set_inline_mark(paragraph_id, 1..3, InlineMark::Underline, false).unwrap();
+            session
+                .set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true)
+                .unwrap();
+            session
+                .set_inline_mark(paragraph_id, 9..16, InlineMark::Italic, true)
+                .unwrap();
+            session
+                .set_inline_mark(paragraph_id, 0..16, InlineMark::Underline, true)
+                .unwrap();
+            session
+                .set_inline_mark(paragraph_id, 1..3, InlineMark::Underline, false)
+                .unwrap();
             let spans = session.document().paragraphs()[0].spans();
-            assert!(spans.iter().any(|span| span.mark() == InlineMark::Bold && span.start() == 0 && span.end() == 4));
-            assert!(spans.iter().any(|span| span.mark() == InlineMark::Italic && span.start() == 9 && span.end() == 16));
-            assert!(spans.iter().any(|span| span.mark() == InlineMark::Underline && span.start() == 0 && span.end() == 1));
-            assert!(spans.iter().any(|span| span.mark() == InlineMark::Underline && span.start() == 3 && span.end() == 16));
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Bold
+                && span.start() == 0
+                && span.end() == 4));
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Italic
+                && span.start() == 9
+                && span.end() == 16));
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Underline
+                && span.start() == 0
+                && span.end() == 1));
+            assert!(spans.iter().any(|span| span.mark() == InlineMark::Underline
+                && span.start() == 3
+                && span.end() == 16));
             let encoded = encode_document(session.document()).unwrap();
             assert_eq!(decode_document(&encoded).unwrap(), *session.document());
         }
@@ -1305,8 +1331,16 @@ mod tests {
         session.set_body("Aé🧪Z").unwrap();
         let id = session.document().paragraphs()[0].id();
         let before = session.document().clone();
-        assert!(session.set_inline_mark(id, 2..4, InlineMark::Bold, true).is_err());
-        assert!(session.set_inline_mark(id, 1..1, InlineMark::Italic, true).is_err());
+        assert!(
+            session
+                .set_inline_mark(id, 2..4, InlineMark::Bold, true)
+                .is_err()
+        );
+        assert!(
+            session
+                .set_inline_mark(id, 1..1, InlineMark::Italic, true)
+                .is_err()
+        );
         assert_eq!(session.document(), &before);
     }
 
