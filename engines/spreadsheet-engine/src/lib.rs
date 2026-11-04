@@ -494,12 +494,12 @@ impl<'a> Parser<'a> {
         self.cursor += 1;
         let start = self.cursor;
         while let Some(byte) = self.peek() {
-            if byte == b'\\'' {
+            if byte == 39 {
                 break;
             }
             self.cursor += 1;
         }
-        if self.peek() != Some(b'\\'') || start == self.cursor {
+        if self.peek() != Some(39) || start == self.cursor {
             return Err(FormulaError::Parse);
         }
         let sheet_name = std::str::from_utf8(&self.input[start..self.cursor])
