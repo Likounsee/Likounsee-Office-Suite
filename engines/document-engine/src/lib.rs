@@ -522,6 +522,13 @@ fn adjust_inline_spans_for_edit(
                     mark: span.mark,
                 });
             }
+            if span.start <= range.start && span.end >= range.end && replacement_len > 0 {
+                adjusted.push(TextSpan {
+                    start: range.start,
+                    end: range.start + replacement_len,
+                    mark: span.mark,
+                });
+            }
             if span.end > range.end {
                 let start = range.start + replacement_len;
                 let end = start + (span.end - range.end);
