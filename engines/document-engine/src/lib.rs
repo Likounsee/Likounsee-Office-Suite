@@ -1286,7 +1286,7 @@ mod tests {
         let body = "legacy list model";
         let mut bytes = Vec::new();
         bytes.extend_from_slice(DOCUMENT_MAGIC);
-        bytes.extend_from_slice(&PREVIOUS_DOCUMENT_FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&LEGACY_STRUCTURED_FORMAT_VERSION.to_le_bytes());
         bytes.extend_from_slice(&4_u64.to_le_bytes());
         bytes.extend_from_slice(&(title.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
