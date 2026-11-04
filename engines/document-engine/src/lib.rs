@@ -1398,6 +1398,7 @@ impl DocumentSession {
             );
         }
         table.columns += 1;
+        table.column_widths_twips.insert(column_index, 2400);
         next.next_block_id = id;
         self.document.increment_revision(&mut next)?;
         validate_document_size(&next)?;
@@ -1420,6 +1421,7 @@ impl DocumentSession {
             row.cells.remove(column_index);
         }
         table.columns -= 1;
+        table.column_widths_twips.remove(column_index);
         self.document.increment_revision(&mut next)?;
         validate_document_size(&next)?;
         self.record_change(next)
@@ -2577,6 +2579,34 @@ mod tests {
         assert_eq!(table.rows()[0].cells()[1].alignment(), CellAlignment::Center);
         assert_eq!(table.rows()[0].cells()[1].background(), Some(0x12_34_56));
         assert_eq!(table.rows()[0].cells()[1].borders(), 0b0101);
+    }
+
+    #[test]
+    fn version_six_tables_migrate_with_default_formatting() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.insert_table(1, 2).unwrap();
+        let mut bytes = encode_document(session.document()).unwrap();
+        // v7 formatting trailer: count + table ID + widths + row + cell records.
+        bytes.truncate(bytes.len() - 4 - 8 - 2 * 4 - 12 - 2 * 14);
+        bytes[8..12].copy_from_slice(&6_u32.to_le_bytes());
+        let migrated = decode_document(&bytes).unwrap();
+        let table = &migrated.tables()[0];
+        assert_eq!(table.column_widths_twips(), &[2400, 2400]);
+        assert_eq!(table.rows()[0].height_twips(), 0);
+        assert_eq!(table.rows()[0].cells()[0].alignment(), CellAlignment::Left);
+        assert_eq!(table.rows()[0].cells()[0].background(), None);
+        assert_eq!(table.rows()[0].cells()[0].borders(), 0x0f);
+    }
+
+    #[test]
+    fn truncated_table_formatting_trailer_is_rejected() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.insert_table(1, 1).unwrap();
+        let mut bytes = encode_document(session.document()).unwrap();
+        bytes.pop();
+        assert!(decode_document(&bytes).is_err());
     }
 
     #[test]
