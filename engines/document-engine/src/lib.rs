@@ -348,7 +348,7 @@ impl Document {
         next.body = paragraphs
             .iter()
             .map(|p| p.text.as_str())
-            .collect::<Vec<_>()
+            .collect::<Vec<_>>()
             .join("\n");
         next.paragraphs = paragraphs;
         next.next_block_id = next_block_id;
