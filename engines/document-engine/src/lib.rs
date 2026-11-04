@@ -826,7 +826,11 @@ mod tests {
         assert!(session.delete_range(2..3).is_err());
         let reversed_start = 3;
         let reversed_end = 2;
-        assert!(session.replace_range(reversed_start..reversed_end, "x").is_err());
+        assert!(
+            session
+                .replace_range(reversed_start..reversed_end, "x")
+                .is_err()
+        );
         assert_eq!(session.document(), &before);
     }
 
