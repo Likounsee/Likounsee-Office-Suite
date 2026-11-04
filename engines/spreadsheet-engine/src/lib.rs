@@ -902,12 +902,16 @@ mod tests {
         let b1 = CellAddress::parse_a1("B1").unwrap();
         book.set_number(data, a1, 12.0).unwrap();
         book.set_number(sales, a1, 8.5).unwrap();
-        book.set_formula(summary, b1, "=Data2026!A1+'Sales Data'!A1").unwrap();
+        book.set_formula(summary, b1, "=Data2026!A1+'Sales Data'!A1")
+            .unwrap();
         assert_eq!(book.value(summary, b1), CellValue::Number(20.5));
         book.set_number(data, a1, 20.0).unwrap();
         assert_eq!(book.value(summary, b1), CellValue::Number(28.5));
         book.set_formula(summary, b1, "=Missing!A1").unwrap();
-        assert_eq!(book.value(summary, b1), CellValue::Error(FormulaError::Reference));
+        assert_eq!(
+            book.value(summary, b1),
+            CellValue::Error(FormulaError::Reference)
+        );
     }
     #[test]
     fn sum_propagates_errors_and_rejects_invalid_or_oversized_ranges() {
