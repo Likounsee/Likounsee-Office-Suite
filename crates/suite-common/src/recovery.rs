@@ -9,7 +9,8 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-const FILE_MAGIC: &[u8; 8] = b"LOUSJNL1";
+const FILE_MAGIC: &[u8; 8] = b"LOUSJNL2";
+const FILE_HEADER_SIZE: u64 = 16;
 const RECORD_HEADER_SIZE: usize = 16;
 const MAX_RECORD_SIZE: usize = 64 * 1024 * 1024;
 const MAX_JOURNAL_SIZE: u64 = 256 * 1024 * 1024;
@@ -25,6 +26,8 @@ pub struct JournalRecord {
 /// Result of scanning a journal. Valid records before a damaged tail are kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalReplay {
+    /// Sequence covered by the checkpoint preceding this journal segment.
+    pub base_sequence: u64,
     pub records: Vec<JournalRecord>,
     pub had_truncated_tail: bool,
     pub valid_bytes: u64,
@@ -58,15 +61,16 @@ impl RecoveryJournal {
 
         if file.metadata()?.len() == 0 {
             file.write_all(FILE_MAGIC)?;
+            file.write_all(&0_u64.to_le_bytes())?;
             file.sync_all()?;
             sync_parent_directory(&path)?;
         } else {
-            let mut magic = [0_u8; 8];
-            file.read_exact(&mut magic)?;
-            if &magic != FILE_MAGIC {
+            let mut header = [0_u8; FILE_HEADER_SIZE as usize];
+            file.read_exact(&mut header)?;
+            if &header[..8] != FILE_MAGIC {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "invalid recovery journal header",
+                    "invalid recovery journal header or unsupported legacy format",
                 ));
             }
         }
@@ -135,18 +139,44 @@ impl RecoveryJournal {
         Ok(scan(&mut file, true)?.replay)
     }
 
-    /// Remove all records after a caller has safely persisted a checkpoint.
-    pub fn reset_after_checkpoint(&self) -> io::Result<()> {
+    /// Replay only records not already included in a verified checkpoint.
+    pub fn replay_after(&self, checkpoint_sequence: u64) -> io::Result<JournalReplay> {
+        let _guard = self.gate.lock().map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
+        let mut file = File::open(&self.path)?;
+        let scan = scan(&mut file, true)?;
+        if checkpoint_sequence < scan.replay.base_sequence || checkpoint_sequence > scan.last_sequence {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "checkpoint journal sequence is outside this journal segment"));
+        }
+        let mut replay = scan.replay;
+        replay.records.retain(|record| record.sequence > checkpoint_sequence);
+        Ok(replay)
+    }
+
+    /// Remove records covered by a durable checkpoint while preserving sequence continuity.
+    /// The checkpoint must cover exactly the latest valid journal sequence.
+    pub fn reset_after_checkpoint(&self, covered_sequence: u64) -> io::Result<()> {
         let _guard = self
             .gate
             .lock()
             .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&self.path)?;
-        file.write_all(FILE_MAGIC)?;
-        file.sync_all()
+        let mut journal_file = OpenOptions::new().read(true).write(true).open(&self.path)?;
+        let scan = scan(&mut journal_file, false)?;
+        if covered_sequence != scan.last_sequence {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "checkpoint must cover the latest valid journal sequence"));
+        }
+        journal_file.set_len(0)?;
+        journal_file.seek(SeekFrom::Start(0))?;
+        journal_file.write_all(FILE_MAGIC)?;
+        journal_file.write_all(&covered_sequence.to_le_bytes())?;
+        journal_file.sync_all()?;
+        sync_parent_directory(&self.path)
+    }
+
+    /// Return the latest valid sequence, or the base sequence for an empty journal.
+    pub fn latest_sequence(&self) -> io::Result<u64> {
+        let _guard = self.gate.lock().map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
+        let mut file = File::open(&self.path)?;
+        Ok(scan(&mut file, false)?.last_sequence)
     }
 
     /// Return the path used by this journal.
@@ -161,26 +191,24 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
     file.seek(SeekFrom::Start(0))?;
     let file_len = file.metadata()?.len();
 
-    if file_len < FILE_MAGIC.len() as u64 {
+    if file_len < FILE_HEADER_SIZE {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "invalid recovery journal header",
         ));
     }
 
-    let mut magic = [0_u8; 8];
-    file.read_exact(&mut magic)?;
-    if &magic != FILE_MAGIC {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid recovery journal header",
-        ));
+    let mut header = [0_u8; FILE_HEADER_SIZE as usize];
+    file.read_exact(&mut header)?;
+    if &header[..8] != FILE_MAGIC {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid recovery journal header"));
     }
 
+    let base_sequence = u64::from_le_bytes(header[8..16].try_into().unwrap());
     let scan_limit = file_len.min(MAX_JOURNAL_SIZE);
-    let mut offset = FILE_MAGIC.len() as u64;
+    let mut offset = FILE_HEADER_SIZE;
     let mut records = Vec::new();
-    let mut last_sequence = 0_u64;
+    let mut last_sequence = base_sequence;
     let mut had_truncated_tail = file_len > MAX_JOURNAL_SIZE;
 
     while offset < scan_limit {
@@ -252,6 +280,7 @@ fn scan(file: &mut File, collect_records: bool) -> io::Result<ScanResult> {
 
     Ok(ScanResult {
         replay: JournalReplay {
+            base_sequence,
             records,
             had_truncated_tail,
             valid_bytes: offset,
@@ -403,11 +432,42 @@ mod tests {
         let path = TestJournal::new();
         let journal = RecoveryJournal::open(&path.0).unwrap();
         journal.append(b"old snapshot").unwrap();
-        journal.reset_after_checkpoint().unwrap();
+        journal.reset_after_checkpoint(1).unwrap()
 
         let replay = journal.replay().unwrap();
         assert!(!replay.had_truncated_tail);
         assert!(replay.records.is_empty());
+    }
+
+    #[test]
+    fn checkpoint_sequence_filters_old_records_even_before_journal_reset() {
+        let path = TestJournal::new();
+        let journal = RecoveryJournal::open(&path.0).unwrap();
+        assert_eq!(journal.append(b"included in checkpoint").unwrap(), 1);
+        assert_eq!(journal.append(b"not included").unwrap(), 2);
+
+        let replay = journal.replay_after(1).unwrap();
+        assert_eq!(replay.records.len(), 1);
+        assert_eq!(replay.records[0].sequence, 2);
+        assert_eq!(replay.records[0].payload, b"not included");
+    }
+
+    #[test]
+    fn reset_preserves_sequence_and_rejects_stale_checkpoint() {
+        let path = TestJournal::new();
+        let journal = RecoveryJournal::open(&path.0).unwrap();
+        assert_eq!(journal.append(b"first").unwrap(), 1);
+        assert_eq!(journal.append(b"second").unwrap(), 2);
+
+        assert_eq!(journal.reset_after_checkpoint(1).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        journal.reset_after_checkpoint(2).unwrap();
+        assert_eq!(journal.latest_sequence().unwrap(), 2);
+        assert_eq!(journal.append(b"after checkpoint").unwrap(), 3);
+
+        let replay = journal.replay().unwrap();
+        assert_eq!(replay.base_sequence, 2);
+        assert_eq!(replay.records[0].sequence, 3);
+        assert_eq!(journal.replay_after(2).unwrap().records.len(), 1);
     }
 
     #[test]
@@ -437,7 +497,7 @@ mod tests {
         let replay = journal.replay().unwrap();
         assert!(replay.had_truncated_tail);
         assert!(replay.records.is_empty());
-        assert_eq!(replay.valid_bytes, FILE_MAGIC.len() as u64);
+        assert_eq!(replay.valid_bytes, FILE_HEADER_SIZE);
     }
 
     #[test]
@@ -453,7 +513,7 @@ mod tests {
         let replay = journal.replay().unwrap();
         assert!(replay.had_truncated_tail);
         assert!(replay.records.is_empty());
-        assert_eq!(replay.valid_bytes, FILE_MAGIC.len() as u64);
+        assert_eq!(replay.valid_bytes, FILE_HEADER_SIZE);
     }
 
     #[test]
