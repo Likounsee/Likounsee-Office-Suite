@@ -3,7 +3,7 @@
 //! The engine deliberately owns no GUI state. Cell coordinates are zero-based
 //! internally; public A1 helpers use the familiar spreadsheet notation.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 
 const WORKBOOK_MAGIC: &[u8; 8] = b"LOUSXLS1";
@@ -315,38 +315,62 @@ impl Workbook {
     }
     /// Evaluate a cell and all formula dependencies. Results are computed on demand,
     /// so edits cannot leave stale cached values behind.
-    pub fn value(&self, sheet_id: u64, address: CellAddress) -> CellValue {
+    /// Evaluate several cells while sharing a per-call cache of dependency results.
+    /// Results preserve the input order, including duplicate addresses.
+    pub fn values(&self, cells: &[(u64, CellAddress)]) -> Vec<CellValue> {
         let mut visiting = HashSet::new();
-        self.evaluate(sheet_id, address, &mut visiting)
+        let mut cache = HashMap::new();
+        cells
+            .iter()
+            .map(|(sheet_id, address)| {
+                self.evaluate(*sheet_id, *address, &mut visiting, &mut cache)
+            })
+            .collect()
     }
+
+    /// Evaluate a cell and all formula dependencies without retaining stale results.
+    pub fn value(&self, sheet_id: u64, address: CellAddress) -> CellValue {
+        self.values(&[(sheet_id, address)]).remove(0)
+    }
+
     fn evaluate(
         &self,
         sheet_id: u64,
         address: CellAddress,
         visiting: &mut HashSet<(u64, CellAddress)>,
+        cache: &mut HashMap<(u64, CellAddress), CellValue>,
     ) -> CellValue {
         let key = (sheet_id, address);
-        let Some(sheet) = self.sheet(sheet_id) else {
-            return CellValue::Error(FormulaError::Reference);
-        };
-        let Some(cell) = sheet.cells.get(&address) else {
-            return CellValue::Blank;
-        };
-        match &cell.input {
-            CellInput::Value(value) => value.clone(),
-            CellInput::Formula(formula) => {
-                if !visiting.insert(key) {
-                    return CellValue::Error(FormulaError::CircularReference);
-                }
-                let result = Parser::new(&formula[1..], self, sheet_id, visiting).parse();
-                visiting.remove(&key);
-                match result {
-                    Ok(value) if value.is_finite() => CellValue::Number(value),
-                    Ok(_) => CellValue::Error(FormulaError::Number),
-                    Err(error) => CellValue::Error(error),
-                }
-            }
+        if visiting.contains(&key) {
+            return CellValue::Error(FormulaError::CircularReference);
         }
+        if let Some(value) = cache.get(&key) {
+            return value.clone();
+        }
+        let result = if let Some(sheet) = self.sheet(sheet_id) {
+            if let Some(cell) = sheet.cells.get(&address) {
+                match &cell.input {
+                    CellInput::Value(value) => value.clone(),
+                    CellInput::Formula(formula) => {
+                        visiting.insert(key);
+                        let result =
+                            Parser::new(&formula[1..], self, sheet_id, visiting, cache).parse();
+                        visiting.remove(&key);
+                        match result {
+                            Ok(value) if value.is_finite() => CellValue::Number(value),
+                            Ok(_) => CellValue::Error(FormulaError::Number),
+                            Err(error) => CellValue::Error(error),
+                        }
+                    }
+                }
+            } else {
+                CellValue::Blank
+            }
+        } else {
+            CellValue::Error(FormulaError::Reference)
+        };
+        cache.insert(key, result.clone());
+        result
     }
     pub fn encode(&self) -> io::Result<Vec<u8>> {
         encode_workbook(self)
@@ -368,6 +392,7 @@ struct Parser<'a> {
     workbook: &'a Workbook,
     sheet_id: u64,
     visiting: &'a mut HashSet<(u64, CellAddress)>,
+    cache: &'a mut HashMap<(u64, CellAddress), CellValue>,
 }
 impl<'a> Parser<'a> {
     fn new(
@@ -375,6 +400,7 @@ impl<'a> Parser<'a> {
         workbook: &'a Workbook,
         sheet_id: u64,
         visiting: &'a mut HashSet<(u64, CellAddress)>,
+        cache: &'a mut HashMap<(u64, CellAddress), CellValue>,
     ) -> Self {
         Self {
             input: input.as_bytes(),
@@ -382,6 +408,7 @@ impl<'a> Parser<'a> {
             workbook,
             sheet_id,
             visiting,
+            cache,
         }
     }
     fn parse(mut self) -> Result<f64, FormulaError> {
@@ -525,7 +552,7 @@ impl<'a> Parser<'a> {
             .find(|sheet| sheet.name.eq_ignore_ascii_case(sheet_name))
             .map(|sheet| sheet.id)
             .ok_or(FormulaError::Reference)?;
-        match self.workbook.evaluate(sheet_id, address, self.visiting) {
+        match self.workbook.evaluate(sheet_id, $1, self.visiting, self.cache) {
             CellValue::Number(value) => Ok(value),
             CellValue::Blank => Ok(0.0),
             CellValue::Error(error) => Err(error),
@@ -602,7 +629,7 @@ impl<'a> Parser<'a> {
                         let last = self.cell_address()?;
                         self.collect_range_values(sheet_id, first, last, &mut values)?;
                     } else {
-                        match self.workbook.evaluate(sheet_id, first, self.visiting) {
+                        match self.workbook.evaluate(sheet_id, $1, self.visiting, self.cache) {
                             CellValue::Number(value) => values.push(value),
                             CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                             CellValue::Error(error) => return Err(error),
@@ -659,7 +686,7 @@ impl<'a> Parser<'a> {
         for row in min_row..=max_row {
             for column in min_column..=max_column {
                 let address = CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
-                match self.workbook.evaluate(sheet_id, address, self.visiting) {
+                match self.workbook.evaluate(sheet_id, $1, self.visiting, self.cache) {
                     CellValue::Number(value) => values.push(value),
                     CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                     CellValue::Error(error) => return Err(error),
@@ -1063,6 +1090,30 @@ mod tests {
         book.set_formula(sheet, b1, "=SUM(A1:)").unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
+    #[test]
+    fn batch_values_share_dependencies_and_preserve_order() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        book.set_number(1, a1, 7.0).unwrap();
+        book.set_formula(1, b1, "=A1*2").unwrap();
+        book.set_formula(1, c1, "=B1+A1").unwrap();
+
+        assert_eq!(
+            book.values(&[(1, c1), (1, b1), (1, c1), (1, a1)]),
+            vec![
+                CellValue::Number(21.0),
+                CellValue::Number(14.0),
+                CellValue::Number(21.0),
+                CellValue::Number(7.0),
+            ]
+        );
+
+        book.set_number(1, a1, 9.0).unwrap();
+        assert_eq!(book.value(1, c1), CellValue::Number(27.0));
+    }
+
     #[test]
     fn formulas_detect_cycles_and_division_by_zero() {
         let mut book = Workbook::new();
