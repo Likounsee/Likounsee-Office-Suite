@@ -169,7 +169,7 @@ impl RecoveryJournal {
             .gate
             .lock()
             .map_err(|_| io::Error::other("recovery journal lock was poisoned"))?;
-        let mut journal_file = OpenOptions::new().read(true).write(true).open(&self.path)?;
+        let mut journal_file = File::open(&self.path)?;
         let scan = scan(&mut journal_file, false)?;
         if covered_sequence != scan.last_sequence {
             return Err(io::Error::new(
@@ -177,12 +177,14 @@ impl RecoveryJournal {
                 "checkpoint must cover the latest valid journal sequence",
             ));
         }
-        journal_file.set_len(0)?;
-        journal_file.seek(SeekFrom::Start(0))?;
-        journal_file.write_all(FILE_MAGIC)?;
-        journal_file.write_all(&covered_sequence.to_le_bytes())?;
-        journal_file.sync_all()?;
-        sync_parent_directory(&self.path)
+
+        // Replace the journal atomically. Truncating it in place could leave a
+        // zero-byte or partial header if power is lost during compaction.
+        drop(journal_file);
+        let mut header = Vec::with_capacity(FILE_HEADER_SIZE as usize);
+        header.extend_from_slice(FILE_MAGIC);
+        header.extend_from_slice(&covered_sequence.to_le_bytes());
+        crate::storage::write_atomic(&self.path, &header)
     }
 
     /// Return the latest valid sequence, or the base sequence for an empty journal.
