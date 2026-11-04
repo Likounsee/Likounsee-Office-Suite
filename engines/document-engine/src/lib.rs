@@ -4,7 +4,6 @@
 //! each edit. This is intentionally simple and safe; compact edit operations
 //! can replace snapshots after a stable document format is established.
 
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -195,8 +194,10 @@ impl DocumentSession {
         let recovered_records = replay.records.len();
         for record in replay.records {
             let recovered = decode_document(&record.payload)?;
-            if recovered.revision <= document.revision {
-                return Err(invalid_data("recovery journal contains a stale document revision"));
+            let expected_revision = document.revision.checked_add(1)
+                .ok_or_else(|| invalid_data("document revision exhausted during recovery"))?;
+            if recovered.revision != expected_revision {
+                return Err(invalid_data("recovery journal document revisions are not contiguous"));
             }
             document = recovered;
         }
@@ -304,6 +305,7 @@ fn invalid_input(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     struct TestDirectory(PathBuf);
@@ -328,7 +330,8 @@ mod tests {
 
     #[test]
     fn document_encoding_round_trips_unicode_and_revision() {
-        let mut session = DocumentSession::open(TestDirectory::new().0).unwrap();
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_title("Résumé 📄").unwrap();
         session.set_body("Bonjour, 世界!\n").unwrap();
         let encoded = encode_document(session.document()).unwrap();
