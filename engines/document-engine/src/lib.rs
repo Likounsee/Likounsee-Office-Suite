@@ -515,6 +515,8 @@ pub fn decode_document(bytes: &[u8]) -> io::Result<Document> {
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
     if version != DOCUMENT_FORMAT_VERSION
         && version != PREVIOUS_DOCUMENT_FORMAT_VERSION
+        && version != LEGACY_TABLE_FORMAT_VERSION
+        && version != INLINE_MARK_FORMAT_VERSION
         && version != LEGACY_LIST_FORMAT_VERSION
         && version != LEGACY_STRUCTURED_FORMAT_VERSION
         && version != LEGACY_DOCUMENT_FORMAT_VERSION
@@ -1531,6 +1533,114 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Set a column width in twips (1/20 point), limited to 5..5000 points.
+    pub fn set_table_column_width(
+        &mut self,
+        table_id: u64,
+        column_index: usize,
+        width_twips: u32,
+    ) -> io::Result<u64> {
+        if !(100..=100_000).contains(&width_twips) {
+            return Err(invalid_input("table column width is out of range"));
+        }
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let width = table.column_widths_twips.get_mut(column_index)
+            .ok_or_else(|| invalid_input("table column index is out of range"))?;
+        *width = width_twips;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
+    /// Set a row height in twips; zero restores automatic height.
+    pub fn set_table_row_height(
+        &mut self,
+        table_id: u64,
+        row_index: usize,
+        height_twips: u32,
+    ) -> io::Result<u64> {
+        if height_twips != 0 && !(100..=100_000).contains(&height_twips) {
+            return Err(invalid_input("table row height is out of range"));
+        }
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let row = table.rows.get_mut(row_index)
+            .ok_or_else(|| invalid_input("table row index is out of range"))?;
+        row.height_twips = height_twips;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
+    /// Set horizontal alignment for one cell.
+    pub fn set_table_cell_alignment(
+        &mut self,
+        table_id: u64,
+        row_index: usize,
+        column_index: usize,
+        alignment: CellAlignment,
+    ) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let cell = table.rows.get_mut(row_index)
+            .and_then(|row| row.cells.get_mut(column_index))
+            .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
+        cell.alignment = alignment;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
+    /// Set an optional 24-bit RGB cell background (0xRRGGBB).
+    pub fn set_table_cell_background(
+        &mut self,
+        table_id: u64,
+        row_index: usize,
+        column_index: usize,
+        background: Option<u32>,
+    ) -> io::Result<u64> {
+        if background.is_some_and(|color| color > 0x00ff_ffff) {
+            return Err(invalid_input("table cell background must be a 24-bit RGB color"));
+        }
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let cell = table.rows.get_mut(row_index)
+            .and_then(|row| row.cells.get_mut(column_index))
+            .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
+        cell.background = background;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
+    /// Set cell borders using a bit mask: top=1, right=2, bottom=4, left=8.
+    pub fn set_table_cell_borders(
+        &mut self,
+        table_id: u64,
+        row_index: usize,
+        column_index: usize,
+        borders: u8,
+    ) -> io::Result<u64> {
+        if borders & !0x0f != 0 {
+            return Err(invalid_input("table cell border mask is invalid"));
+        }
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let cell = table.rows.get_mut(row_index)
+            .and_then(|row| row.cells.get_mut(column_index))
+            .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
+        cell.borders = borders;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
     /// Set text in a table cell using zero-based row and column indices.
     pub fn set_table_cell_text(
         &mut self,
@@ -2433,6 +2543,55 @@ mod tests {
             recovered.document().tables()[0].rows()[0].id(),
             original_row_id
         );
+    }
+
+    #[test]
+    fn table_formatting_round_trips_and_survives_recovery() {
+        let directory = TestDirectory::new();
+        let table_id;
+        {
+            let mut session = DocumentSession::open(&directory.0).unwrap();
+            table_id = session.insert_table(2, 2).unwrap();
+            session.set_table_column_width(table_id, 0, 3600).unwrap();
+            session.set_table_row_height(table_id, 1, 720).unwrap();
+            session.set_table_cell_alignment(table_id, 0, 1, CellAlignment::Center).unwrap();
+            session.set_table_cell_background(table_id, 0, 1, Some(0x12_34_56)).unwrap();
+            session.set_table_cell_borders(table_id, 0, 1, 0b0101).unwrap();
+
+            let table = &session.document().tables()[0];
+            assert_eq!(table.column_widths_twips(), &[3600, 2400]);
+            assert_eq!(table.rows()[1].height_twips(), 720);
+            let cell = &table.rows()[0].cells()[1];
+            assert_eq!(cell.alignment(), CellAlignment::Center);
+            assert_eq!(cell.background(), Some(0x12_34_56));
+            assert_eq!(cell.borders(), 0b0101);
+
+            let encoded = encode_document(session.document()).unwrap();
+            assert_eq!(decode_document(&encoded).unwrap(), *session.document());
+        }
+        let recovered = DocumentSession::open(&directory.0).unwrap();
+        let table = &recovered.document().tables()[0];
+        assert_eq!(table.id(), table_id);
+        assert_eq!(table.column_widths_twips(), &[3600, 2400]);
+        assert_eq!(table.rows()[1].height_twips(), 720);
+        assert_eq!(table.rows()[0].cells()[1].alignment(), CellAlignment::Center);
+        assert_eq!(table.rows()[0].cells()[1].background(), Some(0x12_34_56));
+        assert_eq!(table.rows()[0].cells()[1].borders(), 0b0101);
+    }
+
+    #[test]
+    fn invalid_table_formatting_is_rejected_without_mutation() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(1, 1).unwrap();
+        let before = session.document().clone();
+        assert!(session.set_table_column_width(table_id, 0, 99).is_err());
+        assert!(session.set_table_column_width(table_id, 1, 2400).is_err());
+        assert!(session.set_table_row_height(table_id, 0, 99).is_err());
+        assert!(session.set_table_cell_background(table_id, 0, 0, Some(0x01_00_00_00)).is_err());
+        assert!(session.set_table_cell_borders(table_id, 0, 0, 0x10).is_err());
+        assert!(session.set_table_cell_alignment(table_id, 1, 0, CellAlignment::Right).is_err());
+        assert_eq!(session.document(), &before);
     }
 
     #[test]
