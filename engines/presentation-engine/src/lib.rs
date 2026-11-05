@@ -189,6 +189,23 @@ impl ShapeKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElementAlignment {
+    Left,
+    CenterHorizontal,
+    Right,
+    Top,
+    CenterVertical,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistributionAxis {
+    Horizontal,
+    Vertical,
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ElementKind {
     Text {
@@ -673,6 +690,180 @@ impl Presentation {
         }
         Ok(())
     }
+    /// Align at least two selected elements against their collective bounding box.
+    /// Element sizes and stacking order are preserved.
+    pub fn align_elements(
+        &mut self,
+        slide_id: u64,
+        element_ids: &[u64],
+        alignment: ElementAlignment,
+    ) -> io::Result<()> {
+        if element_ids.len() < 2 {
+            return Err(invalid_input("at least two elements are required for alignment"));
+        }
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        let mut selected = std::collections::HashSet::new();
+        let mut indices = Vec::with_capacity(element_ids.len());
+        for id in element_ids {
+            if !selected.insert(*id) {
+                return Err(invalid_input("element selection contains duplicate IDs"));
+            }
+            let index = slide
+                .elements
+                .iter()
+                .position(|element| element.id == *id)
+                .ok_or_else(|| invalid_input("element does not exist"))?;
+            indices.push(index);
+        }
+
+        let min_x = indices
+            .iter()
+            .map(|index| slide.elements[*index].bounds.x)
+            .fold(f32::INFINITY, f32::min);
+        let min_y = indices
+            .iter()
+            .map(|index| slide.elements[*index].bounds.y)
+            .fold(f32::INFINITY, f32::min);
+        let max_x = indices
+            .iter()
+            .map(|index| {
+                let bounds = slide.elements[*index].bounds;
+                bounds.x + bounds.width
+            })
+            .fold(f32::NEG_INFINITY, f32::max);
+        let max_y = indices
+            .iter()
+            .map(|index| {
+                let bounds = slide.elements[*index].bounds;
+                bounds.y + bounds.height
+            })
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        let mut updates = Vec::with_capacity(indices.len());
+        for index in indices {
+            let mut bounds = slide.elements[index].bounds;
+            match alignment {
+                ElementAlignment::Left => bounds.x = min_x,
+                ElementAlignment::CenterHorizontal => {
+                    bounds.x = (min_x + max_x - bounds.width) / 2.0;
+                }
+                ElementAlignment::Right => bounds.x = max_x - bounds.width,
+                ElementAlignment::Top => bounds.y = min_y,
+                ElementAlignment::CenterVertical => {
+                    bounds.y = (min_y + max_y - bounds.height) / 2.0;
+                }
+                ElementAlignment::Bottom => bounds.y = max_y - bounds.height,
+            }
+            bounds.validate()?;
+            if bounds != slide.elements[index].bounds {
+                updates.push((index, bounds));
+            }
+        }
+        if updates.is_empty() {
+            return Ok(());
+        }
+        self.bump_revision()?;
+        let elements = &mut self.slide_mut(slide_id)?.elements;
+        for (index, bounds) in updates {
+            elements[index].bounds = bounds;
+        }
+        Ok(())
+    }
+
+    /// Distribute three or more elements evenly between the first and last positions.
+    /// The input order is ignored; elements are sorted by their current axis position.
+    pub fn distribute_elements(
+        &mut self,
+        slide_id: u64,
+        element_ids: &[u64],
+        axis: DistributionAxis,
+    ) -> io::Result<()> {
+        if element_ids.len() < 3 {
+            return Err(invalid_input("at least three elements are required for distribution"));
+        }
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        let mut selected = std::collections::HashSet::new();
+        let mut indices = Vec::with_capacity(element_ids.len());
+        for id in element_ids {
+            if !selected.insert(*id) {
+                return Err(invalid_input("element selection contains duplicate IDs"));
+            }
+            let index = slide
+                .elements
+                .iter()
+                .position(|element| element.id == *id)
+                .ok_or_else(|| invalid_input("element does not exist"))?;
+            indices.push(index);
+        }
+
+        indices.sort_by(|left, right| {
+            let a = slide.elements[*left].bounds;
+            let b = slide.elements[*right].bounds;
+            let (a_position, b_position) = match axis {
+                DistributionAxis::Horizontal => (a.x, b.x),
+                DistributionAxis::Vertical => (a.y, b.y),
+            };
+            a_position.total_cmp(&b_position)
+        });
+
+        let extent_start = match axis {
+            DistributionAxis::Horizontal => slide.elements[indices[0]].bounds.x,
+            DistributionAxis::Vertical => slide.elements[indices[0]].bounds.y,
+        };
+        let last = slide.elements[*indices.last().unwrap()].bounds;
+        let extent_end = match axis {
+            DistributionAxis::Horizontal => last.x + last.width,
+            DistributionAxis::Vertical => last.y + last.height,
+        };
+        let total_size: f32 = indices
+            .iter()
+            .map(|index| {
+                let bounds = slide.elements[*index].bounds;
+                match axis {
+                    DistributionAxis::Horizontal => bounds.width,
+                    DistributionAxis::Vertical => bounds.height,
+                }
+            })
+            .sum();
+        let gap = (extent_end - extent_start - total_size) / (indices.len() - 1) as f32;
+        if !gap.is_finite() || gap < 0.0 {
+            return Err(invalid_input("selected elements do not fit in the distribution range"));
+        }
+
+        let mut cursor = extent_start;
+        let mut updates = Vec::with_capacity(indices.len());
+        for index in indices {
+            let mut bounds = slide.elements[index].bounds;
+            match axis {
+                DistributionAxis::Horizontal => {
+                    bounds.x = cursor;
+                    cursor += bounds.width + gap;
+                }
+                DistributionAxis::Vertical => {
+                    bounds.y = cursor;
+                    cursor += bounds.height + gap;
+                }
+            }
+            bounds.validate()?;
+            if bounds != slide.elements[index].bounds {
+                updates.push((index, bounds));
+            }
+        }
+        if updates.is_empty() {
+            return Ok(());
+        }
+        self.bump_revision()?;
+        let elements = &mut self.slide_mut(slide_id)?.elements;
+        for (index, bounds) in updates {
+            elements[index].bounds = bounds;
+        }
+        Ok(())
+    }
+
     pub fn set_element_bounds(
         &mut self,
         slide_id: u64,
@@ -1591,6 +1782,46 @@ mod tests {
         assert!(deck.slide(slide).unwrap().element(shape).is_some());
         assert!(deck.slide(slide).unwrap().element(image).is_some());
 
+        let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
+        assert_eq!(restored, deck);
+    }
+
+    #[test]
+    fn aligns_selected_elements_without_changing_their_sizes_or_order() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let first = deck.add_shape(slide, rect(10.0, 20.0, 100.0, 40.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        let second = deck.add_shape(slide, rect(250.0, 80.0, 60.0, 30.0), ShapeKind::Ellipse, None, None, 0.0).unwrap();
+        let third = deck.add_shape(slide, rect(500.0, 10.0, 80.0, 50.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        let order = deck.slide(slide).unwrap().elements().iter().map(SlideElement::id).collect::<Vec<_>>();
+        deck.align_elements(slide, &[first, second, third], ElementAlignment::CenterVertical).unwrap();
+        let elements = deck.slide(slide).unwrap();
+        let first_bounds = elements.element(first).unwrap().bounds();
+        let second_bounds = elements.element(second).unwrap().bounds();
+        let third_bounds = elements.element(third).unwrap().bounds();
+        assert_eq!(first_bounds.y + first_bounds.height / 2.0, 45.0);
+        assert_eq!(second_bounds.y + second_bounds.height / 2.0, 45.0);
+        assert_eq!(third_bounds.y + third_bounds.height / 2.0, 45.0);
+        assert_eq!((first_bounds.width, second_bounds.width, third_bounds.width), (100.0, 60.0, 80.0));
+        assert_eq!(elements.elements().iter().map(SlideElement::id).collect::<Vec<_>>(), order);
+    }
+
+    #[test]
+    fn distributes_elements_evenly_and_rejects_invalid_selections_atomically() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let first = deck.add_shape(slide, rect(0.0, 0.0, 20.0, 10.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        let middle = deck.add_shape(slide, rect(100.0, 0.0, 20.0, 10.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        let last = deck.add_shape(slide, rect(200.0, 0.0, 20.0, 10.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        deck.distribute_elements(slide, &[last, first, middle], DistributionAxis::Horizontal).unwrap();
+        let elements = deck.slide(slide).unwrap();
+        assert_eq!(elements.element(first).unwrap().bounds().x(), 0.0);
+        assert_eq!(elements.element(middle).unwrap().bounds().x(), 100.0);
+        assert_eq!(elements.element(last).unwrap().bounds().x(), 200.0);
+        let revision = deck.revision();
+        assert!(deck.align_elements(slide, &[first, first], ElementAlignment::Left).is_err());
+        assert!(deck.distribute_elements(slide, &[first, middle], DistributionAxis::Horizontal).is_err());
+        assert_eq!(deck.revision(), revision);
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
     }
