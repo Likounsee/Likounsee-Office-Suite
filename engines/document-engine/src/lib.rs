@@ -2125,12 +2125,13 @@ mod tests {
         session
             .set_body("Overview\nFirst item\nSecond item")
             .unwrap();
-        let paragraphs = session.document().paragraphs();
+        let first_paragraph_id = session.document().paragraphs()[0].id();
+        let second_paragraph_id = session.document().paragraphs()[1].id();
         session
-            .set_paragraph_style(paragraphs[0].id(), ParagraphStyle::Heading1)
+            .set_paragraph_style(first_paragraph_id, ParagraphStyle::Heading1)
             .unwrap();
         session
-            .set_paragraph_list(paragraphs[1].id(), ListKind::Bullet, 0)
+            .set_paragraph_list(second_paragraph_id, ListKind::Bullet, 0)
             .unwrap();
         let table_id = session.insert_table(2, 2).unwrap();
         let table = session
