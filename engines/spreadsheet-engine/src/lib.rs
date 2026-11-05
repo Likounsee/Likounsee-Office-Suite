@@ -186,24 +186,29 @@ impl DependencyIndex {
         address: CellAddress,
     ) -> io::Result<()> {
         let key = (sheet_id, address);
+        // Parse before mutating the index so invalid replacements preserve old edges.
+        let replacement = workbook
+            .sheet(sheet_id)
+            .and_then(|sheet| sheet.cell(address))
+            .and_then(Cell::formula)
+            .map(|formula| formula_dependencies(workbook, sheet_id, formula))
+            .transpose()?;
+
         if let Some(previous) = self.forward.remove(&key) {
             for dependency in previous {
                 remove_reverse_edge(&mut self.reverse, dependency, key);
             }
         }
 
-        if let Some(cell) = workbook.sheet(sheet_id).and_then(|sheet| sheet.cell(address)) {
-            if let Some(formula) = cell.formula() {
-                let dependencies = formula_dependencies(workbook, sheet_id, formula)?;
-                for dependency in &dependencies {
-                    let entries = self.reverse.entry(*dependency).or_default();
-                    if !entries.contains(&key) {
-                        entries.push(key);
-                        entries.sort_unstable();
-                    }
+        if let Some(dependencies) = replacement {
+            for dependency in &dependencies {
+                let entries = self.reverse.entry(*dependency).or_default();
+                if !entries.contains(&key) {
+                    entries.push(key);
+                    entries.sort_unstable();
                 }
-                self.forward.insert(key, dependencies);
             }
+            self.forward.insert(key, dependencies);
         }
         Ok(())
     }
@@ -235,6 +240,10 @@ impl DependencyIndex {
                 }
             }
         }
+        self.forward.retain(|_, dependencies| {
+            dependencies.retain(|(id, _)| *id != sheet_id);
+            true
+        });
         self.reverse.retain(|(id, _), _| *id != sheet_id);
         for dependents in self.reverse.values_mut() {
             dependents.retain(|(id, _)| *id != sheet_id);
@@ -1938,6 +1947,19 @@ mod tests {
         assert_eq!(index.dependencies_of(1, c1), &[(1, b1)]);
         assert_eq!(index.dependents_of(1, a1), &[(1, d1)]);
         assert_eq!(index.dependents_of(1, b1), &[(1, c1)]);
+    }
+
+    #[test]
+    fn dependency_index_keeps_previous_edges_when_replacement_is_malformed() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        book.set_formula(1, b1, "=A1+1").unwrap();
+        let mut index = DependencyIndex::build(&book).unwrap();
+        book.set_formula(1, b1, "=''!A1").unwrap();
+        assert!(index.update_cell(&book, 1, b1).is_err());
+        assert_eq!(index.dependencies_of(1, b1), &[(1, a1)]);
+        assert_eq!(index.dependents_of(1, a1), &[(1, b1)]);
     }
 
     #[test]
