@@ -2647,24 +2647,28 @@ fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
         );
         match &element.kind {
             ElementKind::Text { text, style } => {
-                xml.push_str(r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/><a:p><a:pPr algn=""#);
-                xml.push_str(match style.alignment {
-                    TextAlignment::Left => "l",
-                    TextAlignment::Center => "ctr",
-                    TextAlignment::Right => "r",
-                    TextAlignment::Justify => "just",
-                });
-                let _ = write!(
-                    xml,
-                    r#""/><a:r><a:rPr lang="en-US" sz="{}" b="{}" i="{}" u="{}"><a:solidFill><a:srgbClr val="{:06X}"/></a:solidFill><a:latin typeface="{}"/></a:rPr><a:t xml:space="preserve">{}</a:t></a:r><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>"#,
-                    (style.font_size * 100.0).round() as u32,
-                    if style.bold { 1 } else { 0 },
-                    if style.italic { 1 } else { 0 },
-                    if style.underline { "sng" } else { "none" },
-                    style.color,
-                    xml_escape(&style.font_family),
-                    xml_escape(text)
-                );
+                xml.push_str(r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/>"#);
+                for line in text.split('\n') {
+                    xml.push_str(r#"<a:p><a:pPr algn=""#);
+                    xml.push_str(match style.alignment {
+                        TextAlignment::Left => "l",
+                        TextAlignment::Center => "ctr",
+                        TextAlignment::Right => "r",
+                        TextAlignment::Justify => "just",
+                    });
+                    let _ = write!(
+                        xml,
+                        r#""/><a:r><a:rPr lang="en-US" sz="{}" b="{}" i="{}" u="{}"><a:solidFill><a:srgbClr val="{:06X}"/></a:solidFill><a:latin typeface="{}"/></a:rPr><a:t xml:space="preserve">{}</a:t></a:r><a:endParaRPr lang="en-US"/></a:p>"#,
+                        (style.font_size * 100.0).round() as u32,
+                        if style.bold { 1 } else { 0 },
+                        if style.italic { 1 } else { 0 },
+                        if style.underline { "sng" } else { "none" },
+                        style.color,
+                        xml_escape(&style.font_family),
+                        xml_escape(line)
+                    );
+                }
+                xml.push_str("</p:txBody></p:sp>");
             }
             ElementKind::Shape {
                 shape,
@@ -3780,6 +3784,32 @@ mod tests {
                 color_space: PdfImageColorSpace::Rgb,
             }))
         }
+    }
+
+    #[test]
+    fn pptx_export_preserves_multiline_text_as_separate_paragraphs() {
+        let mut deck = Presentation::new("Multiline", 1280.0, 720.0).unwrap();
+        let slide_id = deck.slides()[0].id();
+        let style = TextStyle::new("Arial", 24.0, 0x112233).unwrap();
+        deck.add_text(
+            slide_id,
+            Rect::new(40.0, 40.0, 500.0, 200.0).unwrap(),
+            "First line\nSecond line\nThird line",
+            style,
+        )
+        .unwrap();
+        let bytes = export_pptx(&deck).unwrap();
+        let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut slide = String::new();
+        archive
+            .by_name("ppt/slides/slide1.xml")
+            .unwrap()
+            .read_to_string(&mut slide)
+            .unwrap();
+        assert_eq!(slide.matches("<a:p>").count(), 3);
+        assert!(slide.contains("First line"));
+        assert!(slide.contains("Second line"));
+        assert!(slide.contains("Third line"));
     }
 
     #[test]
