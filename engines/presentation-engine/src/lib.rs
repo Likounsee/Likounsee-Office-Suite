@@ -424,6 +424,98 @@ impl Presentation {
         self.slide_mut(slide_id)?.background = color;
         Ok(())
     }
+
+    /// Add a text box to a slide and return its stable element ID.
+    pub fn add_text(
+        &mut self,
+        slide_id: u64,
+        bounds: Rect,
+        text: impl Into<String>,
+        style: TextStyle,
+    ) -> io::Result<u64> {
+        bounds.validate()?;
+        let text = text.into();
+        validate_string(&text, "text element")?;
+        style.validate()?;
+        self.add_element(
+            slide_id,
+            bounds,
+            ElementKind::Text { text, style },
+        )
+    }
+
+    /// Add a geometric shape to a slide and return its stable element ID.
+    pub fn add_shape(
+        &mut self,
+        slide_id: u64,
+        bounds: Rect,
+        shape: ShapeKind,
+        fill: Option<u32>,
+        stroke: Option<u32>,
+        stroke_width: f32,
+    ) -> io::Result<u64> {
+        bounds.validate()?;
+        if fill.is_some_and(|color| color > 0x00ff_ffff)
+            || stroke.is_some_and(|color| color > 0x00ff_ffff)
+            || !stroke_width.is_finite()
+            || !(0.0..=1000.0).contains(&stroke_width)
+        {
+            return Err(invalid_input("shape styling is invalid"));
+        }
+        self.add_element(
+            slide_id,
+            bounds,
+            ElementKind::Shape {
+                shape,
+                fill,
+                stroke,
+                stroke_width,
+            },
+        )
+    }
+
+    /// Add an image reference to a slide. Image decoding and embedding are handled elsewhere.
+    pub fn add_image(
+        &mut self,
+        slide_id: u64,
+        bounds: Rect,
+        source: impl Into<String>,
+        alt_text: impl Into<String>,
+    ) -> io::Result<u64> {
+        let source = source.into();
+        let alt_text = alt_text.into();
+        bounds.validate()?;
+        validate_string(&source, "image source")?;
+        validate_string(&alt_text, "image alt text")?;
+        if source.is_empty() {
+            return Err(invalid_input("image source cannot be empty"));
+        }
+        self.add_element(
+            slide_id,
+            bounds,
+            ElementKind::Image { source, alt_text },
+        )
+    }
+
+    fn add_element(
+        &mut self,
+        slide_id: u64,
+        bounds: Rect,
+        kind: ElementKind,
+    ) -> io::Result<u64> {
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if slide.elements.len() >= MAX_ELEMENTS_PER_SLIDE {
+            return Err(invalid_input("slide element limit reached"));
+        }
+        self.bump_revision()?;
+        let id = self.take_id()?;
+        self.slide_mut(slide_id)?
+            .elements
+            .push(SlideElement { id, bounds, kind });
+        Ok(id)
+    }
     pub fn set_slide_notes(&mut self, slide_id: u64, notes: impl Into<String>) -> io::Result<()> {
         let notes = notes.into();
         validate_string(&notes, "slide notes")?;
