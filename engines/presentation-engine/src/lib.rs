@@ -2848,7 +2848,7 @@ pub fn slide_layout_statistics(
     let mut right: f32 = f32::NEG_INFINITY;
     let mut bottom: f32 = f32::NEG_INFINITY;
     for element in &slide.elements {
-        match element.kind {
+        match &element.kind {
             ElementKind::Text { .. } => stats.text_elements += 1,
             ElementKind::Shape { .. } => stats.shapes += 1,
             ElementKind::Image { .. } => stats.images += 1,
