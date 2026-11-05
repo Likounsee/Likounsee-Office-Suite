@@ -4294,16 +4294,20 @@ mod tests {
             ListKind::Numbered
         );
         let before = session.document().clone();
-        assert!(session
-            .set_paragraph_lists_batch(&[
-                (ids[0], ListKind::Bullet, 0),
-                (ids[0], ListKind::None, 0),
-            ])
-            .is_err());
+        assert!(
+            session
+                .set_paragraph_lists_batch(&[
+                    (ids[0], ListKind::Bullet, 0),
+                    (ids[0], ListKind::None, 0),
+                ])
+                .is_err()
+        );
         assert_eq!(session.document(), &before);
-        assert!(session
-            .set_paragraph_lists_batch(&[(ids[2], ListKind::Bullet, 9)])
-            .is_err());
+        assert!(
+            session
+                .set_paragraph_lists_batch(&[(ids[2], ListKind::Bullet, 9)])
+                .is_err()
+        );
         assert_eq!(session.document(), &before);
         let revision = session.document().revision();
         assert_eq!(

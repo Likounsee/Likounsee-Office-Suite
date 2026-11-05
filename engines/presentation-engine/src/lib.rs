@@ -6087,19 +6087,21 @@ mod tests {
         );
         assert_eq!(deck.revision(), revision + 1);
         let before = deck.clone();
-        assert!(deck
-            .set_shape_styles_batch(
+        assert!(
+            deck.set_shape_styles_batch(
                 slide_id,
                 &[
                     (first, Some(0x123456), None, 1.0),
                     (first, Some(0x654321), None, 1.0),
                 ]
             )
-            .is_err());
+            .is_err()
+        );
         assert_eq!(deck, before);
-        assert!(deck
-            .set_shape_styles_batch(slide_id, &[(first, Some(0x1000000), None, 1.0)])
-            .is_err());
+        assert!(
+            deck.set_shape_styles_batch(slide_id, &[(first, Some(0x1000000), None, 1.0)])
+                .is_err()
+        );
         assert_eq!(deck, before);
         assert_eq!(
             deck.set_shape_styles_batch(
