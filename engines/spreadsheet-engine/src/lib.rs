@@ -218,9 +218,11 @@ impl DependencyIndex {
     where
         I: IntoIterator<Item = CellKey>,
     {
+        let mut updated = self.clone();
         for (sheet_id, address) in cells {
-            self.update_cell(workbook, sheet_id, address)?;
+            updated.update_cell(workbook, sheet_id, address)?;
         }
+        *self = updated;
         Ok(())
     }
 
@@ -1959,6 +1961,23 @@ mod tests {
         assert!(index.update_cell(&book, 1, b1).is_err());
         assert_eq!(index.dependencies_of(1, b1), &[(1, a1)]);
         assert_eq!(index.dependents_of(1, a1), &[(1, b1)]);
+    }
+
+    #[test]
+    fn dependency_index_batch_update_is_atomic_on_invalid_formula() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        book.set_formula(1, b1, "=A1+1").unwrap();
+        book.set_formula(1, c1, "=B1+1").unwrap();
+        let mut index = DependencyIndex::build(&book).unwrap();
+        let before = index.clone();
+
+        book.set_formula(1, b1, "=A1*2").unwrap();
+        book.set_formula(1, c1, "=''!A1").unwrap();
+        assert!(index.update_cells(&book, [(1, b1), (1, c1)]).is_err());
+        assert_eq!(index, before);
     }
 
     #[test]
