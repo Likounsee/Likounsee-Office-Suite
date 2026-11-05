@@ -818,7 +818,12 @@ pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String
     let Some(max_row) = sheet.cells.keys().map(|address| address.row()).max() else {
         return Ok(String::new());
     };
-    let max_column = sheet.cells.keys().map(|address| address.column()).max().unwrap_or(0);
+    let max_column = sheet
+        .cells
+        .keys()
+        .map(|address| address.column())
+        .max()
+        .unwrap_or(0);
     let cell_count = (max_row as u64 + 1).saturating_mul(max_column as u64 + 1);
     if cell_count > MAX_CELLS as u64 {
         return Err(invalid_input("CSV export range exceeds the supported cell limit"));
@@ -836,15 +841,18 @@ pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String
                 Some(CellInput::Value(CellValue::Number(number))) => number.to_string(),
                 Some(CellInput::Value(CellValue::Text(text))) => text.clone(),
                 Some(CellInput::Value(CellValue::Boolean(value))) => value.to_string(),
-                Some(CellInput::Value(CellValue::Error(error))) => format!("#{}", match error {
-                    FormulaError::Parse => "PARSE!",
-                    FormulaError::Reference => "REF!",
-                    FormulaError::DivisionByZero => "DIV/0!",
-                    FormulaError::CircularReference => "CIRCULAR!",
-                    FormulaError::Type => "VALUE!",
-                    FormulaError::Number => "NUM!",
-                    FormulaError::NotAvailable => "N/A",
-                }),
+                Some(CellInput::Value(CellValue::Error(error))) => format!(
+                    "#{}",
+                    match error {
+                        FormulaError::Parse => "PARSE!",
+                        FormulaError::Reference => "REF!",
+                        FormulaError::DivisionByZero => "DIV/0!",
+                        FormulaError::CircularReference => "CIRCULAR!",
+                        FormulaError::Type => "VALUE!",
+                        FormulaError::Number => "NUM!",
+                        FormulaError::NotAvailable => "N/A",
+                    }
+                ),
             };
             output.push_str(&Self::csv_escape(&value));
         }
@@ -854,7 +862,9 @@ pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String
 }
 
 fn csv_escape(value: &str) -> String {
-    if value.chars().any(|character| matches!(character, ',' | '"' | '\r' | '\n'))
+    if value
+        .chars()
+        .any(|character| matches!(character, ',' | '"' | '\r' | '\n'))
         || value.starts_with(' ')
         || value.ends_with(' ')
     {
@@ -912,7 +922,11 @@ fn parse_csv_records(input: &str) -> io::Result<Vec<Vec<String>>> {
     if quoted {
         return Err(invalid_input("unterminated quoted CSV field"));
     }
-    if !field.is_empty() || !row.is_empty() || after_quote || (input.ends_with(',') && !input.ends_with("\r\n")) {
+    if !field.is_empty()
+        || !row.is_empty()
+        || after_quote
+        || (input.ends_with(',') && !input.ends_with("\r\n"))
+    {
         row.push(field);
         rows.push(row);
     }
