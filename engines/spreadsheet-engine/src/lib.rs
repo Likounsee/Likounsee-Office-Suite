@@ -1574,6 +1574,13 @@ impl<'a> Parser<'a> {
     }
     fn math_function_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
+        if function == "PI" {
+            return if ranges.is_empty() {
+                Ok(std::f64::consts::PI)
+            } else {
+                Err(FormulaError::Parse)
+            };
+        }
         let unary = matches!(
             function,
             "ABS"
@@ -1591,7 +1598,6 @@ impl<'a> Parser<'a> {
                 | "ATAN"
                 | "DEGREES"
                 | "RADIANS"
-                | "PI"
                 | "SINH"
                 | "COSH"
                 | "TANH"
@@ -1606,7 +1612,6 @@ impl<'a> Parser<'a> {
         }
         let value = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
         let result = match function {
-            "PI" => std::f64::consts::PI,
             "ABS" => value.abs(),
             "SQRT" if value >= 0.0 => value.sqrt(),
             "SQRT" => return Err(FormulaError::Number),
