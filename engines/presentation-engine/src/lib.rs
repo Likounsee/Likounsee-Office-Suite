@@ -2596,8 +2596,16 @@ fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
 
 fn xml_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
-    for c in value.chars() {
-        match c { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), '"' => out.push_str("&quot;"), '\'' => out.push_str("&apos;"), _ => out.push(c) }
+    for character in value.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            '\u{9}' | '\u{A}' | '\u{D}' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..='\u{10FFFF}' => out.push(character),
+            _ => out.push('\u{FFFD}'),
+        }
     }
     out
 }
