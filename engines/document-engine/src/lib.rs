@@ -2133,6 +2133,9 @@ mod tests {
         session
             .set_paragraph_list(second_paragraph_id, ListKind::Bullet, 0)
             .unwrap();
+        session
+            .set_inline_mark(first_paragraph_id, 0..8, InlineMark::Bold, true)
+            .unwrap();
         let table_id = session.insert_table(2, 2).unwrap();
         let table = session
             .document()
@@ -2147,7 +2150,7 @@ mod tests {
             .unwrap();
         let markdown = export_markdown(session.document()).unwrap();
         assert!(markdown.contains("# Release notes"));
-        assert!(markdown.contains("# Overview"));
+        assert!(markdown.contains("# **Overview**"));
         assert!(markdown.contains("- First item"));
         assert!(markdown.contains("A \\| B"));
         assert!(markdown.contains("| --- | --- |"));
