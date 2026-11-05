@@ -745,22 +745,6 @@ impl Workbook {
         }
         Ok(changed)
     }
-    /// Journal a group of text edits together and rebuild formula dependencies once.
-    pub fn set_texts_batch(
-        &mut self,
-        sheet_id: u64,
-        requested: &[(CellAddress, String)],
-    ) -> io::Result<usize> {
-        let mut next = self.workbook.clone();
-        let changed = next.set_texts_batch(sheet_id, requested)?;
-        if changed == 0 {
-            return Ok(0);
-        }
-        let dependency_index = DependencyIndex::build(&next)?;
-        self.record_change(next, dependency_index)?;
-        Ok(changed)
-    }
-
     pub fn set_boolean(
         &mut self,
         sheet_id: u64,
@@ -5407,6 +5391,22 @@ impl WorkbookSession {
         let mut dependency_index = self.dependency_index.clone();
         dependency_index.update_cell(&next, sheet_id, address)?;
         self.record_change(next, dependency_index)
+    }
+
+    /// Journal a group of text edits together and rebuild formula dependencies once.
+    pub fn set_texts_batch(
+        &mut self,
+        sheet_id: u64,
+        requested: &[(CellAddress, String)],
+    ) -> io::Result<usize> {
+        let mut next = self.workbook.clone();
+        let changed = next.set_texts_batch(sheet_id, requested)?;
+        if changed == 0 {
+            return Ok(0);
+        }
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(changed)
     }
 
     pub fn set_boolean(
