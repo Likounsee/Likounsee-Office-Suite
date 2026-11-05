@@ -2475,7 +2475,6 @@ fn escape_xml(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-pub 
 /// Export editable text and primitive shapes to a basic PowerPoint OOXML package.
 /// Image references become relinkable placeholders; file access and image processing
 /// remain the responsibility of the host application. Speaker notes and animations
