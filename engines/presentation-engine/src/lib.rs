@@ -2605,6 +2605,23 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
         .map_err(|error| io::Error::other(format!("PPTX ZIP finalization failed: {error}")))
 }
 
+
+/// Export speaker notes as a portable Markdown document in slide order.
+pub fn export_speaker_notes_markdown(presentation: &Presentation) -> io::Result<String> {
+    presentation.validate()?;
+    let mut output = format!("# {} — Speaker notes\\n\\n", presentation.title);
+    for (index, slide) in presentation.slides.iter().enumerate() {
+        let _ = writeln!(output, "## {}. {}", index + 1, slide.name);
+        if slide.notes.trim().is_empty() {
+            output.push_str("_No speaker notes._\\n\\n");
+        } else {
+            output.push_str(slide.notes.trim());
+            output.push_str("\\n\\n");
+        }
+    }
+    Ok(output)
+}
+
 fn write_pptx_part(
     zip: &mut ZipWriter<Cursor<Vec<u8>>>,
     path: &str,
@@ -4513,6 +4530,21 @@ mod tests {
                 .is_err()
         );
         assert!(TextStyle::new("", 10.0, 0).is_err());
+    }
+
+    #[test]
+    fn speaker_notes_markdown_export_preserves_slide_order_and_empty_notes() {
+        let mut deck = Presentation::new("Training", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.rename_slide(first, "Introduction").unwrap();
+        deck.set_slide_notes(first, "Welcome & objectives").unwrap();
+        let second = deck.add_slide("Conclusion").unwrap();
+        let markdown = export_speaker_notes_markdown(&deck).unwrap();
+        assert!(markdown.find("## 1. Introduction").unwrap() < markdown.find("## 2. Conclusion").unwrap());
+        assert!(markdown.contains("Welcome & objectives"));
+        assert!(markdown.contains("_No speaker notes._"));
+        assert!(markdown.contains("# Training — Speaker notes"));
+        assert!(deck.slide(second).is_some());
     }
 
     #[test]
