@@ -584,9 +584,6 @@ impl Workbook {
         Ok(())
     }
 
-    /// Clear every stored value or formula in an inclusive rectangular range.
-    /// The operation is bounded by MAX_CELLS and leaves cells outside the range untouched.
-
     /// Fill an inclusive rectangular range with the same numeric value.
     /// Validates the complete range before changing any cells.
     pub fn fill_number_range(
@@ -637,6 +634,8 @@ impl Workbook {
         Ok(count)
     }
 
+    /// Clear every stored value or formula in an inclusive rectangular range.
+    /// The operation is bounded by MAX_CELLS and leaves cells outside the range untouched.
     pub fn clear_range(
         &mut self,
         sheet_id: u64,

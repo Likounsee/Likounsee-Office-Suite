@@ -2138,10 +2138,6 @@ impl DocumentSession {
         self.record_change(next)
     }
 
-    /// Set horizontal alignment for one cell.
-
-    /// Replace the text in one table cell while preserving its stable cell ID and formatting.
-
     /// Replace every literal occurrence in paragraphs and table cells in one journaled edit.
     /// Inline formatting ranges are adjusted along with paragraph text.
     pub fn replace_all_text(&mut self, search: &str, replacement: &str) -> io::Result<usize> {
@@ -2199,6 +2195,7 @@ impl DocumentSession {
         Ok(replacements)
     }
 
+    /// Replace the text in one table cell while preserving its stable cell ID and formatting.
     pub fn set_table_cell_text(
         &mut self,
         table_id: u64,
@@ -2224,6 +2221,7 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Set horizontal alignment for one cell.
     pub fn set_table_cell_alignment(
         &mut self,
         table_id: u64,
