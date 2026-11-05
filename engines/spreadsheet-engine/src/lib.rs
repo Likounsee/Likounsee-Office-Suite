@@ -395,7 +395,10 @@ impl Workbook {
     /// Return the direct inputs of a formula cell. Non-formula and missing
     /// cells have no dependencies.
     pub fn dependencies_of(&self, sheet_id: u64, address: CellAddress) -> io::Result<Vec<CellKey>> {
-        let Some(cell) = self.sheet(sheet_id).and_then(|sheet| sheet.cells.get(&address)) else {
+        let Some(cell) = self
+            .sheet(sheet_id)
+            .and_then(|sheet| sheet.cells.get(&address))
+        else {
             return Ok(Vec::new());
         };
         match &cell.input {
@@ -1385,8 +1388,10 @@ mod tests {
         let d1 = CellAddress::parse_a1("D1").unwrap();
 
         book.set_formula(data, b1, "=A1+A2").unwrap();
-        book.set_formula(report, c1, "='Sales Data'!A1+'Sales Data'!A2").unwrap();
-        book.set_formula(report, d1, "=SUM('Sales Data'!A1:A2,C1)").unwrap();
+        book.set_formula(report, c1, "='Sales Data'!A1+'Sales Data'!A2")
+            .unwrap();
+        book.set_formula(report, d1, "=SUM('Sales Data'!A1:A2,C1)")
+            .unwrap();
 
         assert_eq!(
             book.dependencies_of(data, b1).unwrap(),
@@ -1404,7 +1409,10 @@ mod tests {
             book.dependents_of(data, a1).unwrap(),
             vec![(data, b1), (report, c1), (report, d1)]
         );
-        assert_eq!(book.dependents_of(data, a2).unwrap(), vec![(data, b1), (report, c1), (report, d1)]);
+        assert_eq!(
+            book.dependents_of(data, a2).unwrap(),
+            vec![(data, b1), (report, c1), (report, d1)]
+        );
     }
 
     #[test]
@@ -1434,8 +1442,12 @@ mod tests {
         let a1 = CellAddress::parse_a1("A1").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
 
-        book.set_formula(report, b1, "=Data2026!A1+Ghost!A1").unwrap();
-        assert_eq!(book.dependencies_of(report, b1).unwrap(), vec![(source, a1)]);
+        book.set_formula(report, b1, "=Data2026!A1+Ghost!A1")
+            .unwrap();
+        assert_eq!(
+            book.dependencies_of(report, b1).unwrap(),
+            vec![(source, a1)]
+        );
     }
 
     #[test]
