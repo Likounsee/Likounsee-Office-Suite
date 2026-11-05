@@ -3171,7 +3171,10 @@ mod tests {
             chunk
         };
         non_consecutive_idat.splice(iend_type - 4..iend_type - 4, ancillary);
-        let iend_type = non_consecutive_idat.windows(4).position(|window| window == b"IEND").unwrap();
+        let iend_type = non_consecutive_idat
+            .windows(4)
+            .position(|window| window == b"IEND")
+            .unwrap();
         non_consecutive_idat.splice(iend_type - 4..iend_type - 4, duplicate_idat);
         assert!(validate_png(&non_consecutive_idat, 320, 180).is_err());
     }
