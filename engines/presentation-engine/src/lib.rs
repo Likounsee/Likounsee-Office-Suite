@@ -1703,6 +1703,66 @@ impl Presentation {
         Ok(id)
     }
 
+    /// Duplicate a selection as one edit, appending copies in slide stacking order.
+    /// Duplicate or missing IDs reject the whole operation without changing the slide.
+    pub fn duplicate_elements(
+        &mut self,
+        slide_id: u64,
+        element_ids: &[u64],
+    ) -> io::Result<Vec<u64>> {
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if element_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let requested = element_ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        if requested.len() != element_ids.len()
+            || requested.len()
+                != slide
+                    .elements
+                    .iter()
+                    .filter(|element| requested.contains(&element.id))
+                    .count()
+        {
+            return Err(invalid_input(
+                "element IDs must be unique and exist on the slide",
+            ));
+        }
+        let new_len = slide
+            .elements
+            .len()
+            .checked_add(requested.len())
+            .filter(|length| *length <= MAX_ELEMENTS_PER_SLIDE)
+            .ok_or_else(|| invalid_input("slide element limit reached"))?;
+        let next_id = self
+            .next_id
+            .checked_add(requested.len() as u64)
+            .ok_or_else(|| invalid_input("presentation ID space exhausted"))?;
+        self.revision
+            .checked_add(1)
+            .ok_or_else(|| invalid_input("presentation revision exhausted"))?;
+        let mut duplicates = slide
+            .elements
+            .iter()
+            .filter(|element| requested.contains(&element.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut ids = Vec::with_capacity(duplicates.len());
+        for (offset, element) in duplicates.iter_mut().enumerate() {
+            element.id = self.next_id + offset as u64;
+            ids.push(element.id);
+        }
+        self.bump_revision()?;
+        self.next_id = next_id;
+        self.slide_mut(slide_id)?.elements.extend(duplicates);
+        debug_assert_eq!(self.slide(slide_id).unwrap().elements.len(), new_len);
+        Ok(ids)
+    }
+
     /// Remove several elements in one revision. Duplicate or missing IDs reject the whole edit.
     pub fn remove_elements(&mut self, slide_id: u64, element_ids: &[u64]) -> io::Result<usize> {
         let slide = self
@@ -4045,6 +4105,33 @@ mod tests {
                 .is_err()
         );
         assert_eq!(deck.revision(), revision);
+    }
+
+    #[test]
+    fn duplicate_elements_copies_selection_in_stack_order_atomically() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let first = deck
+            .add_text(slide, rect(0.0, 0.0, 100.0, 40.0), "First", TextStyle::default())
+            .unwrap();
+        let second = deck
+            .add_text(slide, rect(0.0, 50.0, 100.0, 40.0), "Second", TextStyle::default())
+            .unwrap();
+        let revision = deck.revision();
+        let copies = deck.duplicate_elements(slide, &[second, first]).unwrap();
+        assert_eq!(copies.len(), 2);
+        assert_eq!(deck.revision(), revision + 1);
+        let elements = deck.slide(slide).unwrap().elements();
+        assert_eq!(elements.len(), 4);
+        assert_eq!(elements[2].id(), copies[0]);
+        assert_eq!(elements[2].text(), Some("First"));
+        assert_eq!(elements[3].id(), copies[1]);
+        assert_eq!(elements[3].text(), Some("Second"));
+        let revision = deck.revision();
+        assert!(deck.duplicate_elements(slide, &[first, u64::MAX]).is_err());
+        assert_eq!(deck.revision(), revision);
+        assert!(deck.duplicate_elements(slide, &[first, first]).is_err());
+        assert_eq!(deck.duplicate_elements(slide, &[]).unwrap(), Vec::<u64>::new());
     }
 
     #[test]

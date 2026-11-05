@@ -2037,6 +2037,34 @@ impl DocumentSession {
         Ok(row_id)
     }
 
+    /// Move a row to a new zero-based position, preserving row and cell identities.
+    pub fn move_table_row(
+        &mut self,
+        table_id: u64,
+        source_index: usize,
+        destination_index: usize,
+    ) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        if source_index >= table.rows.len() || destination_index >= table.rows.len() {
+            return Err(invalid_input("table row index is out of range"));
+        }
+        if source_index == destination_index {
+            return Ok(table.rows[source_index].id);
+        }
+        let row = table.rows.remove(source_index);
+        let row_id = row.id;
+        table.rows.insert(destination_index, row);
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(row_id)
+    }
+
     /// Remove a row by zero-based index. A table always retains at least one row.
     pub fn delete_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
@@ -3832,6 +3860,30 @@ mod tests {
         }
         assert_eq!(session.document().revision(), revision + 1);
         assert!(session.duplicate_table_row(table_id, usize::MAX).is_err());
+    }
+
+    #[test]
+    fn move_table_row_reorders_without_changing_identity() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(3, 1).unwrap();
+        for (index, value) in ["first", "second", "third"].iter().enumerate() {
+            session.set_table_cell_text(table_id, index, 0, value).unwrap();
+        }
+        let before = session.document().tables()[0].rows().to_vec();
+        let revision = session.document().revision();
+        let moved_id = session.move_table_row(table_id, 0, 2).unwrap();
+        let rows = session.document().tables()[0].rows();
+        assert_eq!(moved_id, before[0].id());
+        assert_eq!(rows[0].id(), before[1].id());
+        assert_eq!(rows[1].id(), before[2].id());
+        assert_eq!(rows[2].id(), before[0].id());
+        assert_eq!(rows[2].cells()[0].text(), "first");
+        assert_eq!(session.document().revision(), revision + 1);
+        let revision = session.document().revision();
+        session.move_table_row(table_id, 2, 2).unwrap();
+        assert_eq!(session.document().revision(), revision);
+        assert!(session.move_table_row(table_id, 0, 9).is_err());
     }
 
     #[test]

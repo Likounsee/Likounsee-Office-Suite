@@ -5083,6 +5083,25 @@ impl WorkbookSession {
         Ok(count)
     }
 
+    /// Copy a range through the durable session and rebuild formula dependencies.
+    /// Formula references are translated by Workbook::copy_range before the journal commit.
+    pub fn copy_range(
+        &mut self,
+        sheet_id: u64,
+        source_start: CellAddress,
+        source_end: CellAddress,
+        destination_start: CellAddress,
+    ) -> io::Result<usize> {
+        let mut next = self.workbook.clone();
+        let count = next.copy_range(sheet_id, source_start, source_end, destination_start)?;
+        if count == 0 {
+            return Ok(0);
+        }
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(count)
+    }
+
     pub fn set_formula(
         &mut self,
         sheet_id: u64,
@@ -5221,6 +5240,36 @@ mod session_tests {
             ]
         );
         assert_eq!(session.dependency_index().dependents_of(1, a1), &[(1, b1)]);
+    }
+
+    #[test]
+    fn session_copy_range_persists_translated_formulas_and_dependencies() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let sheet = session.workbook().sheets()[0].id();
+        let source = CellAddress::parse_a1("C1").unwrap();
+        let destination = CellAddress::parse_a1("D2").unwrap();
+        session.set_formula(sheet, source, "=A1+$B$1").unwrap();
+        let revision_before = session.workbook().revision();
+        assert_eq!(
+            session.copy_range(sheet, source, source, destination).unwrap(),
+            1
+        );
+        assert_eq!(
+            session.workbook().sheet(sheet).unwrap().cell(destination).unwrap().formula(),
+            Some("=B2+$B$1")
+        );
+        assert_eq!(session.workbook().revision(), revision_before + 1);
+        assert_eq!(
+            session.dependency_index().dependencies_of(sheet, destination).unwrap().len(),
+            2
+        );
+        session.save_now().unwrap();
+        let reopened = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(
+            reopened.workbook().sheet(sheet).unwrap().cell(destination).unwrap().formula(),
+            Some("=B2+$B$1")
+        );
     }
 
     #[test]
