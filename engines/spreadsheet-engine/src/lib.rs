@@ -1143,14 +1143,17 @@ impl<'a> Parser<'a> {
         let identifier = std::str::from_utf8(&self.input[start..self.cursor])
             .map_err(|_| FormulaError::Parse)?;
         self.whitespace();
-        if matches!(
-            identifier.to_ascii_uppercase().as_str(),
-            "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT"
-        ) && self.peek() == Some(b'(')
-        {
+        let function = identifier.to_ascii_uppercase();
+        if self.peek() == Some(b'(') {
             self.cursor += 1;
-            let function = identifier.to_ascii_uppercase();
-            return self.aggregate_arguments(&function);
+            return match function.as_str() {
+                "IF" => self.if_arguments(),
+                "AND" | "OR" => self.logical_arguments(&function),
+                "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" => {
+                    self.aggregate_arguments(&function)
+                }
+                _ => Err(FormulaError::Parse),
+            };
         }
         if self.peek() == Some(b'!') {
             self.cursor += 1;
@@ -1251,6 +1254,69 @@ impl<'a> Parser<'a> {
             self.sheet_id
         };
         Ok((sheet_id, self.cell_address()?))
+    }
+    fn if_arguments(&mut self) -> Result<f64, FormulaError> {
+        let ranges = self.function_argument_ranges()?;
+        if ranges.len() != 3 {
+            return Err(FormulaError::Parse);
+        }
+        let condition = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
+        let selected = if condition != 0.0 { ranges[1] } else { ranges[2] };
+        self.evaluate_argument(selected.0, selected.1)
+    }
+    fn logical_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
+        let ranges = self.function_argument_ranges()?;
+        if ranges.is_empty() {
+            return Err(FormulaError::Parse);
+        }
+        let is_and = function == "AND";
+        for (start, end) in ranges {
+            let value = self.evaluate_argument(start, end)?;
+            if is_and && value == 0.0 {
+                return Ok(0.0);
+            }
+            if !is_and && value != 0.0 {
+                return Ok(1.0);
+            }
+        }
+        Ok(if is_and { 1.0 } else { 0.0 })
+    }
+    fn function_argument_ranges(&mut self) -> Result<Vec<(usize, usize)>, FormulaError> {
+        let mut ranges = Vec::new();
+        let mut start = self.cursor;
+        let mut depth = 0usize;
+        let mut quoted = false;
+        while let Some(byte) = self.peek() {
+            match byte {
+                b'\'' => quoted = !quoted,
+                b'(' if !quoted => depth += 1,
+                b')' if !quoted && depth == 0 => {
+                    if start == self.cursor {
+                        return Err(FormulaError::Parse);
+                    }
+                    ranges.push((start, self.cursor));
+                    self.cursor += 1;
+                    return Ok(ranges);
+                }
+                b')' if !quoted => depth = depth.checked_sub(1).ok_or(FormulaError::Parse)?,
+                b',' if !quoted && depth == 0 => {
+                    if start == self.cursor {
+                        return Err(FormulaError::Parse);
+                    }
+                    ranges.push((start, self.cursor));
+                    self.cursor += 1;
+                    start = self.cursor;
+                }
+                _ => {}
+            }
+            self.cursor += 1;
+        }
+        Err(FormulaError::Parse)
+    }
+    fn evaluate_argument(&mut self, start: usize, end: usize) -> Result<f64, FormulaError> {
+        let source = std::str::from_utf8(&self.input[start..end])
+            .map_err(|_| FormulaError::Parse)?;
+        Parser::new(source, self.workbook, self.sheet_id, self.visiting, self.cache).parse()
     }
     fn aggregate_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let mut values = Vec::new();
@@ -2280,6 +2346,72 @@ mod tests {
         book.set_formula(sheet, b1, "=1+").unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
+    #[test]
+    fn logical_functions_if_and_or_evaluate_nested_formulas() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=IF(1,10,20)", 10.0),
+            ("=IF(0,10,20)", 20.0),
+            ("=IF(2>1,3^2,1/0)", 9.0),
+            ("=IF(2<1,1/0,3+4)", 7.0),
+            ("=AND(1,2>1,3^2)", 1.0),
+            ("=AND(1,0,1/0)", 0.0),
+            ("=OR(0,0,5>2)", 1.0),
+            ("=OR(1,1/0)", 1.0),
+            ("=IF(AND(1,2>1),OR(0,1),0)", 1.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 0).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn logical_functions_validate_argument_counts_and_syntax() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        for formula in ["=IF(1,2)", "=IF(1,2,3,4)", "=AND()", "=OR()", "=IF(,1,2)", "=IF(1,,2)"] {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(FormulaError::Parse),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn logical_functions_recalculate_with_cell_dependencies() {
+        let mut book = Workbook::new();
+        let sheet = 1;
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        book.set_number(sheet, a1, 5.0).unwrap();
+        book.set_formula(sheet, b1, "=IF(A1>3,100,200)").unwrap();
+        book.set_formula(sheet, c1, "=AND(A1>0,B1=100)").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Number(100.0));
+        assert_eq!(book.value(sheet, c1), CellValue::Number(1.0));
+        let mut index = DependencyIndex::build(&book).unwrap();
+        book.set_number(sheet, a1, 1.0).unwrap();
+        index.update_cell(&book, sheet, a1).unwrap();
+        let values = book
+            .recalculate_after_change_with_index(&index, sheet, a1)
+            .unwrap();
+        assert_eq!(
+            values,
+            vec![
+                ((sheet, b1), CellValue::Number(200.0)),
+                ((sheet, c1), CellValue::Number(0.0)),
+            ]
+        );
+    }
+
     #[test]
     fn formula_comparisons_support_all_operators_and_parentheses() {
         let mut book = Workbook::new();
