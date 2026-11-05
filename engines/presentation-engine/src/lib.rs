@@ -551,7 +551,7 @@ impl Presentation {
                     let mut matched = None;
                     for (offset, _) in remainder.char_indices() {
                         let start = cursor + offset;
-                        let candidate = text[start..].chars().take(query_chars).collect::<String>();
+                        let candidate = text[start..]\n                            .chars()\n                            .take(query_chars)\n                            .collect::<String>();
                         let equal = if case_sensitive {
                             candidate == query
                         } else {
