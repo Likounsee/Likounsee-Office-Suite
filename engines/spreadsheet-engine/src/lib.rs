@@ -1704,6 +1704,7 @@ impl<'a> Parser<'a> {
                     ranges.push((start, self.cursor));
                     self.cursor += 1;
                     start = self.cursor;
+                    continue;
                 }
                 _ => {}
             }
