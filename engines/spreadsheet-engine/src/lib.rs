@@ -5948,21 +5948,43 @@ mod session_tests {
         let seed = CellAddress::parse_a1("A1").unwrap();
         let end = CellAddress::parse_a1("A3").unwrap();
         session.set_formula(sheet, seed, "=B1+$C$1").unwrap();
-        assert_eq!(session.fill_formula_range(sheet, seed, seed, end).unwrap(), 3);
         assert_eq!(
-            session.workbook().sheet(sheet).unwrap().cell(CellAddress::parse_a1("A2").unwrap()).unwrap().formula(),
+            session.fill_formula_range(sheet, seed, seed, end).unwrap(),
+            3
+        );
+        assert_eq!(
+            session
+                .workbook()
+                .sheet(sheet)
+                .unwrap()
+                .cell(CellAddress::parse_a1("A2").unwrap())
+                .unwrap()
+                .formula(),
             Some("=B2+$C$1")
         );
         assert_eq!(
-            session.dependency_index().dependencies_of(sheet, CellAddress::parse_a1("A3").unwrap()).len(),
+            session
+                .dependency_index()
+                .dependencies_of(sheet, CellAddress::parse_a1("A3").unwrap())
+                .len(),
             2
         );
         session.save_now().unwrap();
         let reopened = WorkbookSession::open(&directory.0).unwrap();
         assert_eq!(
-            reopened.workbook().sheet(sheet).unwrap().cell(end).unwrap().formula(),
+            reopened
+                .workbook()
+                .sheet(sheet)
+                .unwrap()
+                .cell(end)
+                .unwrap()
+                .formula(),
             Some("=B3+$C$1")
         );
-        assert!(session.fill_formula_range(sheet, CellAddress::parse_a1("Z9").unwrap(), seed, end).is_err());
+        assert!(
+            session
+                .fill_formula_range(sheet, CellAddress::parse_a1("Z9").unwrap(), seed, end)
+                .is_err()
+        );
     }
 }

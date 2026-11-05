@@ -2598,7 +2598,12 @@ impl DocumentSession {
             if !seen.insert(*id) {
                 return Err(invalid_input("duplicate paragraph ID in style batch"));
             }
-            if !self.document.paragraphs.iter().any(|paragraph| paragraph.id == *id) {
+            if !self
+                .document
+                .paragraphs
+                .iter()
+                .any(|paragraph| paragraph.id == *id)
+            {
                 return Err(invalid_input("paragraph ID does not exist"));
             }
         }
@@ -4213,29 +4218,54 @@ mod tests {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_body("first\nsecond\nthird").unwrap();
-        let ids = session.document().paragraphs().iter().map(|p| p.id()).collect::<Vec<_>>();
+        let ids = session
+            .document()
+            .paragraphs()
+            .iter()
+            .map(|p| p.id())
+            .collect::<Vec<_>>();
         let revision = session.document().revision();
         assert_eq!(
-            session.set_paragraph_styles_batch(&[
-                (ids[0], ParagraphStyle::Heading1),
-                (ids[1], ParagraphStyle::Quote),
-            ]).unwrap(),
+            session
+                .set_paragraph_styles_batch(&[
+                    (ids[0], ParagraphStyle::Heading1),
+                    (ids[1], ParagraphStyle::Quote),
+                ])
+                .unwrap(),
             2
         );
         assert_eq!(session.document().revision(), revision + 1);
-        assert_eq!(session.document().paragraphs()[0].style(), ParagraphStyle::Heading1);
-        assert_eq!(session.document().paragraphs()[1].style(), ParagraphStyle::Quote);
+        assert_eq!(
+            session.document().paragraphs()[0].style(),
+            ParagraphStyle::Heading1
+        );
+        assert_eq!(
+            session.document().paragraphs()[1].style(),
+            ParagraphStyle::Quote
+        );
         let revision = session.document().revision();
-        assert!(session.set_paragraph_styles_batch(&[
-            (ids[0], ParagraphStyle::Normal),
-            (ids[0], ParagraphStyle::Code),
-        ]).is_err());
+        assert!(
+            session
+                .set_paragraph_styles_batch(&[
+                    (ids[0], ParagraphStyle::Normal),
+                    (ids[0], ParagraphStyle::Code),
+                ])
+                .is_err()
+        );
         assert_eq!(session.document().revision(), revision);
-        assert_eq!(session.document().paragraphs()[0].style(), ParagraphStyle::Heading1);
-        assert_eq!(session.set_paragraph_styles_batch(&[
-            (ids[0], ParagraphStyle::Heading1),
-            (ids[1], ParagraphStyle::Quote),
-        ]).unwrap(), 0);
+        assert_eq!(
+            session.document().paragraphs()[0].style(),
+            ParagraphStyle::Heading1
+        );
+        assert_eq!(
+            session
+                .set_paragraph_styles_batch(&[
+                    (ids[0], ParagraphStyle::Heading1),
+                    (ids[1], ParagraphStyle::Quote),
+                ])
+                .unwrap(),
+            0
+        );
         assert_eq!(session.document().revision(), revision);
     }
 }

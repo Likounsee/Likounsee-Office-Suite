@@ -1191,9 +1191,10 @@ impl Presentation {
                 return Err(invalid_input("slide does not exist"));
             }
         }
-        let changed = requested.iter().filter(|(id, notes)| {
-            self.slide(*id).is_some_and(|slide| slide.notes != *notes)
-        }).count();
+        let changed = requested
+            .iter()
+            .filter(|(id, notes)| self.slide(*id).is_some_and(|slide| slide.notes != *notes))
+            .count();
         if changed == 0 {
             return Ok(0);
         }
@@ -5981,24 +5982,38 @@ mod tests {
         let first = presentation.slides()[0].id();
         let second = presentation.add_slide("Second").unwrap();
         let revision = presentation.revision();
-        assert_eq!(presentation.set_slide_notes_batch(&[
-            (first, "Opening".to_owned()),
-            (second, "Conclusion".to_owned()),
-        ]).unwrap(), 2);
+        assert_eq!(
+            presentation
+                .set_slide_notes_batch(&[
+                    (first, "Opening".to_owned()),
+                    (second, "Conclusion".to_owned()),
+                ])
+                .unwrap(),
+            2
+        );
         assert_eq!(presentation.revision(), revision + 1);
         assert_eq!(presentation.slide(first).unwrap().notes(), "Opening");
         assert_eq!(presentation.slide(second).unwrap().notes(), "Conclusion");
         let revision = presentation.revision();
-        assert!(presentation.set_slide_notes_batch(&[
-            (first, "Changed".to_owned()),
-            (first, "Duplicate".to_owned()),
-        ]).is_err());
+        assert!(
+            presentation
+                .set_slide_notes_batch(&[
+                    (first, "Changed".to_owned()),
+                    (first, "Duplicate".to_owned()),
+                ])
+                .is_err()
+        );
         assert_eq!(presentation.revision(), revision);
         assert_eq!(presentation.slide(first).unwrap().notes(), "Opening");
-        assert_eq!(presentation.set_slide_notes_batch(&[
-            (first, "Opening".to_owned()),
-            (second, "Conclusion".to_owned()),
-        ]).unwrap(), 0);
+        assert_eq!(
+            presentation
+                .set_slide_notes_batch(&[
+                    (first, "Opening".to_owned()),
+                    (second, "Conclusion".to_owned()),
+                ])
+                .unwrap(),
+            0
+        );
         assert_eq!(presentation.revision(), revision);
     }
 }
