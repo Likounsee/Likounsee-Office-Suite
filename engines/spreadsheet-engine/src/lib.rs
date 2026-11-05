@@ -2721,7 +2721,10 @@ impl<'a> Parser<'a> {
         function: &str,
     ) -> Result<f64, FormulaError> {
         let arguments = self.function_argument_ranges()?;
-        if arguments.len() < 2 || arguments.len() > 3 {
+        if arguments.len() < 2
+            || arguments.len() > 3
+            || (function == "COUNTIF" && arguments.len() != 2)
+        {
             return Err(FormulaError::Parse);
         }
         let (criteria_sheet, first, last) =
@@ -2765,8 +2768,9 @@ impl<'a> Parser<'a> {
                     self.cache,
                 );
                 if criteria.matches(&criteria_value)? {
-                    count += 1;
-                    if function != "COUNTIF" {
+                    if function == "COUNTIF" {
+                        count += 1;
+                    } else {
                         let sum_address = CellAddress::new(
                             sum_min_row + row_offset,
                             sum_min_column + column_offset,
@@ -2778,7 +2782,12 @@ impl<'a> Parser<'a> {
                             self.visiting,
                             self.cache,
                         ) {
-                            CellValue::Number(value) => total += value,
+                            CellValue::Number(value) => {
+                                total += value;
+                                if function == "AVERAGEIF" {
+                                    count += 1;
+                                }
+                            }
                             CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
                             CellValue::Error(error) => return Err(error),
                         }
