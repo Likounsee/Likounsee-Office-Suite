@@ -3516,16 +3516,16 @@ mod tests {
     #[test]
     fn table_cell_text_edit_preserves_cell_identity_and_survives_recovery() {
         let directory = TestDirectory::new();
-        let mut session = DocumentSession::open(directory.path()).unwrap();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
         let table_id = session.insert_table(1, 1).unwrap();
-        let cell_id = session.document().tables().next().unwrap().rows()[0].cells()[0].id();
+        let cell_id = session.document().tables()[0].rows()[0].cells()[0].id();
         session.set_table_cell_text(table_id, 0, 0, "Quarterly result").unwrap();
-        let cell = &session.document().tables().next().unwrap().rows()[0].cells()[0];
+        let cell = &session.document().tables()[0].rows()[0].cells()[0];
         assert_eq!(cell.id(), cell_id);
         assert_eq!(cell.text(), "Quarterly result");
         session.save_now().unwrap();
-        let reopened = DocumentSession::open(directory.path()).unwrap();
-        assert_eq!(reopened.document().tables().next().unwrap().rows()[0].cells()[0].text(), "Quarterly result");
+        let reopened = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(reopened.document().tables()[0].rows()[0].cells()[0].text(), "Quarterly result");
     }
 
 }
