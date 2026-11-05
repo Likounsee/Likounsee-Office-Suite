@@ -454,13 +454,15 @@ pub fn word_count(document: &Document) -> io::Result<usize> {
     validate_document_size(document)?;
     let mut count = 0usize;
     for paragraph in &document.paragraphs {
-        count = count.checked_add(paragraph.text.split_whitespace().count())
+        count = count
+            .checked_add(paragraph.text.split_whitespace().count())
             .ok_or_else(|| invalid_data("document word count overflow"))?;
     }
     for table in &document.tables {
         for row in &table.rows {
             for cell in &row.cells {
-                count = count.checked_add(cell.text.split_whitespace().count())
+                count = count
+                    .checked_add(cell.text.split_whitespace().count())
                     .ok_or_else(|| invalid_data("document word count overflow"))?;
             }
         }
