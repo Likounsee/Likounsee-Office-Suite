@@ -5083,6 +5083,45 @@ impl WorkbookSession {
         Ok(count)
     }
 
+    /// Fill an inclusive rectangle from a formula seed, translating relative references.
+    /// All generated formulas and their dependency edges are journalled as one edit.
+    pub fn fill_formula_range(
+        &mut self,
+        sheet_id: u64,
+        source: CellAddress,
+        start: CellAddress,
+        end: CellAddress,
+    ) -> io::Result<usize> {
+        let source_cell = self
+            .workbook
+            .sheet(sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?
+            .cell(source)
+            .cloned()
+            .ok_or_else(|| invalid_input("formula seed cell is empty"))?;
+        if !source_cell.is_formula() {
+            return Err(invalid_input("formula seed cell must contain a formula"));
+        }
+        let min_row = start.row().min(end.row());
+        let max_row = start.row().max(end.row());
+        let min_column = start.column().min(end.column());
+        let max_column = start.column().max(end.column());
+        let area = ((max_row - min_row + 1) as usize)
+            .checked_mul((max_column - min_column + 1) as usize)
+            .filter(|area| *area <= MAX_CELLS)
+            .ok_or_else(|| invalid_input("formula fill range exceeds the cell limit"))?;
+        let mut next = self.workbook.clone();
+        for row in min_row..=max_row {
+            for column in min_column..=max_column {
+                let destination = CellAddress::new(row, column)?;
+                next.copy_range(sheet_id, source, source, destination)?;
+            }
+        }
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(area)
+    }
+
     /// Copy a range through the durable session and rebuild formula dependencies.
     /// Formula references are translated by Workbook::copy_range before the journal commit.
     /// Fill a numeric rectangle as one durable edit and refresh formula dependencies.
@@ -5899,5 +5938,31 @@ mod session_tests {
             workbook.value(sheet, CellAddress::parse_a1("F1").unwrap()),
             CellValue::Number(2.0)
         );
+    }
+
+    #[test]
+    fn session_formula_fill_translates_references_and_recovers() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let sheet = session.workbook().sheets()[0].id();
+        let seed = CellAddress::parse_a1("A1").unwrap();
+        let end = CellAddress::parse_a1("A3").unwrap();
+        session.set_formula(sheet, seed, "=B1+$C$1").unwrap();
+        assert_eq!(session.fill_formula_range(sheet, seed, seed, end).unwrap(), 3);
+        assert_eq!(
+            session.workbook().sheet(sheet).unwrap().cell(CellAddress::parse_a1("A2").unwrap()).unwrap().formula(),
+            Some("=B2+$C$1")
+        );
+        assert_eq!(
+            session.dependency_index().dependencies_of(sheet, CellAddress::parse_a1("A3").unwrap()).len(),
+            2
+        );
+        session.save_now().unwrap();
+        let reopened = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(
+            reopened.workbook().sheet(sheet).unwrap().cell(end).unwrap().formula(),
+            Some("=B3+$C$1")
+        );
+        assert!(session.fill_formula_range(sheet, CellAddress::parse_a1("Z9").unwrap(), seed, end).is_err());
     }
 }

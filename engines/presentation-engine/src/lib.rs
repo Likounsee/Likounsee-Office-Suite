@@ -1175,6 +1175,35 @@ impl Presentation {
         Ok(true)
     }
 
+    /// Replace speaker notes on multiple slides as one atomic presentation mutation.
+    /// Duplicate or missing slide IDs reject the complete batch; unchanged notes are skipped.
+    pub fn set_slide_notes_batch(&mut self, requested: &[(u64, String)]) -> io::Result<usize> {
+        if requested.is_empty() {
+            return Ok(0);
+        }
+        let mut seen = std::collections::HashSet::with_capacity(requested.len());
+        for (slide_id, notes) in requested {
+            if !seen.insert(*slide_id) {
+                return Err(invalid_input("duplicate slide ID in notes batch"));
+            }
+            validate_string(notes, "slide notes")?;
+            if self.slide(*slide_id).is_none() {
+                return Err(invalid_input("slide does not exist"));
+            }
+        }
+        let changed = requested.iter().filter(|(id, notes)| {
+            self.slide(*id).is_some_and(|slide| slide.notes != *notes)
+        }).count();
+        if changed == 0 {
+            return Ok(0);
+        }
+        self.bump_revision()?;
+        for (slide_id, notes) in requested {
+            self.slide_mut(*slide_id)?.notes = notes.clone();
+        }
+        Ok(changed)
+    }
+
     /// Rename a slide without changing its stable identity.
     pub fn rename_slide(&mut self, slide_id: u64, name: impl Into<String>) -> io::Result<()> {
         let name = name.into();
@@ -5944,5 +5973,32 @@ mod tests {
         assert_eq!(presentation.clear_slide_elements(slide_id).unwrap(), 0);
         assert_eq!(presentation.revision(), revision);
         assert!(presentation.clear_slide_elements(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn batch_slide_notes_update_is_atomic_and_advances_revision_once() {
+        let mut presentation = Presentation::new("Notes batch", 100.0, 80.0).unwrap();
+        let first = presentation.slides()[0].id();
+        let second = presentation.add_slide("Second").unwrap();
+        let revision = presentation.revision();
+        assert_eq!(presentation.set_slide_notes_batch(&[
+            (first, "Opening".to_owned()),
+            (second, "Conclusion".to_owned()),
+        ]).unwrap(), 2);
+        assert_eq!(presentation.revision(), revision + 1);
+        assert_eq!(presentation.slide(first).unwrap().notes(), "Opening");
+        assert_eq!(presentation.slide(second).unwrap().notes(), "Conclusion");
+        let revision = presentation.revision();
+        assert!(presentation.set_slide_notes_batch(&[
+            (first, "Changed".to_owned()),
+            (first, "Duplicate".to_owned()),
+        ]).is_err());
+        assert_eq!(presentation.revision(), revision);
+        assert_eq!(presentation.slide(first).unwrap().notes(), "Opening");
+        assert_eq!(presentation.set_slide_notes_batch(&[
+            (first, "Opening".to_owned()),
+            (second, "Conclusion".to_owned()),
+        ]).unwrap(), 0);
+        assert_eq!(presentation.revision(), revision);
     }
 }

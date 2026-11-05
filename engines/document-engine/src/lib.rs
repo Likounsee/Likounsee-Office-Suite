@@ -2584,6 +2584,47 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Apply paragraph styles to several paragraphs as one atomic journalled edit.
+    /// Duplicate or missing IDs reject the complete batch; unchanged styles are skipped.
+    pub fn set_paragraph_styles_batch(
+        &mut self,
+        requested: &[(u64, ParagraphStyle)],
+    ) -> io::Result<usize> {
+        if requested.is_empty() {
+            return Ok(0);
+        }
+        let mut seen = std::collections::HashSet::with_capacity(requested.len());
+        for (id, _) in requested {
+            if !seen.insert(*id) {
+                return Err(invalid_input("duplicate paragraph ID in style batch"));
+            }
+            if !self.document.paragraphs.iter().any(|paragraph| paragraph.id == *id) {
+                return Err(invalid_input("paragraph ID does not exist"));
+            }
+        }
+        let mut paragraphs = self.document.paragraphs.clone();
+        let mut changed = 0usize;
+        for (id, style) in requested {
+            let paragraph = paragraphs
+                .iter_mut()
+                .find(|paragraph| paragraph.id == *id)
+                .expect("paragraph IDs were validated");
+            if paragraph.style != *style {
+                paragraph.style = *style;
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            return Ok(0);
+        }
+        let next = self
+            .document
+            .with_paragraphs(paragraphs, self.document.next_block_id)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(changed)
+    }
+
     /// Apply or remove one inline mark over a UTF-8 byte range in a paragraph.
     /// Existing marks of other kinds are preserved; adjacent ranges are merged.
     pub fn set_inline_mark(
@@ -4165,5 +4206,36 @@ mod tests {
             export_text(session.document()).unwrap(),
             "first\nfirst\nsecond\n"
         );
+    }
+    
+    #[test]
+    fn paragraph_style_batch_is_atomic_and_advances_revision_once() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("first\nsecond\nthird").unwrap();
+        let ids = session.document().paragraphs().iter().map(|p| p.id()).collect::<Vec<_>>();
+        let revision = session.document().revision();
+        assert_eq!(
+            session.set_paragraph_styles_batch(&[
+                (ids[0], ParagraphStyle::Heading1),
+                (ids[1], ParagraphStyle::Quote),
+            ]).unwrap(),
+            2
+        );
+        assert_eq!(session.document().revision(), revision + 1);
+        assert_eq!(session.document().paragraphs()[0].style(), ParagraphStyle::Heading1);
+        assert_eq!(session.document().paragraphs()[1].style(), ParagraphStyle::Quote);
+        let revision = session.document().revision();
+        assert!(session.set_paragraph_styles_batch(&[
+            (ids[0], ParagraphStyle::Normal),
+            (ids[0], ParagraphStyle::Code),
+        ]).is_err());
+        assert_eq!(session.document().revision(), revision);
+        assert_eq!(session.document().paragraphs()[0].style(), ParagraphStyle::Heading1);
+        assert_eq!(session.set_paragraph_styles_batch(&[
+            (ids[0], ParagraphStyle::Heading1),
+            (ids[1], ParagraphStyle::Quote),
+        ]).unwrap(), 0);
+        assert_eq!(session.document().revision(), revision);
     }
 }
