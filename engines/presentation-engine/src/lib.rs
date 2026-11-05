@@ -782,7 +782,9 @@ impl Presentation {
         alignment: ElementAlignment,
     ) -> io::Result<()> {
         if element_ids.is_empty() {
-            return Err(invalid_input("at least one element is required for canvas alignment"));
+            return Err(invalid_input(
+                "at least one element is required for canvas alignment",
+            ));
         }
         let slide = self
             .slide(slide_id)
@@ -1944,8 +1946,12 @@ mod tests {
             ElementAlignment::CenterHorizontal,
         )
         .unwrap();
-        deck.align_elements_to_canvas(slide, &[first, second], ElementAlignment::Bottom)
-            .unwrap();
+        deck.align_elements_to_canvas(
+            slide,
+            &[first, second],
+            ElementAlignment::Bottom,
+        )
+        .unwrap();
 
         let elements = deck.slide(slide).unwrap();
         assert_eq!(elements.element(first).unwrap().bounds().x(), 430.0);
