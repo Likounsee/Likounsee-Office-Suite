@@ -7,10 +7,11 @@
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Cursor, Write};
-use zip::ZipWriter;
-use zip::write::FileOptions;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+use zip::ZipWriter;
+use zip::write::FileOptions;
 
 use suite_common::autosave::AutosaveScheduler;
 use suite_common::checkpoint::{Checkpoint, read_checkpoint, verify_checkpoint, write_checkpoint};
@@ -2497,7 +2498,8 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
 <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>
 <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>
 <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
-"#);
+"#,
+    );
     for i in 0..presentation.slides.len() {
         let _ = write!(
             types,
