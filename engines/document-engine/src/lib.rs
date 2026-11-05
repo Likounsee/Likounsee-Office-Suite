@@ -3154,7 +3154,7 @@ mod tests {
         session.set_table_cell_text(table_id, 1, 0, "C").unwrap();
         session.set_table_cell_text(table_id, 1, 1, "D").unwrap();
         let text = export_text(session.document()).unwrap();
-        assert_eq!(text, "First paragraph\nA\tB\nC\tD");
+        assert_eq!(text, "First paragraph\nA\tB\nC\tD\n");
     }
 
     #[test]
