@@ -2863,7 +2863,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-
     fn text_function_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
         let valid_count = match function {
@@ -2892,10 +2891,7 @@ impl<'a> Parser<'a> {
         let tail = haystack.chars().skip(start).collect::<String>();
         let prefix_length = if function == "FIND" {
             let found = tail.find(&needle_or_text).ok_or(FormulaError::Type)?;
-            tail.get(..found)
-                .ok_or(FormulaError::Type)?
-                .chars()
-                .count()
+            tail.get(..found).ok_or(FormulaError::Type)?.chars().count()
         } else {
             let lowered = tail.to_lowercase();
             let found = lowered
@@ -6569,10 +6565,7 @@ mod session_tests {
             CellValue::Error(FormulaError::Type)
         );
         let f1 = CellAddress::parse_a1("F1").unwrap();
-        workbook
-            .set_formula(sheet, f1, "=LEN(\"A😀é\")")
-            .unwrap();
+        workbook.set_formula(sheet, f1, "=LEN(\"A😀é\")").unwrap();
         assert_eq!(workbook.value(sheet, f1), CellValue::Number(3.0));
     }
-
 }
