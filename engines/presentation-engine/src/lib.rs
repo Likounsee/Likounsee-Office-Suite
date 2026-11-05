@@ -396,8 +396,7 @@ impl Presentation {
         validate_string(&name, "slide name")?;
         let placeholder_count = match layout {
             SlideLayout::Blank => 0,
-            SlideLayout::Title => 2,
-            SlideLayout::TitleAndContent | SlideLayout::SectionHeader => 2,
+            SlideLayout::Title | SlideLayout::TitleAndContent | SlideLayout::SectionHeader => 2,
             SlideLayout::TwoColumns => 3,
         };
         if self.slides.len() >= MAX_SLIDES {
@@ -406,41 +405,74 @@ impl Presentation {
         if self.next_id.checked_add(placeholder_count as u64).is_none() {
             return Err(invalid_input("presentation ID space exhausted"));
         }
-        let slide_id = self.add_slide(name)?;
+
+        let margin_x = self.width * 0.07;
+        let content_width = self.width - 2.0 * margin_x;
         let title_style = TextStyle::new("Arial", 30.0, 0x202020)?;
         let body_style = TextStyle::new("Arial", 20.0, 0x404040)?;
-        let title_bounds = Rect::new(48.0, 28.0, self.width - 96.0, 72.0)?;
-        let body_bounds = Rect::new(64.0, 132.0, self.width - 128.0, self.height - 180.0)?;
+        let title_bounds = Rect::new(
+            margin_x,
+            self.height * 0.05,
+            content_width,
+            self.height * 0.15,
+        )?;
+        let body_y = self.height * 0.25;
+        let body_height = self.height * 0.68;
+        let slide_id = self.add_slide(name)?;
 
         match layout {
             SlideLayout::Blank => {}
             SlideLayout::Title => {
                 self.add_text(
                     slide_id,
-                    Rect::new(64.0, self.height * 0.30, self.width - 128.0, 84.0)?,
+                    Rect::new(
+                        margin_x,
+                        self.height * 0.30,
+                        content_width,
+                        self.height * 0.16,
+                    )?,
                     "Title",
                     title_style,
                 )?;
                 self.add_text(
                     slide_id,
-                    Rect::new(96.0, self.height * 0.50, self.width - 192.0, 56.0)?,
+                    Rect::new(
+                        margin_x,
+                        self.height * 0.52,
+                        content_width,
+                        self.height * 0.10,
+                    )?,
                     "Subtitle",
                     body_style,
                 )?;
             }
             SlideLayout::TitleAndContent => {
                 self.add_text(slide_id, title_bounds, "Title", title_style)?;
-                self.add_text(slide_id, body_bounds, "Click to add content", body_style)?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x, body_y, content_width, body_height)?,
+                    "Click to add content",
+                    body_style,
+                )?;
             }
             SlideLayout::TwoColumns => {
                 self.add_text(slide_id, title_bounds, "Title", title_style)?;
-                let gap = 24.0;
-                let column_width = (self.width - 128.0 - gap) / 2.0;
-                let column_bounds = Rect::new(64.0, 132.0, column_width, self.height - 180.0)?;
-                self.add_text(slide_id, column_bounds, "Left content", body_style.clone())?;
+                let gap = self.width * 0.025;
+                let column_width = (content_width - gap) / 2.0;
                 self.add_text(
                     slide_id,
-                    Rect::new(64.0 + column_width + gap, 132.0, column_width, self.height - 180.0)?,
+                    Rect::new(margin_x, body_y, column_width, body_height)?,
+                    "Left content",
+                    body_style.clone(),
+                )?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(
+                        margin_x + column_width + gap,
+                        body_y,
+                        column_width,
+                        body_height,
+                    )?,
                     "Right content",
                     body_style,
                 )?;
@@ -448,13 +480,23 @@ impl Presentation {
             SlideLayout::SectionHeader => {
                 self.add_text(
                     slide_id,
-                    Rect::new(64.0, self.height * 0.34, self.width - 128.0, 76.0)?,
+                    Rect::new(
+                        margin_x,
+                        self.height * 0.34,
+                        content_width,
+                        self.height * 0.15,
+                    )?,
                     "Section title",
                     title_style,
                 )?;
                 self.add_text(
                     slide_id,
-                    Rect::new(64.0, self.height * 0.52, self.width - 128.0, 48.0)?,
+                    Rect::new(
+                        margin_x,
+                        self.height * 0.52,
+                        content_width,
+                        self.height * 0.10,
+                    )?,
                     "Section subtitle",
                     body_style,
                 )?;
@@ -1955,6 +1997,24 @@ mod tests {
         }));
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
+    }
+
+    #[test]
+    fn built_in_layouts_support_minimum_canvas_dimensions() {
+        let mut deck = Presentation::new("Small", 1.0, 1.0).unwrap();
+        for layout in [
+            SlideLayout::Title,
+            SlideLayout::TitleAndContent,
+            SlideLayout::TwoColumns,
+            SlideLayout::SectionHeader,
+        ] {
+            let slide = deck.add_slide_with_layout("Small layout", layout).unwrap();
+            assert!(!deck.slide(slide).unwrap().elements().is_empty());
+        }
+        assert_eq!(
+            decode_presentation(&encode_presentation(&deck).unwrap()).unwrap(),
+            deck
+        );
     }
 
     #[test]
