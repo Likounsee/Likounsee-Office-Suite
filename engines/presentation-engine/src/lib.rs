@@ -5009,7 +5009,7 @@ mod tests {
         assert_eq!(bounds.x(), 5.0);
         assert_eq!(bounds.y(), 5.0);
         assert_eq!(bounds.width(), 105.0);
-        assert_eq!(bounds.height(), 55.0);
+        assert_eq!(bounds.height(), 75.0);
         assert!(slide_layout_statistics(&deck, u64::MAX).is_err());
     }
 
