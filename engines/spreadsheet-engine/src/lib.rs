@@ -2526,6 +2526,7 @@ mod session_tests {
             report = session.add_sheet("Report").unwrap();
             session.set_number(data, a1, 8.0).unwrap();
             session.set_formula(report, b1, "=Data!A1*2").unwrap();
+            session.save_now().unwrap();
         }
         let mut recovered = WorkbookSession::open(&directory.0).unwrap();
         assert_eq!(
