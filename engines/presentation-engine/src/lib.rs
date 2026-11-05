@@ -2944,7 +2944,8 @@ mod tests {
         let svg = render_slide_svg(&deck, slide).unwrap();
         assert!(svg.starts_with("<svg "));
         assert!(svg.contains("SVG &amp; test"));
-        assert!(svg.contains("Hello &lt;world&gt; &amp; everyone"));
+        assert!(svg.contains(">Hello &lt;world&gt; &amp;</tspan>"));
+        assert!(svg.contains(">everyone</tspan>"));
         assert!(svg.contains("font-family=\"Inter &amp; Sans\""));
         assert!(svg.contains("text-decoration=\"underline\""));
         assert!(svg.contains("<rect id=\"element-"));
