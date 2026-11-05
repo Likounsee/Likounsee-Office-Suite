@@ -2025,7 +2025,8 @@ mod tests {
         book.set_formula(report, c1, "=B1+100").unwrap();
         index.update_cell(&book, report, c1).unwrap();
         assert_eq!(
-            book.recalculate_after_change_with_index(&index, data, a2).unwrap(),
+            book.recalculate_after_change_with_index(&index, data, a2)
+                .unwrap(),
             vec![
                 ((report, b1), CellValue::Number(12.0)),
                 ((report, c1), CellValue::Number(112.0)),
