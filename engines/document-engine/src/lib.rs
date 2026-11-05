@@ -2166,11 +2166,8 @@ impl DocumentSession {
                 .ok_or_else(|| invalid_input("replacement count overflow"))?;
             for offset in offsets.into_iter().rev() {
                 let end = offset + search.len();
-                paragraph.spans = adjust_inline_spans_for_edit(
-                    &paragraph.spans,
-                    offset..end,
-                    replacement.len(),
-                );
+                paragraph.spans =
+                    adjust_inline_spans_for_edit(&paragraph.spans, offset..end, replacement.len());
                 paragraph.text.replace_range(offset..end, replacement);
             }
         }
