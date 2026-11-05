@@ -1197,10 +1197,7 @@ mod tests {
         book.set_number(report, b1, 5.0).unwrap();
         assert_eq!(book.value(data, a1), CellValue::Number(6.0));
         book.remove_sheet(data).unwrap();
-        assert_eq!(
-            book.value(report, b1),
-            CellValue::Number(5.0)
-        );
+        assert_eq!(book.value(report, b1), CellValue::Number(5.0));
         book.set_formula(report, b1, "=Data!A1").unwrap();
         assert_eq!(
             book.value(report, b1),
@@ -1640,4 +1637,3 @@ mod session_tests {
         assert!(session.workbook().sheet(999).is_none());
     }
 }
-
