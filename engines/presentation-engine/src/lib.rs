@@ -2784,10 +2784,7 @@ pub fn export_slide_text(presentation: &Presentation) -> io::Result<String> {
 }
 
 /// Export the editable text of one slide in element order.
-pub fn export_single_slide_text(
-    presentation: &Presentation,
-    slide_id: u64,
-) -> io::Result<String> {
+pub fn export_single_slide_text(presentation: &Presentation, slide_id: u64) -> io::Result<String> {
     presentation.validate()?;
     let slide = presentation
         .slide(slide_id)
@@ -4779,7 +4776,10 @@ mod tests {
             TextStyle::default(),
         )
         .unwrap();
-        assert_eq!(export_single_slide_text(&deck, second).unwrap(), "Second slide\n");
+        assert_eq!(
+            export_single_slide_text(&deck, second).unwrap(),
+            "Second slide\n"
+        );
         assert!(export_single_slide_text(&deck, u64::MAX).is_err());
     }
 

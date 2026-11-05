@@ -3202,7 +3202,9 @@ mod tests {
         let mut session = DocumentSession::open(directory.path()).unwrap();
         session.insert_text(0, "one needle needle").unwrap();
         let table_id = session.insert_table(1, 1).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "needle in cell").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "needle in cell")
+            .unwrap();
         let document = session.document().clone();
         let matches = find_text(&document, "needle").unwrap();
         assert_eq!(matches.len(), 3);

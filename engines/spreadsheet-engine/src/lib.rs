@@ -2125,8 +2125,8 @@ impl<'a> Parser<'a> {
                 }
                 for row in min_row..=max_row {
                     for column in min_column..=max_column {
-                        let address = CellAddress::new(row, column)
-                            .map_err(|_| FormulaError::Reference)?;
+                        let address =
+                            CellAddress::new(row, column).map_err(|_| FormulaError::Reference)?;
                         if self.is_blank_cell(sheet_id, address)? {
                             count += 1;
                         }
@@ -2149,17 +2149,17 @@ impl<'a> Parser<'a> {
         Ok(count as f64)
     }
 
-    fn is_blank_cell(
-        &mut self,
-        sheet_id: u64,
-        address: CellAddress,
-    ) -> Result<bool, FormulaError> {
-        match self.workbook.evaluate(sheet_id, address, self.visiting, self.cache) {
+    fn is_blank_cell(&mut self, sheet_id: u64, address: CellAddress) -> Result<bool, FormulaError> {
+        match self
+            .workbook
+            .evaluate(sheet_id, address, self.visiting, self.cache)
+        {
             CellValue::Blank => Ok(true),
             CellValue::Text(value) if value.is_empty() => Ok(true),
-            CellValue::Number(_) | CellValue::Text(_) | CellValue::Boolean(_) | CellValue::Error(_) => {
-                Ok(false)
-            }
+            CellValue::Number(_)
+            | CellValue::Text(_)
+            | CellValue::Boolean(_)
+            | CellValue::Error(_) => Ok(false),
         }
     }
 
@@ -3429,7 +3429,9 @@ mod tests {
         workbook.set_text(1, a2, "").unwrap();
         workbook.set_formula(1, d1, "=COUNTBLANK(A1:A3)").unwrap();
         workbook.set_formula(1, e1, "=COUNTBLANK(A1:C1)").unwrap();
-        workbook.set_formula(1, f1, "=COUNTBLANK(A1,A2,A3)").unwrap();
+        workbook
+            .set_formula(1, f1, "=COUNTBLANK(A1,A2,A3)")
+            .unwrap();
         assert_eq!(workbook.value(1, d1), CellValue::Number(2.0));
         assert_eq!(workbook.value(1, e1), CellValue::Number(2.0));
         assert_eq!(workbook.value(1, f1), CellValue::Number(2.0));
