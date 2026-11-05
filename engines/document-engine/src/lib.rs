@@ -3708,10 +3708,28 @@ mod tests {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_body("alpha\nbeta\ngamma").unwrap();
-        let ids = session.document().paragraphs().iter().map(|p| p.id()).collect::<Vec<_>>();
-        session.move_paragraph_after(ids[0], Some(ids[2])).unwrap();
-        assert_eq!(session.document().paragraphs().iter().map(|p| p.id()).collect::<Vec<_>>(), vec![ids[1], ids[2], ids[0]]);
-        assert_eq!(export_text(session.document()).unwrap(), "beta\ngamma\nalpha\n");
+        let ids = session
+            .document()
+            .paragraphs()
+            .iter()
+            .map(|paragraph| paragraph.id())
+            .collect::<Vec<_>>();
+        session
+            .move_paragraph_after(ids[0], Some(ids[2]))
+            .unwrap();
+        assert_eq!(
+            session
+                .document()
+                .paragraphs()
+                .iter()
+                .map(|paragraph| paragraph.id())
+                .collect::<Vec<_>>(),
+            vec![ids[1], ids[2], ids[0]]
+        );
+        assert_eq!(
+            export_text(session.document()).unwrap(),
+            "beta\ngamma\nalpha\n"
+        );
         let revision = session.document().revision();
         session.move_paragraph_after(ids[0], None).unwrap();
         assert_eq!(session.document().revision(), revision);
