@@ -723,7 +723,7 @@ impl<'a> Parser<'a> {
     fn numeric_cell(&mut self, address: CellAddress) -> Result<f64, FormulaError> {
         match self
             .workbook
-            .evaluate(self.sheet_id, address, self.visiting)
+            .evaluate(self.sheet_id, address, self.visiting, self.cache)
         {
             CellValue::Number(value) => Ok(value),
             CellValue::Blank => Ok(0.0),
