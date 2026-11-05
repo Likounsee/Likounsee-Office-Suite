@@ -5304,13 +5304,34 @@ mod session_tests {
         session.set_number(sheet, g5, 88.0).unwrap();
         assert_eq!(session.transpose_range(sheet, a1, b1, d4).unwrap(), 2);
         assert_eq!(session.workbook().value(sheet, d4), CellValue::Number(11.0));
-        assert_eq!(session.workbook().value(sheet, CellAddress::parse_a1("D5").unwrap()), CellValue::Number(22.0));
+        assert_eq!(
+            session
+                .workbook()
+                .value(sheet, CellAddress::parse_a1("D5").unwrap()),
+            CellValue::Number(22.0)
+        );
         let revision = session.workbook().sheets()[0].stored_cell_count();
-        assert_eq!(session.transpose_range(sheet, CellAddress::parse_a1("C1").unwrap(), CellAddress::parse_a1("D1").unwrap(), f5).unwrap(), 0);
-        assert_eq!(session.workbook().sheets()[0].stored_cell_count(), revision - 2);
+        assert_eq!(
+            session
+                .transpose_range(
+                    sheet,
+                    CellAddress::parse_a1("C1").unwrap(),
+                    CellAddress::parse_a1("D1").unwrap(),
+                    f5
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            session.workbook().sheets()[0].stored_cell_count(),
+            revision - 2
+        );
         session.save_now().unwrap();
         let reopened = WorkbookSession::open(&directory.0).unwrap();
-        assert_eq!(reopened.workbook().value(sheet, d4), CellValue::Number(11.0));
+        assert_eq!(
+            reopened.workbook().value(sheet, d4),
+            CellValue::Number(11.0)
+        );
     }
 
     #[test]
