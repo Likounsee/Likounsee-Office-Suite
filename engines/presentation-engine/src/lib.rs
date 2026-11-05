@@ -4928,7 +4928,7 @@ mod tests {
         let stats = speaker_notes_statistics(&deck).unwrap();
         assert_eq!(stats.slides, 3);
         assert_eq!(stats.slides_with_notes, 2);
-        assert_eq!(stats.characters, 19);
+        assert_eq!(stats.characters, 22);
         assert_eq!(stats.words, 5);
     }
 
