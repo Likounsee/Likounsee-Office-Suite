@@ -755,24 +755,66 @@ impl Workbook {
 
     /// Transpose an inclusive rectangular range to a destination top-left cell.
     /// The source is snapshotted first, making overlapping copies safe.
-    pub fn transpose_range(&mut self, sheet_id: u64, start: CellAddress, end: CellAddress, destination: CellAddress) -> io::Result<usize> {
-        let sheet = self.sheets.iter().find(|s| s.id == sheet_id).ok_or_else(|| invalid_input("unknown worksheet"))?;
-        let min_row = start.row().min(end.row()); let max_row = start.row().max(end.row());
-        let min_col = start.column().min(end.column()); let max_col = start.column().max(end.column());
-        let rows = max_row - min_row + 1; let cols = max_col - min_col + 1;
-        let area = (rows as usize).checked_mul(cols as usize).filter(|n| *n <= MAX_CELLS).ok_or_else(|| invalid_input("transpose range exceeds the cell limit"))?;
-        let dest_end = CellAddress::new(destination.row().checked_add(cols - 1).ok_or_else(|| invalid_input("destination row overflows"))?, destination.column().checked_add(rows - 1).ok_or_else(|| invalid_input("destination column overflows"))?)?;
+    pub fn transpose_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+        destination: CellAddress,
+    ) -> io::Result<usize> {
+        let sheet = self
+            .sheets
+            .iter()
+            .find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let min_row = start.row().min(end.row());
+        let max_row = start.row().max(end.row());
+        let min_col = start.column().min(end.column());
+        let max_col = start.column().max(end.column());
+        let rows = max_row - min_row + 1;
+        let cols = max_col - min_col + 1;
+        let area = (rows as usize)
+            .checked_mul(cols as usize)
+            .filter(|count| *count <= MAX_CELLS)
+            .ok_or_else(|| invalid_input("transpose range exceeds the cell limit"))?;
+        let dest_end = CellAddress::new(
+            destination
+                .row()
+                .checked_add(cols - 1)
+                .ok_or_else(|| invalid_input("destination row overflows"))?,
+            destination
+                .column()
+                .checked_add(rows - 1)
+                .ok_or_else(|| invalid_input("destination column overflows"))?,
+        )?;
         let mut snapshot = Vec::with_capacity(area);
-        for row in 0..rows { for col in 0..cols {
-            let src = CellAddress::new(min_row + row, min_col + col)?;
-            let dst = CellAddress::new(destination.row() + col, destination.column() + row)?;
-            snapshot.push((dst, sheet.cells.get(&src).cloned()));
-        }}
+        for row in 0..rows {
+            for col in 0..cols {
+                let src = CellAddress::new(min_row + row, min_col + col)?;
+                let dst = CellAddress::new(destination.row() + col, destination.column() + row)?;
+                snapshot.push((dst, sheet.cells.get(&src).cloned()));
+            }
+        }
         let mut cells = sheet.cells.clone();
-        cells.retain(|a,_| a.row() < destination.row() || a.row() > dest_end.row() || a.column() < destination.column() || a.column() > dest_end.column());
-        for (address, cell) in &snapshot { if let Some(cell) = cell { cells.insert(*address, cell.clone()); } }
-        if cells.len() > MAX_CELLS { return Err(invalid_input("worksheet cell limit reached")); }
-        self.sheets.iter_mut().find(|s| s.id == sheet_id).unwrap().cells = cells;
+        cells.retain(|address, _| {
+            address.row() < destination.row()
+                || address.row() > dest_end.row()
+                || address.column() < destination.column()
+                || address.column() > dest_end.column()
+        });
+        for (address, cell) in &snapshot {
+            if let Some(cell) = cell {
+                cells.insert(*address, cell.clone());
+            }
+        }
+        if cells.len() > MAX_CELLS {
+            return Err(invalid_input("worksheet cell limit reached"));
+        }
+        self.sheets
+            .iter_mut()
+            .find(|worksheet| worksheet.id == sheet_id)
+            .expect("worksheet was validated above")
+            .cells = cells;
         Ok(snapshot.iter().filter(|(_, cell)| cell.is_some()).count())
     }
 
