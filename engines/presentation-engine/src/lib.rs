@@ -2623,16 +2623,23 @@ fn points_to_emu(points: f32) -> u64 {
 fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
     let mut xml = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val=""#,
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name="<p:bgPr><a:solidFill><a:srgbClr val=""#,
     );
+    xml.push_str(&xml_escape(&slide.name));
+    xml.push_str(r#""><p:bg>"#);
     let _ = write!(xml, "{:06X}", slide.background);
     xml.push_str(r#""/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>"#);
     for (index, element) in slide.elements.iter().enumerate() {
         let id = index + 2;
         let b = element.bounds;
+        let description = match &element.kind {
+            ElementKind::Text { text, .. } => xml_escape(text),
+            ElementKind::Image { alt_text, .. } => xml_escape(alt_text),
+            ElementKind::Shape { .. } => String::new(),
+        };
         let _ = write!(
             xml,
-            r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Object {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm>"#,
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Object {id}" descr="{description}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm>"#,
             points_to_emu(b.x),
             points_to_emu(b.y),
             points_to_emu(b.width),
@@ -3780,6 +3787,7 @@ mod tests {
         use std::io::Read;
         let mut deck = Presentation::new("Quarterly & annual", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
+        deck.rename_slide(slide, "Overview & Results").unwrap();
         let mut title_style = TextStyle::new("Arial", 32.0, 0x123456).unwrap();
         title_style.set_emphasis(true, false, false);
         title_style.set_alignment(TextAlignment::Center);
@@ -3827,6 +3835,9 @@ mod tests {
             .unwrap()
             .read_to_string(&mut slide_xml)
             .unwrap();
+        assert!(slide_xml.contains("name=\"Overview &amp; Results\""));
+        assert!(slide_xml.contains("descr=\"Revenue &lt; 2026 &amp; growth\""));
+        assert!(slide_xml.contains("descr=\"Chart preview\""));
         assert!(slide_xml.contains("Revenue &lt; 2026 &amp; growth"));
         assert!(slide_xml.contains("typeface=\"Arial\""));
         assert!(slide_xml.contains("prst=\"rect\""));
