@@ -1665,8 +1665,7 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
         .expect("writing to String cannot fail");
     writeln!(svg, "<desc>{}</desc>", escape_xml(presentation.title()))
         .expect("writing to String cannot fail");
-    svg.push_str("<defs><marker id=\"arrowhead\" markerWidth=\"10\" markerHeight=\"7\" refX=\"9\" refY=\"3.5\" orient=\"auto\"><polygon points=\"0 0, 10 3.5, 0 7\" fill=\"context-stroke\"/></marker></defs>
-");
+    svg.push_str("<defs><marker id=\"arrowhead\" markerWidth=\"10\" markerHeight=\"7\" refX=\"9\" refY=\"3.5\" orient=\"auto\"><polygon points=\"0 0, 10 3.5, 0 7\" fill=\"context-stroke\"/></marker></defs>\n");
     writeln!(
         svg,
         "<rect x=\"0\" y=\"0\" width=\"100%\" height=\"100%\" fill=\"#{:06x}\"/>",
@@ -1716,8 +1715,7 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
                         .expect("writing to String cannot fail");
                     }
                 }
-                svg.push_str("</text>
-");
+                svg.push_str("</text>\n");
             }
             ElementKind::Shape {
                 shape,
@@ -1768,8 +1766,7 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
             }
         }
     }
-    svg.push_str("</svg>
-");
+    svg.push_str("</svg>\n");
     Ok(svg)
 }
 
@@ -1778,38 +1775,22 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
 pub fn export_presentation_html(presentation: &Presentation) -> io::Result<String> {
     presentation.validate()?;
     let mut output =
-        String::from("<!doctype html>
-<html lang=\"en\">
-<head>
-<meta charset=\"utf-8\">
-");
-    output.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-");
+        String::from("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
+    output.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     output.push_str("<title>");
     output.push_str(&escape_xml(presentation.title()));
-    output.push_str("</title>
-<style>body{font-family:system-ui,sans-serif;margin:0;padding:2rem;background:#202124;color:#f5f5f5}.slide{max-width:1200px;margin:0 auto 2rem;background:white;box-shadow:0 2px 12px #0006}.slide svg{display:block;width:100%;height:auto}.slide h2{font-size:1rem;font-weight:500;margin:0;padding:.6rem 0}</style>
-</head>
-<body>
-<main>
-");
+    output.push_str("</title>\n<style>body{font-family:system-ui,sans-serif;margin:0;padding:2rem;background:#202124;color:#f5f5f5}.slide{max-width:1200px;margin:0 auto 2rem;background:white;box-shadow:0 2px 12px #0006}.slide svg{display:block;width:100%;height:auto}.slide h2{font-size:1rem;font-weight:500;margin:0;padding:.6rem 0}</style>\n</head>\n<body>\n<main>\n");
     for (index, slide) in presentation.slides().iter().enumerate() {
         let mut svg = render_slide_svg(presentation, slide.id())?;
         let unique_marker = format!("arrowhead-{}", slide.id());
         svg = svg.replace("arrowhead", &unique_marker);
         output.push_str("<section class=\"slide\"><h2>");
         let _ = write!(output, "{}. {}", index + 1, escape_xml(slide.name()));
-        output.push_str("</h2>
-");
+        output.push_str("</h2>\n");
         output.push_str(&svg);
-        output.push_str("
-</section>
-");
+        output.push_str("\n</section>\n");
     }
-    output.push_str("</main>
-</body>
-</html>
-");
+    output.push_str("</main>\n</body>\n</html>\n");
     Ok(output)
 }
 
@@ -1879,9 +1860,7 @@ fn validate_png_dimensions(width: u32, height: u32) -> io::Result<()> {
 
 /// Validate PNG signature, chunk framing/CRCs, IHDR dimensions, image data and IEND.
 fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Result<()> {
-    const SIGNATURE: &[u8; 8] = b"\x89PNG\r
-\x1a
-";
+    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
     if !png.starts_with(SIGNATURE) {
         return Err(invalid_input("rasterizer did not return a PNG file"));
     }
@@ -2216,12 +2195,9 @@ fn render_pdf_document_with_images(
             presentation.width, presentation.height
         )
         .into_bytes();
-        let mut stream_object = format!("<< /Length {} >>
-stream
-", stream.len()).into_bytes();
+        let mut stream_object = format!("<< /Length {} >>\nstream\n", stream.len()).into_bytes();
         stream_object.extend_from_slice(stream.as_bytes());
-        stream_object.extend_from_slice(b"
-endstream");
+        stream_object.extend_from_slice(b"\nendstream");
         objects[content_id] = stream_object;
     }
 
@@ -2240,48 +2216,31 @@ endstream");
             ""
         };
         let mut stream_object = format!(
-            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {color_space} /BitsPerComponent 8 /Filter /DCTDecode /Length {}{decode} >>
-stream
-",
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {color_space} /BitsPerComponent 8 /Filter /DCTDecode /Length {}{decode} >>\nstream\n",
             image.width, image.height, image.bytes.len()
         ).into_bytes();
         stream_object.extend_from_slice(&image.bytes);
-        stream_object.extend_from_slice(b"
-endstream");
+        stream_object.extend_from_slice(b"\nendstream");
         objects[object_id] = stream_object;
     }
 
-    let mut pdf = b"%PDF-1.4
-%\xE2\xE3\xCF\xD3
-".to_vec();
+    let mut pdf = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = vec![0usize; objects.len()];
     for id in 1..objects.len() {
         offsets[id] = pdf.len();
-        pdf.extend_from_slice(format!("{id} 0 obj
-").as_bytes());
+        pdf.extend_from_slice(format!("{id} 0 obj\n").as_bytes());
         pdf.extend_from_slice(&objects[id]);
-        pdf.extend_from_slice(b"
-endobj
-");
+        pdf.extend_from_slice(b"\nendobj\n");
     }
     let xref_offset = pdf.len();
-    pdf.extend_from_slice(format!("xref
-0 {}
-", objects.len()).as_bytes());
-    pdf.extend_from_slice(b"0000000000 65535 f 
-");
+    pdf.extend_from_slice(format!("xref\n0 {}\n", objects.len()).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
     for offset in offsets.iter().skip(1) {
-        pdf.extend_from_slice(format!("{offset:010} 00000 n 
-").as_bytes());
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
     }
     pdf.extend_from_slice(
         format!(
-            "trailer
-<< /Size {} /Root 1 0 R /Info << /Title <{}> >> >>
-startxref
-{}
-%%EOF
-",
+            "trailer\n<< /Size {} /Root 1 0 R /Info << /Title <{}> >> >>\nstartxref\n{}\n%%EOF\n",
             objects.len(),
             pdf_hex_string(presentation.title()),
             xref_offset
@@ -2454,8 +2413,7 @@ fn render_pdf_page_content(
                         .expect("writing to String cannot fail");
                     }
                 }
-                output.push_str("Q
-");
+                output.push_str("Q\n");
             }
             ElementKind::Shape {
                 shape,
@@ -2544,8 +2502,7 @@ fn render_pdf_page_content(
                             )
                             .expect("writing to String cannot fail");
                         } else {
-                            output.push_str("Q
-");
+                            output.push_str("Q\n");
                         }
                     }
                 }
@@ -2643,8 +2600,7 @@ fn pdf_win_ansi_byte(character: char) -> u8 {
 fn wrap_text_for_svg(text: &str, max_width: f32, font_size: f32) -> Vec<String> {
     let max_chars = ((max_width / (font_size * 0.55)).floor() as usize).max(1);
     let mut output = Vec::new();
-    for explicit_line in text.split('
-') {
+    for explicit_line in text.split('\n') {
         let mut line = String::new();
         for word in explicit_line.split_whitespace() {
             let word_len = word.chars().count();
@@ -2813,20 +2769,14 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
 /// Export speaker notes as a portable Markdown document in slide order.
 pub fn export_speaker_notes_markdown(presentation: &Presentation) -> io::Result<String> {
     presentation.validate()?;
-    let mut output = format!("# {} — Speaker notes
-
-", presentation.title);
+    let mut output = format!("# {} — Speaker notes\n\n", presentation.title);
     for (index, slide) in presentation.slides.iter().enumerate() {
         let _ = writeln!(output, "## {}. {}", index + 1, slide.name);
         if slide.notes.trim().is_empty() {
-            output.push_str("_No speaker notes._
-
-");
+            output.push_str("_No speaker notes._\n\n");
         } else {
             output.push_str(slide.notes.trim());
-            output.push_str("
-
-");
+            output.push_str("\n\n");
         }
     }
     Ok(output)
@@ -2875,8 +2825,7 @@ fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
         match &element.kind {
             ElementKind::Text { text, style } => {
                 xml.push_str(r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/>"#);
-                for line in text.split('
-') {
+                for line in text.split('\n') {
                     xml.push_str(r#"<a:p><a:pPr algn=""#);
                     xml.push_str(match style.alignment {
                         TextAlignment::Left => "l",
@@ -3842,9 +3791,7 @@ mod tests {
             output.extend_from_slice(&crc32fast::hash(&crc_input).to_be_bytes());
         }
 
-        let mut png = b"\x89PNG\r
-\x1a
-".to_vec();
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
         let mut header = Vec::new();
         header.extend_from_slice(&width.to_be_bytes());
         header.extend_from_slice(&height.to_be_bytes());
@@ -3870,9 +3817,7 @@ mod tests {
         let slide = deck.slides()[0].id();
         let rasterizer = TestPngRasterizer::new();
         let png = render_slide_png_with(&deck, slide, 1600, 900, &rasterizer).unwrap();
-        assert!(png.starts_with(b"\x89PNG\r
-\x1a
-"));
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert_eq!(rasterizer.calls.get(), 1);
         assert!(render_slide_png_with(&deck, 999, 1600, 900, &rasterizer).is_err());
         assert!(render_slide_png_with(&deck, slide, 0, 900, &rasterizer).is_err());
@@ -3983,8 +3928,7 @@ mod tests {
         assert!(content.contains("/Courier-BoldOblique"));
         assert!(content.contains("426F6E6A6F75722080209720E974E9"));
         assert!(content.contains(" re W n"));
-        assert!(content.ends_with("%%EOF
-"));
+        assert!(content.ends_with("%%EOF\n"));
         assert!(render_slide_pdf(&deck, 999).is_err());
     }
 
@@ -4029,9 +3973,7 @@ mod tests {
         deck.add_text(
             slide_id,
             Rect::new(40.0, 40.0, 500.0, 200.0).unwrap(),
-            "First line
-Second line
-Third line",
+            "First line\nSecond line\nThird line",
             style,
         )
         .unwrap();
@@ -4270,8 +4212,7 @@ Third line",
         assert!(svg.contains("marker-end=\"url(#arrowhead)\""));
         assert!(svg.contains("assets/photo &amp; chart.png"));
         assert!(svg.contains("<title>A &lt;chart&gt;</title>"));
-        assert!(svg.ends_with("</svg>
-"));
+        assert!(svg.ends_with("</svg>\n"));
     }
 
     #[test]
@@ -4317,8 +4258,7 @@ Third line",
         deck.add_text(
             slide,
             rect(10.0, 10.0, 200.0, 100.0),
-            "First
-Second",
+            "First\nSecond",
             TextStyle::default(),
         )
         .unwrap();
