@@ -1375,7 +1375,7 @@ impl<'a> Parser<'a> {
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
                 | "MOD" | "LOG" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN"
-                | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "SINH" | "COSH" | "TANH" | "COT" | "FACT" | "TRUNC" => {
+                | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "PI" | "SINH" | "COSH" | "TANH" | "COT" | "FACT" | "TRUNC" => {
                     self.math_function_arguments(&function)
                 }
                 "AND" | "OR" => self.logical_arguments(&function),
@@ -1591,6 +1591,7 @@ impl<'a> Parser<'a> {
                 | "ATAN"
                 | "DEGREES"
                 | "RADIANS"
+                | "PI"
                 | "SINH"
                 | "COSH"
                 | "TANH"
@@ -1605,6 +1606,7 @@ impl<'a> Parser<'a> {
         }
         let value = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
         let result = match function {
+            "PI" => std::f64::consts::PI,
             "ABS" => value.abs(),
             "SQRT" if value >= 0.0 => value.sqrt(),
             "SQRT" => return Err(FormulaError::Number),
