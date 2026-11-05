@@ -3,6 +3,7 @@
 //! Coordinates are expressed in points. Image sources are references (paths or
 //! URIs); the engine does not decode or embed image bytes yet.
 
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -1834,6 +1835,73 @@ pub fn render_slide_pdf(presentation: &Presentation, slide_id: u64) -> io::Resul
     render_pdf_document(presentation, std::slice::from_ref(slide))
 }
 
+/// A JPEG image supplied by the host application for direct PDF embedding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PdfJpegImage {
+    pub bytes: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub color_space: PdfImageColorSpace,
+}
+
+/// Color spaces supported by direct JPEG embedding in PDF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PdfImageColorSpace {
+    Gray,
+    Rgb,
+    Cmyk,
+}
+
+impl PdfJpegImage {
+    /// Validate the JPEG frame header and ensure its dimensions/color space match the metadata.
+    pub fn validate(&self) -> io::Result<()> {
+        if self.width == 0 || self.height == 0 || self.bytes.len() < 4
+            || self.bytes[0..2] != [0xff, 0xd8]
+            || self.bytes[self.bytes.len() - 2..] != [0xff, 0xd9]
+        {
+            return Err(invalid_input("invalid JPEG image data"));
+        }
+        let (width, height, components) = jpeg_frame_info(&self.bytes)?;
+        let expected_components = match self.color_space {
+            PdfImageColorSpace::Gray => 1,
+            PdfImageColorSpace::Rgb => 3,
+            PdfImageColorSpace::Cmyk => 4,
+        };
+        if width != self.width || height != self.height || components != expected_components {
+            return Err(invalid_input("JPEG metadata does not match its frame header"));
+        }
+        Ok(())
+    }
+}
+
+/// Resolves image references to already encoded JPEG data.
+/// The application owns file access, decoding and image preparation.
+pub trait PdfImageProvider {
+    fn resolve_jpeg(&self, source: &str) -> io::Result<Option<PdfJpegImage>>;
+}
+
+/// Export one slide as PDF, embedding JPEGs returned by the supplied provider.
+pub fn render_slide_pdf_with_images(
+    presentation: &Presentation,
+    slide_id: u64,
+    provider: &dyn PdfImageProvider,
+) -> io::Result<Vec<u8>> {
+    presentation.validate()?;
+    let slide = presentation
+        .slide(slide_id)
+        .ok_or_else(|| invalid_input("slide does not exist"))?;
+    render_pdf_document_with_images(presentation, std::slice::from_ref(slide), Some(provider))
+}
+
+/// Export a complete presentation as PDF, embedding JPEGs returned by the supplied provider.
+pub fn render_presentation_pdf_with_images(
+    presentation: &Presentation,
+    provider: &dyn PdfImageProvider,
+) -> io::Result<Vec<u8>> {
+    presentation.validate()?;
+    render_pdf_document_with_images(presentation, &presentation.slides, Some(provider))
+}
+
 /// Export the complete presentation as a multi-page PDF document.
 pub fn render_presentation_pdf(presentation: &Presentation) -> io::Result<Vec<u8>> {
     presentation.validate()?;
@@ -1841,6 +1909,14 @@ pub fn render_presentation_pdf(presentation: &Presentation) -> io::Result<Vec<u8
 }
 
 fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Result<Vec<u8>> {
+    render_pdf_document_with_images(presentation, slides, None)
+}
+
+fn render_pdf_document_with_images(
+    presentation: &Presentation,
+    slides: &[Slide],
+    provider: Option<&dyn PdfImageProvider>,
+) -> io::Result<Vec<u8>> {
     if slides.is_empty() {
         return Err(invalid_input("a PDF must contain at least one page"));
     }
@@ -1893,12 +1969,54 @@ fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Res
         .collect::<Vec<_>>()
         .join(" ");
 
+    // Resolve each referenced image once, then share its PDF XObject across slides.
+    let mut images: Vec<(String, PdfJpegImage)> = Vec::new();
+    if let Some(provider) = provider {
+        for slide in slides {
+            for element in &slide.elements {
+                if let ElementKind::Image { source, .. } = &element.kind {
+                    if images.iter().any(|(existing, _)| existing == source) {
+                        continue;
+                    }
+                    if let Some(image) = provider.resolve_jpeg(source)? {
+                        image.validate()?;
+                        images.push((source.clone(), image));
+                    }
+                }
+            }
+        }
+    }
+    let image_object_start = FIRST_PAGE_ID + slides.len() * 2;
+    let image_ids = images
+        .iter()
+        .enumerate()
+        .map(|(index, (source, _))| (source.clone(), image_object_start + index))
+        .collect::<HashMap<_, _>>();
+
     for (index, slide) in slides.iter().enumerate() {
         let page_id = page_ids[index];
         let content_id = page_id + 1;
-        let stream = render_pdf_page_content(presentation, slide)?;
+        let image_names = image_ids
+            .iter()
+            .map(|(source, id)| (source.clone(), format!("Im{}", id - image_object_start + 1)))
+            .collect::<HashMap<_, _>>();
+        let stream = render_pdf_page_content(presentation, slide, &image_names)?;
+        let image_resources = slide.elements.iter().filter_map(|element| {
+            if let ElementKind::Image { source, .. } = &element.kind {
+                let name = image_names.get(source)?;
+                let id = image_ids.get(source)?;
+                Some(format!("/{name} {id} 0 R"))
+            } else {
+                None
+            }
+        }).collect::<Vec<_>>();
+        let xobject_resources = if image_resources.is_empty() {
+            String::new()
+        } else {
+            format!(" /XObject << {} >>", image_resources.join(" "))
+        };
         objects[page_id] = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {font_resources} >> >> /Contents {content_id} 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {font_resources} >>{xobject_resources} >> /Contents {content_id} 0 R >>",
             presentation.width, presentation.height
         )
         .into_bytes();
@@ -1906,6 +2024,23 @@ fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Res
         stream_object.extend_from_slice(stream.as_bytes());
         stream_object.extend_from_slice(b"\nendstream");
         objects[content_id] = stream_object;
+    }
+
+    objects.resize(image_object_start + images.len(), Vec::new());
+    for (index, (_, image)) in images.iter().enumerate() {
+        let object_id = image_object_start + index;
+        let color_space = match image.color_space {
+            PdfImageColorSpace::Gray => "/DeviceGray",
+            PdfImageColorSpace::Rgb => "/DeviceRGB",
+            PdfImageColorSpace::Cmyk => "/DeviceCMYK",
+        };
+        let mut stream_object = format!(
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {color_space} /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
+            image.width, image.height, image.bytes.len()
+        ).into_bytes();
+        stream_object.extend_from_slice(&image.bytes);
+        stream_object.extend_from_slice(b"\nendstream");
+        objects[object_id] = stream_object;
     }
 
     let mut pdf = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
@@ -1932,6 +2067,55 @@ fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Res
         .as_bytes(),
     );
     Ok(pdf)
+}
+
+/// Read JPEG SOF metadata without decoding or rasterizing the image.
+fn jpeg_frame_info(bytes: &[u8]) -> io::Result<(u32, u32, u8)> {
+    if bytes.len() < 4 || bytes[0..2] != [0xff, 0xd8] {
+        return Err(invalid_input("invalid JPEG start marker"));
+    }
+    let mut offset = 2usize;
+    while offset + 4 <= bytes.len() {
+        if bytes[offset] != 0xff {
+            offset += 1;
+            continue;
+        }
+        while offset < bytes.len() && bytes[offset] == 0xff {
+            offset += 1;
+        }
+        if offset >= bytes.len() {
+            break;
+        }
+        let marker = bytes[offset];
+        offset += 1;
+        if marker == 0xd9 || marker == 0xda {
+            break;
+        }
+        if marker == 0x01 || (0xd0..=0xd7).contains(&marker) {
+            continue;
+        }
+        if offset + 2 > bytes.len() {
+            break;
+        }
+        let segment_length = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
+        if segment_length < 2 || offset + segment_length > bytes.len() {
+            return Err(invalid_input("invalid JPEG segment length"));
+        }
+        if matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
+            if segment_length < 8 {
+                return Err(invalid_input("invalid JPEG frame header"));
+            }
+            let height = u16::from_be_bytes([bytes[offset + 3], bytes[offset + 4]]) as u32;
+            let width = u16::from_be_bytes([bytes[offset + 5], bytes[offset + 6]]) as u32;
+            let components = bytes[offset + 7];
+            if width == 0 || height == 0 || !matches!(components, 1 | 3 | 4) {
+                return Err(invalid_input("unsupported JPEG frame dimensions or components"));
+            }
+            return Ok((width, height, components));
+        }
+        offset += segment_length;
+    }
+    Err(invalid_input("JPEG frame header not found"))
 }
 
 /// Map common font-family names to the portable PDF base-14 font families.
@@ -1979,7 +2163,7 @@ fn pdf_font_resource(family: &str, bold: bool, italic: bool) -> &'static str {
     }
 }
 
-fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Result<String> {
+fn render_pdf_page_content(\n    presentation: &Presentation,\n    slide: &Slide,\n    image_names: &HashMap<String, String>,\n) -> io::Result<String> {
     let mut output = String::with_capacity(4096);
     let page_height = presentation.height;
     let background = pdf_rgb(slide.background);
@@ -2136,28 +2320,36 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                     }
                 }
             }
-            ElementKind::Image { alt_text, .. } => {
-                // Until image decoding/embedding exists, preserve the frame and make
-                // the omission visible rather than silently dropping the element.
-                writeln!(
-                    output,
-                    "q 0.45 G 0.8 w [4 3] 0 d {} {} {} {} re S Q",
-                    bounds.x, bottom, bounds.width, bounds.height
-                )
-                .expect("writing to String cannot fail");
-                let label = if alt_text.is_empty() {
-                    "Image not embedded"
+            ElementKind::Image { source, alt_text } => {
+                if let Some(name) = image_names.get(source) {
+                    writeln!(
+                        output,
+                        "q {} 0 0 {} {} {} cm /{name} Do Q",
+                        bounds.width, bounds.height, bounds.x, bottom
+                    )
+                    .expect("writing to String cannot fail");
                 } else {
-                    alt_text
-                };
-                writeln!(
-                    output,
-                    "BT /F1 10 Tf 0.35 0.35 0.35 rg 1 0 0 1 {} {} Tm <{}> Tj ET",
-                    bounds.x + 4.0,
-                    bottom + (bounds.height / 2.0).max(10.0),
-                    pdf_hex_string(label)
-                )
-                .expect("writing to String cannot fail");
+                    // Keep unresolved images visible rather than silently dropping them.
+                    writeln!(
+                        output,
+                        "q 0.45 G 0.8 w [4 3] 0 d {} {} {} {} re S Q",
+                        bounds.x, bottom, bounds.width, bounds.height
+                    )
+                    .expect("writing to String cannot fail");
+                    let label = if alt_text.is_empty() {
+                        "Image not embedded"
+                    } else {
+                        alt_text
+                    };
+                    writeln!(
+                        output,
+                        "BT /F1 10 Tf 0.35 0.35 0.35 rg 1 0 0 1 {} {} Tm <{}> Tj ET",
+                        bounds.x + 4.0,
+                        bottom + (bounds.height / 2.0).max(10.0),
+                        pdf_hex_string(label)
+                    )
+                    .expect("writing to String cannot fail");
+                }
             }
         }
     }
