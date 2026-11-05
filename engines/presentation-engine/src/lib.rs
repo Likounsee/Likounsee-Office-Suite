@@ -2766,6 +2766,23 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
         .map_err(|error| io::Error::other(format!("PPTX ZIP finalization failed: {error}")))
 }
 
+/// Export slide text in reading order as plain text.
+pub fn export_slide_text(presentation: &Presentation) -> io::Result<String> {
+    presentation.validate()?;
+    let mut output = String::new();
+    for (index, slide) in presentation.slides.iter().enumerate() {
+        let _ = writeln!(output, "Slide {}: {}", index + 1, slide.name);
+        for element in &slide.elements {
+            if let ElementKind::Text { text, .. } = &element.kind {
+                output.push_str(text);
+                output.push('\n');
+            }
+        }
+        output.push('\n');
+    }
+    Ok(output)
+}
+
 /// Export speaker notes as a portable Markdown document in slide order.
 pub fn export_speaker_notes_markdown(presentation: &Presentation) -> io::Result<String> {
     presentation.validate()?;
@@ -4722,6 +4739,20 @@ mod tests {
         assert!(html.contains("arrowhead-1"));
         assert!(html.contains(&format!("arrowhead-{second}")));
         assert_eq!(html.matches("<svg ").count(), 2);
+    }
+
+    #[test]
+    fn slide_text_export_preserves_slide_and_element_order() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.add_text(first, rect(0.0, 0.0, 100.0, 30.0), "First", TextStyle::default()).unwrap();
+        deck.add_text(first, rect(0.0, 40.0, 100.0, 30.0), "Second", TextStyle::default()).unwrap();
+        let second = deck.add_slide("Next").unwrap();
+        deck.add_text(second, rect(0.0, 0.0, 100.0, 30.0), "Third", TextStyle::default()).unwrap();
+        let exported = export_slide_text(&deck).unwrap();
+        assert!(exported.find("First").unwrap() < exported.find("Second").unwrap());
+        assert!(exported.find("Second").unwrap() < exported.find("Third").unwrap());
+        assert!(exported.contains("Slide 2: Next"));
     }
 
     #[test]

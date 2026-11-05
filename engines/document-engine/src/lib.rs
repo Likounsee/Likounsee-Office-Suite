@@ -468,6 +468,27 @@ pub fn word_count(document: &Document) -> io::Result<usize> {
     Ok(count)
 }
 
+/// Count Unicode scalar values in paragraph and table-cell text.
+pub fn character_count(document: &Document) -> io::Result<usize> {
+    validate_document_size(document)?;
+    let mut count = 0usize;
+    for paragraph in &document.paragraphs {
+        count = count
+            .checked_add(paragraph.text.chars().count())
+            .ok_or_else(|| invalid_data("document character count overflow"))?;
+    }
+    for table in &document.tables {
+        for row in &table.rows {
+            for cell in &row.cells {
+                count = count
+                    .checked_add(cell.text.chars().count())
+                    .ok_or_else(|| invalid_data("document character count overflow"))?;
+            }
+        }
+    }
+    Ok(count)
+}
+
 /// Export readable plain text while preserving paragraph order and table rows.
 /// Table cells are separated by tabs; rows are separated by newlines.
 pub fn export_text(document: &Document) -> io::Result<String> {
@@ -3125,6 +3146,12 @@ mod tests {
                 DocumentBlock::Table(table_id),
             ]
         );
+    }
+
+    #[test]
+    fn character_count_counts_unicode_scalars_and_whitespace() {
+        let document = Document::from_plain_text("Count", "A é\n猫").unwrap();
+        assert_eq!(character_count(&document).unwrap(), 4);
     }
 
     #[test]

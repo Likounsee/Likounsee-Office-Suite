@@ -1376,7 +1376,7 @@ impl<'a> Parser<'a> {
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
                 | "MOD" | "LOG" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN"
                 | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "PI" | "SINH" | "COSH" | "TANH"
-                | "COT" | "FACT" | "TRUNC" | "CEILING" | "FLOOR" => {
+                | "COT" | "FACT" | "TRUNC" | "CEILING" | "FLOOR" | "MROUND" => {
                     self.math_function_arguments(&function)
                 },
                 "AND" | "OR" => self.logical_arguments(&function),
@@ -1666,6 +1666,17 @@ impl<'a> Parser<'a> {
                     return Err(FormulaError::DivisionByZero);
                 }
                 value - divisor * (value / divisor).floor()
+            }
+            "MROUND" => {
+                let multiple = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+                if value != 0.0 && multiple != 0.0 && value.is_sign_negative() != multiple.is_sign_negative() {
+                    return Err(FormulaError::Number);
+                }
+                if multiple == 0.0 {
+                    0.0
+                } else {
+                    (value / multiple).round() * multiple
+                }
             }
             "CEILING" | "FLOOR" => {
                 let significance = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
@@ -3340,6 +3351,23 @@ mod tests {
                 "{formula}"
             );
         }
+    }
+
+    #[test]
+    fn mround_rounds_to_nearest_multiple_and_rejects_opposite_signs() {
+        let mut workbook = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        let a4 = CellAddress::parse_a1("A4").unwrap();
+        workbook.set_formula(1, a1, "=MROUND(13, 5)").unwrap();
+        workbook.set_formula(1, a2, "=MROUND(-13, 5)").unwrap();
+        workbook.set_formula(1, a3, "=MROUND(12, 0)").unwrap();
+        workbook.set_formula(1, a4, "=MROUND(-12, 5)").unwrap();
+        assert_eq!(workbook.value(1, a1), CellValue::Number(15.0));
+        assert_eq!(workbook.value(1, a2), CellValue::Number(-15.0));
+        assert_eq!(workbook.value(1, a3), CellValue::Number(0.0));
+        assert_eq!(workbook.value(1, a4), CellValue::Error(FormulaError::Number));
     }
 
     #[test]
