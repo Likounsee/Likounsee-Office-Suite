@@ -1693,7 +1693,7 @@ fn validate_png_dimensions(width: u32, height: u32) -> io::Result<()> {
 
 /// Validate PNG signature, chunk framing/CRCs, IHDR dimensions, image data and IEND.
 fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Result<()> {
-    const SIGNATURE: &[u8; 8] = b"\\x89PNG\\r\\n\\x1a\\n";
+    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
     if !png.starts_with(SIGNATURE) {
         return Err(invalid_input("rasterizer did not return a PNG file"));
     }
