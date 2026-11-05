@@ -3,7 +3,7 @@
 //! The engine deliberately owns no GUI state. Cell coordinates are zero-based
 //! internally; public A1 helpers use the familiar spreadsheet notation.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io;
 
 const WORKBOOK_MAGIC: &[u8; 8] = b"LOUSXLS1";
@@ -409,14 +409,34 @@ impl Workbook {
 
     /// Return formulas that directly read the supplied cell, in stable order.
     pub fn dependents_of(&self, sheet_id: u64, address: CellAddress) -> io::Result<Vec<CellKey>> {
-        let target = (sheet_id, address);
-        let mut dependents = Vec::new();
-        for (formula, dependencies) in self.dependency_graph()? {
-            if dependencies.binary_search(&target).is_ok() {
-                dependents.push(formula);
+        let graph = self.dependency_graph()?;
+        let reverse = reverse_dependency_graph(&graph);
+        Ok(reverse.get(&(sheet_id, address)).cloned().unwrap_or_default())
+    }
+
+    /// Return every formula transitively affected by a cell change.
+    /// Results are unique and sorted by worksheet ID then cell address.
+    pub fn transitive_dependents_of(
+        &self,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<Vec<CellKey>> {
+        let graph = self.dependency_graph()?;
+        let reverse = reverse_dependency_graph(&graph);
+        let mut pending = VecDeque::from([(sheet_id, address)]);
+        let mut visited = std::collections::BTreeSet::new();
+
+        while let Some(source) = pending.pop_front() {
+            if let Some(dependents) = reverse.get(&source) {
+                for dependent in dependents {
+                    if visited.insert(*dependent) {
+                        pending.push_back(*dependent);
+                    }
+                }
             }
         }
-        Ok(dependents)
+
+        Ok(visited.into_iter().collect())
     }
 
     pub fn encode(&self) -> io::Result<Vec<u8>> {
@@ -425,6 +445,18 @@ impl Workbook {
     pub fn decode(bytes: &[u8]) -> io::Result<Self> {
         decode_workbook(bytes)
     }
+}
+
+fn reverse_dependency_graph(
+    graph: &BTreeMap<CellKey, Vec<CellKey>>,
+) -> BTreeMap<CellKey, Vec<CellKey>> {
+    let mut reverse: BTreeMap<CellKey, Vec<CellKey>> = BTreeMap::new();
+    for (formula, dependencies) in graph {
+        for dependency in dependencies {
+            reverse.entry(*dependency).or_default().push(*formula);
+        }
+    }
+    reverse
 }
 
 fn formula_dependencies(
@@ -445,7 +477,11 @@ fn formula_dependencies(
             while cursor < bytes.len() && bytes[cursor] != b'\'' {
                 cursor += 1;
             }
-            if cursor == bytes.len() || cursor == name_start {
+            if cursor == bytes.len() {
+                break;
+            }
+            if cursor == name_start {
+                cursor += 1;
                 continue;
             }
             let name = std::str::from_utf8(&bytes[name_start..cursor])
@@ -1413,6 +1449,47 @@ mod tests {
             book.dependents_of(data, a2).unwrap(),
             vec![(data, b1), (report, c1), (report, d1)]
         );
+    }
+
+    #[test]
+    fn transitive_dependents_cover_chains_and_cycles_without_duplicates() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let d1 = CellAddress::parse_a1("D1").unwrap();
+
+        book.set_number(1, a1, 2.0).unwrap();
+        book.set_formula(1, b1, "=A1+1").unwrap();
+        book.set_formula(1, c1, "=B1*2").unwrap();
+        book.set_formula(1, d1, "=C1+B1").unwrap();
+
+        assert_eq!(
+            book.transitive_dependents_of(1, a1).unwrap(),
+            vec![(1, b1), (1, c1), (1, d1)]
+        );
+
+        book.set_formula(1, a1, "=D1").unwrap();
+        assert_eq!(
+            book.transitive_dependents_of(1, a1).unwrap(),
+            vec![(1, b1), (1, c1), (1, d1)]
+        );
+    }
+
+    #[test]
+    fn dependency_graph_rejects_oversized_ranges_and_malformed_quoted_names() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+
+        book.set_formula(1, b1, "=SUM(A1:XFD1048576)").unwrap();
+        assert!(book.dependency_graph().is_err());
+
+        book.set_formula(1, b1, "=''!A1").unwrap();
+        assert!(book.dependency_graph().is_err());
+
+        book.set_formula(1, a1, "=1").unwrap();
+        assert_eq!(book.value(1, a1), CellValue::Number(1.0));
     }
 
     #[test]
