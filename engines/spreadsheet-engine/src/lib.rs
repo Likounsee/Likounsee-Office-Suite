@@ -586,6 +586,39 @@ impl Workbook {
 
     /// Clear every stored value or formula in an inclusive rectangular range.
     /// The operation is bounded by MAX_CELLS and leaves cells outside the range untouched.
+
+    /// Fill an inclusive rectangular range with the same numeric value.
+    /// Validates the complete range before changing any cells.
+    pub fn fill_number_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+        value: f64,
+    ) -> io::Result<usize> {
+        if !value.is_finite() {
+            return Err(invalid_input("cell numbers must be finite"));
+        }
+        if self.sheet(sheet_id).is_none() {
+            return Err(invalid_input("unknown worksheet"));
+        }
+        let min_row = start.row().min(end.row());
+        let max_row = start.row().max(end.row());
+        let min_column = start.column().min(end.column());
+        let max_column = start.column().max(end.column());
+        let rows = (max_row - min_row + 1) as usize;
+        let columns = (max_column - min_column + 1) as usize;
+        let count = rows.checked_mul(columns)
+            .filter(|count| *count <= MAX_CELLS)
+            .ok_or_else(|| invalid_input("fill range exceeds the cell limit"))?;
+        for row in min_row..=max_row {
+            for column in min_column..=max_column {
+                self.set_number(sheet_id, CellAddress::new(row, column)?, value)?;
+            }
+        }
+        Ok(count)
+    }
+
     pub fn clear_range(
         &mut self,
         sheet_id: u64,
@@ -5050,6 +5083,28 @@ mod session_tests {
                 CellValue::Number(4.0)
             ]
         );
+    }
+
+    #[test]
+    fn fill_number_range_populates_rectangle_and_rejects_oversized_range() {
+        let mut workbook = Workbook::new();
+        let sheet = workbook.sheets()[0].id();
+        assert_eq!(
+            workbook.fill_number_range(
+                sheet,
+                CellAddress::parse_a1("B2").unwrap(),
+                CellAddress::parse_a1("C3").unwrap(),
+                7.5,
+            ).unwrap(),
+            4
+        );
+        assert_eq!(workbook.range_statistics(sheet, CellAddress::parse_a1("B2").unwrap(), CellAddress::parse_a1("C3").unwrap()).unwrap().sum, 30.0);
+        assert!(workbook.fill_number_range(
+            sheet,
+            CellAddress::new(0, 0).unwrap(),
+            CellAddress::new(1000, 1000).unwrap(),
+            1.0,
+        ).is_err());
     }
 
 }

@@ -2141,6 +2141,53 @@ impl DocumentSession {
     /// Set horizontal alignment for one cell.
 
     /// Replace the text in one table cell while preserving its stable cell ID and formatting.
+
+    /// Replace every literal occurrence in paragraphs and table cells in one journaled edit.
+    /// Returns the number of replacements; an empty search term is rejected.
+    pub fn replace_all_text(
+        &mut self,
+        search: &str,
+        replacement: &str,
+    ) -> io::Result<usize> {
+        if search.is_empty() {
+            return Err(invalid_input("search text cannot be empty"));
+        }
+        validate_string(search, "search text")?;
+        validate_string(replacement, "replacement text")?;
+        if replacement.contains('\n') {
+            return Err(invalid_input("paragraph replacement cannot contain line-feed characters"));
+        }
+        let mut next = self.document.clone();
+        let mut replacements = 0usize;
+        for paragraph in &mut next.paragraphs {
+            let count = paragraph.text.matches(search).count();
+            if count > 0 {
+                paragraph.text = paragraph.text.replace(search, replacement);
+                replacements = replacements.checked_add(count)
+                    .ok_or_else(|| invalid_input("replacement count overflow"))?;
+            }
+        }
+        for table in &mut next.tables {
+            for row in &mut table.rows {
+                for cell in &mut row.cells {
+                    let count = cell.text.matches(search).count();
+                    if count > 0 {
+                        cell.text = cell.text.replace(search, replacement);
+                        replacements = replacements.checked_add(count)
+                            .ok_or_else(|| invalid_input("replacement count overflow"))?;
+                    }
+                }
+            }
+        }
+        if replacements == 0 {
+            return Ok(0);
+        }
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(replacements)
+    }
+
     pub fn set_table_cell_text(
         &mut self,
         table_id: u64,
@@ -3526,6 +3573,21 @@ mod tests {
         session.save_now().unwrap();
         let reopened = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(reopened.document().tables()[0].rows()[0].cells()[0].text(), "Quarterly result");
+    }
+
+    #[test]
+    fn replace_all_text_updates_paragraphs_and_table_cells_in_one_edit() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("alpha beta alpha").unwrap();
+        let table_id = session.insert_table(1, 1).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "alpha cell").unwrap();
+        let before = session.document().revision();
+        assert_eq!(session.replace_all_text("alpha", "omega").unwrap(), 3);
+        assert_eq!(session.document().revision(), before + 1);
+        assert!(export_text(session.document()).unwrap().contains("omega beta omega"));
+        assert!(export_text(session.document()).unwrap().contains("omega cell"));
+        assert_eq!(session.replace_all_text("", "x").unwrap_err().kind(), io::ErrorKind::InvalidInput);
     }
 
 }

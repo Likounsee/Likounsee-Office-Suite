@@ -2886,6 +2886,32 @@ pub fn slide_elements_outside_canvas(
     Ok(outside)
 }
 
+
+/// Return unordered pairs of element IDs whose rectangles overlap with positive area.
+pub fn overlapping_slide_elements(
+    presentation: &Presentation,
+    slide_id: u64,
+) -> io::Result<Vec<(u64, u64)>> {
+    presentation.validate()?;
+    let slide = presentation.slide(slide_id)
+        .ok_or_else(|| invalid_input("slide does not exist"))?;
+    let mut overlaps = Vec::new();
+    for (index, first) in slide.elements.iter().enumerate() {
+        let a = first.bounds;
+        for second in slide.elements.iter().skip(index + 1) {
+            let b = second.bounds;
+            if a.x < b.x + b.width
+                && b.x < a.x + a.width
+                && a.y < b.y + b.height
+                && b.y < a.y + a.height
+            {
+                overlaps.push((first.id, second.id));
+            }
+        }
+    }
+    Ok(overlaps)
+}
+
 /// Aggregate speaker-note metrics across all slides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpeakerNotesStatistics {
@@ -5195,6 +5221,17 @@ mod tests {
         let outside_id = presentation.add_text(slide_id, rect(95.0, 10.0, 20.0, 10.0), "Outside", style).unwrap();
         assert_eq!(slide_elements_outside_canvas(&presentation, slide_id).unwrap(), vec![outside_id]);
         assert!(slide_elements_outside_canvas(&presentation, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn overlapping_slide_elements_returns_only_positive_area_pairs() {
+        let mut presentation = Presentation::new("Overlap", 100.0, 80.0).unwrap();
+        let slide_id = presentation.slides()[0].id();
+        let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
+        let first = presentation.add_text(slide_id, rect(0.0, 0.0, 20.0, 20.0), "A", style.clone()).unwrap();
+        let second = presentation.add_text(slide_id, rect(10.0, 10.0, 20.0, 20.0), "B", style.clone()).unwrap();
+        presentation.add_text(slide_id, rect(20.0, 0.0, 10.0, 10.0), "Touch", style).unwrap();
+        assert_eq!(overlapping_slide_elements(&presentation, slide_id).unwrap(), vec![(first, second)]);
     }
 
 }
