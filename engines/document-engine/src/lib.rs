@@ -552,7 +552,12 @@ pub fn find_text_ascii_case_insensitive(
             if let Some(end) = start.checked_add(query.len()) {
                 if let Some(candidate) = text.get(start..end) {
                     if candidate.eq_ignore_ascii_case(query) {
-                        matches.push(DocumentSearchMatch { block_id, cell_id, start, end });
+                        matches.push(DocumentSearchMatch {
+                            block_id,
+                            cell_id,
+                            start,
+                            end,
+                        });
                     }
                 }
             }

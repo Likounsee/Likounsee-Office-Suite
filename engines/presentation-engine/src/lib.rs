@@ -2811,7 +2811,11 @@ pub fn slide_text_statistics(
                 .ok_or_else(|| invalid_data("slide word count overflow"))?;
         }
     }
-    Ok(SlideTextStatistics { slide_id, characters, words })
+    Ok(SlideTextStatistics {
+        slide_id,
+        characters,
+        words,
+    })
 }
 
 /// Export the editable text of one slide in element order.
@@ -4818,9 +4822,29 @@ mod tests {
     fn slide_text_statistics_count_only_text_elements_on_requested_slide() {
         let mut deck = Presentation::new("Statistics", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
-        deck.add_text(first, rect(0.0, 0.0, 100.0, 30.0), "Hello world", TextStyle::default()).unwrap();
-        deck.add_text(first, rect(0.0, 40.0, 100.0, 30.0), "café", TextStyle::default()).unwrap();
-        deck.add_shape(first, rect(0.0, 80.0, 20.0, 20.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        deck.add_text(
+            first,
+            rect(0.0, 0.0, 100.0, 30.0),
+            "Hello world",
+            TextStyle::default(),
+        )
+        .unwrap();
+        deck.add_text(
+            first,
+            rect(0.0, 40.0, 100.0, 30.0),
+            "café",
+            TextStyle::default(),
+        )
+        .unwrap();
+        deck.add_shape(
+            first,
+            rect(0.0, 80.0, 20.0, 20.0),
+            ShapeKind::Rectangle,
+            None,
+            None,
+            0.0,
+        )
+        .unwrap();
         let stats = slide_text_statistics(&deck, first).unwrap();
         assert_eq!(stats.slide_id, first);
         assert_eq!(stats.characters, 15);
