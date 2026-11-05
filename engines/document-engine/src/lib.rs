@@ -2096,6 +2096,33 @@ mod tests {
     }
 
     #[test]
+    fn markdown_export_preserves_heading_lists_tables_and_escapes_cells() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_title("Release notes").unwrap();
+        session.set_body("Overview\nFirst item\nSecond item").unwrap();
+        let paragraphs = session.document().paragraphs();
+        session
+            .set_paragraph_style(paragraphs[0].id(), ParagraphStyle::Heading1)
+            .unwrap();
+        session
+            .set_paragraph_list(paragraphs[1].id(), ListKind::Bullet, 0)
+            .unwrap();
+        let table_id = session.insert_table(2, 2).unwrap();
+        let table = session.document().tables().iter().find(|table| table.id() == table_id).unwrap();
+        let first_row = table.rows()[0].id();
+        let first_cell = table.rows()[0].cells()[0].id();
+        session.set_table_cell_text(table_id, first_cell, "A | B").unwrap();
+        let markdown = export_markdown(session.document()).unwrap();
+        assert!(markdown.contains("# Release notes"));
+        assert!(markdown.contains("# Overview"));
+        assert!(markdown.contains("- First item"));
+        assert!(markdown.contains("A \\| B"));
+        assert!(markdown.contains("| --- | --- |"));
+        assert!(first_row > 0);
+    }
+
+    #[test]
     fn document_encoding_round_trips_unicode_and_revision() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
