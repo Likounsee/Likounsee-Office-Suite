@@ -1452,9 +1452,14 @@ impl<'a> Parser<'a> {
         let first = self
             .direct_cell_reference(left.trim())?
             .ok_or(FormulaError::Parse)?;
-        let last = self
-            .direct_cell_reference(right.trim())?
-            .ok_or(FormulaError::Parse)?;
+        let right = right.trim();
+        let last = if right.contains('!') {
+            self.direct_cell_reference(right)?
+                .ok_or(FormulaError::Parse)?
+        } else {
+            let address = CellAddress::parse_a1(right).map_err(|_| FormulaError::Parse)?;
+            (first.0, address)
+        };
         if first.0 != last.0 {
             return Err(FormulaError::Reference);
         }
