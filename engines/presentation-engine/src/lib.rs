@@ -518,10 +518,8 @@ impl Presentation {
         let name = name.into();
         validate_string(&name, "slide name")?;
         let placeholder_count = match layout {
-            SlideLayout::Blank | SlideLayout::TitleOnly => match layout {
-                SlideLayout::Blank => 0,
-                _ => 1,
-            },
+            SlideLayout::Blank => 0,
+            SlideLayout::TitleOnly => 1,
             SlideLayout::Title
             | SlideLayout::TitleAndContent
             | SlideLayout::SectionHeader
