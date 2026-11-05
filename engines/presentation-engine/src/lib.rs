@@ -1848,8 +1848,7 @@ fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Res
     // each with regular, bold, italic and bold-italic variants.
     const FONT_COUNT: usize = 12;
     const FIRST_PAGE_ID: usize = 3 + FONT_COUNT;
-    let mut objects: Vec<Vec<u8>> =
-        vec![Vec::new(); FIRST_PAGE_ID + slides.len() * 2];
+    let mut objects: Vec<Vec<u8>> = vec![Vec::new(); FIRST_PAGE_ID + slides.len() * 2];
     objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>".to_vec();
 
     let page_ids = (0..slides.len())
@@ -1950,7 +1949,9 @@ fn pdf_font_resource(family: &str, bold: bool, italic: bool) -> &'static str {
         8
     } else if normalized.contains("times")
         || normalized.contains("georgia")
-        || normalized.contains("serif")
+        || normalized.contains("cambria")
+        || normalized.contains("palatino")
+        || (normalized.contains("serif") && !normalized.contains("sansserif"))
     {
         4
     } else {
@@ -3280,6 +3281,8 @@ mod tests {
         assert_eq!(pdf_font_resource("Arial", false, false), "F1");
         assert_eq!(pdf_font_resource("Times New Roman", true, true), "F8");
         assert_eq!(pdf_font_resource("Georgia", true, false), "F6");
+        assert_eq!(pdf_font_resource("sans-serif", false, false), "F1");
+        assert_eq!(pdf_font_resource("Cambria", false, false), "F5");
         assert_eq!(pdf_font_resource("Consolas", false, true), "F11");
         assert_eq!(pdf_font_resource("Courier New", true, false), "F10");
         assert_eq!(pdf_font_resource("Inter Display", false, false), "F1");
