@@ -1151,8 +1151,13 @@ impl<'a> Parser<'a> {
                 "IFERROR" => self.iferror_arguments(),
                 "NOT" => self.not_arguments(),
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
+                "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" => {
+                    self.math_function_arguments(&function)
+                }
                 "AND" | "OR" => self.logical_arguments(&function),
-                "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" => self.aggregate_arguments(&function),
+                "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
+                    self.aggregate_arguments(&function)
+                }
                 _ => Err(FormulaError::Parse),
             };
         }
@@ -1338,6 +1343,40 @@ impl<'a> Parser<'a> {
         };
         Ok(Some((sheet_id, address)))
     }
+    fn math_function_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
+        let ranges = self.function_argument_ranges()?;
+        let expected = if function == "ABS" { 1 } else { 2 };
+        if ranges.len() != expected {
+            return Err(FormulaError::Parse);
+        }
+        let value = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
+        let result = if function == "ABS" {
+            value.abs()
+        } else {
+            let digits = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+            if digits.fract() != 0.0 || !(-308.0..=308.0).contains(&digits) {
+                return Err(FormulaError::Number);
+            }
+            let factor = 10_f64.powi(digits as i32);
+            let scaled = value * factor;
+            if !factor.is_finite() || !scaled.is_finite() {
+                return Err(FormulaError::Number);
+            }
+            let rounded = match function {
+                "ROUND" => scaled.round(),
+                "ROUNDUP" if scaled >= 0.0 => scaled.ceil(),
+                "ROUNDUP" => scaled.floor(),
+                "ROUNDDOWN" => scaled.trunc(),
+                _ => return Err(FormulaError::Parse),
+            };
+            rounded / factor
+        };
+        if result.is_finite() {
+            Ok(result)
+        } else {
+            Err(FormulaError::Number)
+        }
+    }
     fn not_arguments(&mut self) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
         if ranges.len() != 1 {
@@ -1467,6 +1506,19 @@ impl<'a> Parser<'a> {
             "MIN" => values.iter().copied().reduce(f64::min).unwrap_or(0.0),
             "MAX" => values.iter().copied().reduce(f64::max).unwrap_or(0.0),
             "COUNT" => values.len() as f64,
+            "PRODUCT" => values.iter().product(),
+            "MEDIAN" => {
+                if values.is_empty() {
+                    return Err(FormulaError::DivisionByZero);
+                }
+                values.sort_by(f64::total_cmp);
+                let middle = values.len() / 2;
+                if values.len() % 2 == 0 {
+                    (values[middle - 1] + values[middle]) / 2.0
+                } else {
+                    values[middle]
+                }
+            }
             _ => return Err(FormulaError::Parse),
         };
         if result.is_finite() {
@@ -2478,6 +2530,90 @@ mod tests {
         book.set_formula(1, result, "=SUM(A1:A5)").unwrap();
         assert_eq!(
             book.value(1, result),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
+    }
+
+    #[test]
+    fn numeric_math_functions_cover_positive_negative_and_decimal_rounding() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=ABS(-12.5)", 12.5),
+            ("=ABS(12.5)", 12.5),
+            ("=ROUND(1.2345,2)", 1.23),
+            ("=ROUND(1.235,2)", 1.24),
+            ("=ROUND(-1.235,2)", -1.24),
+            ("=ROUNDUP(1.231,2)", 1.24),
+            ("=ROUNDUP(-1.231,2)", -1.24),
+            ("=ROUNDDOWN(1.239,2)", 1.23),
+            ("=ROUNDDOWN(-1.239,2)", -1.23),
+            ("=ROUND(1234,-2)", 1200.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 8).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn numeric_math_functions_validate_arguments_and_reject_non_finite_results() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        let cases = [
+            ("=ABS()", FormulaError::Parse),
+            ("=ABS(1,2)", FormulaError::Parse),
+            ("=ROUND(1)", FormulaError::Parse),
+            ("=ROUND(1,2,3)", FormulaError::Parse),
+            ("=ROUND(1,1.5)", FormulaError::Number),
+            ("=ROUND(1,309)", FormulaError::Number),
+            ("=ROUND(1/0,2)", FormulaError::DivisionByZero),
+            ("=ROUND(1e309,2)", FormulaError::Parse),
+        ];
+        for (formula, expected) in cases {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(expected),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn product_and_median_aggregate_numeric_cells_and_ranges() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        let a4 = CellAddress::parse_a1("A4").unwrap();
+        book.set_number(1, a1, 2.0).unwrap();
+        book.set_number(1, a2, 4.0).unwrap();
+        book.set_number(1, a3, 8.0).unwrap();
+        book.set_text(1, a4, "ignored").unwrap();
+        let cases = [
+            ("=PRODUCT(A1:A4)", 64.0),
+            ("=MEDIAN(A1:A4)", 4.0),
+            ("=MEDIAN(2,4,8,10)", 6.0),
+            ("=PRODUCT(2,3,4)", 24.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 10).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+        let empty = CellAddress::parse_a1("K5").unwrap();
+        book.set_formula(1, empty, "=MEDIAN(A4:A4)").unwrap();
+        assert_eq!(
+            book.value(1, empty),
             CellValue::Error(FormulaError::DivisionByZero)
         );
     }
