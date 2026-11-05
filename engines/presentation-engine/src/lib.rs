@@ -1633,6 +1633,30 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
 }
 
 /// Render every slide in presentation order, preserving each stable slide ID.
+/// Export a self-contained HTML presentation with editable vector SVG slides.
+pub fn export_presentation_html(presentation: &Presentation) -> io::Result<String> {
+    presentation.validate()?;
+    let mut output = String::from(
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n",
+    );
+    output.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    output.push_str("<title>");
+    output.push_str(&escape_xml(presentation.title()));
+    output.push_str("</title>\n<style>body{font-family:system-ui,sans-serif;margin:0;padding:2rem;background:#202124;color:#f5f5f5}.slide{max-width:1200px;margin:0 auto 2rem;background:white;box-shadow:0 2px 12px #0006}.slide svg{display:block;width:100%;height:auto}.slide h2{font-size:1rem;font-weight:500;margin:0;padding:.6rem 0}</style>\n</head>\n<body>\n<main>\n");
+    for (index, slide) in presentation.slides().iter().enumerate() {
+        let mut svg = render_slide_svg(presentation, slide.id())?;
+        let unique_marker = format!("arrowhead-{}", slide.id());
+        svg = svg.replace("arrowhead", &unique_marker);
+        output.push_str("<section class=\"slide\"><h2>");
+        let _ = write!(output, "{}. {}", index + 1, escape_xml(slide.name()));
+        output.push_str("</h2>\n");
+        output.push_str(&svg);
+        output.push_str("\n</section>\n");
+    }
+    output.push_str("</main>\n</body>\n</html>\n");
+    Ok(output)
+}
+
 pub fn render_all_slides_svg(presentation: &Presentation) -> io::Result<Vec<(u64, String)>> {
     presentation.validate()?;
     presentation
@@ -4533,6 +4557,22 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn html_export_embeds_all_slides_as_independent_svg_documents() {
+        let mut deck = Presentation::new("Web deck", 960.0, 540.0).unwrap();
+        deck.rename_slide(deck.slides()[0].id(), "Opening").unwrap();
+        let second = deck.add_slide("Details").unwrap();
+        let first = deck.slides()[0].id();
+        deck.add_shape(first, Bounds::new(10.0, 10.0, 100.0, 50.0).unwrap(), ShapeKind::Arrow, 0x112233, 0x445566, 2.0).unwrap();
+        deck.add_shape(second, Bounds::new(20.0, 20.0, 120.0, 60.0).unwrap(), ShapeKind::Arrow, 0x112233, 0x445566, 2.0).unwrap();
+        let html = export_presentation_html(&deck).unwrap();
+        assert!(html.contains("1. Opening"));
+        assert!(html.contains("2. Details"));
+        assert!(html.contains("arrowhead-1"));
+        assert!(html.contains(&format!("arrowhead-{second}")));
+        assert_eq!(html.matches("<svg ").count(), 2);
+    }
+
     fn speaker_notes_markdown_export_preserves_slide_order_and_empty_notes() {
         let mut deck = Presentation::new("Training", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
