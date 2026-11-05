@@ -1873,7 +1873,9 @@ impl PdfJpegImage {
             PdfImageColorSpace::Cmyk => 4,
         };
         if width != self.width || height != self.height || components != expected_components {
-            return Err(invalid_input("JPEG metadata does not match its frame header"));
+            return Err(invalid_input(
+                "JPEG metadata does not match its frame header",
+            ));
         }
         Ok(())
     }
@@ -2006,15 +2008,19 @@ fn render_pdf_document_with_images(
             .map(|(source, id)| (source.clone(), format!("Im{}", id - image_object_start + 1)))
             .collect::<HashMap<_, _>>();
         let stream = render_pdf_page_content(presentation, slide, &image_names)?;
-        let image_resources = slide.elements.iter().filter_map(|element| {
-            if let ElementKind::Image { source, .. } = &element.kind {
-                let name = image_names.get(source)?;
-                let id = image_ids.get(source)?;
-                Some(format!("/{name} {id} 0 R"))
-            } else {
-                None
-            }
-        }).collect::<Vec<_>>();
+        let image_resources = slide
+            .elements
+            .iter()
+            .filter_map(|element| {
+                if let ElementKind::Image { source, .. } = &element.kind {
+                    let name = image_names.get(source)?;
+                    let id = image_ids.get(source)?;
+                    Some(format!("/{name} {id} 0 R"))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
         let xobject_resources = if image_resources.is_empty() {
             String::new()
         } else {
@@ -2120,7 +2126,9 @@ fn jpeg_frame_info(bytes: &[u8]) -> io::Result<(u32, u32, u8)> {
             let width = u16::from_be_bytes([bytes[offset + 5], bytes[offset + 6]]) as u32;
             let components = bytes[offset + 7];
             if width == 0 || height == 0 || !matches!(components, 1 | 3 | 4) {
-                return Err(invalid_input("unsupported JPEG frame dimensions or components"));
+                return Err(invalid_input(
+                    "unsupported JPEG frame dimensions or components",
+                ));
             }
             return Ok((width, height, components));
         }
