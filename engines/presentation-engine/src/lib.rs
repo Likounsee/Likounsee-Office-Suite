@@ -1012,6 +1012,39 @@ impl Presentation {
         Ok(())
     }
 
+    /// Update multiple slide backgrounds as one atomic presentation edit.
+    /// Duplicate IDs, missing slides, and invalid colors are rejected before mutation.
+    pub fn set_slide_backgrounds_batch(
+        &mut self,
+        backgrounds: &[(u64, u32)],
+    ) -> io::Result<usize> {
+        if backgrounds.is_empty() {
+            return Ok(0);
+        }
+        let mut seen = HashSet::with_capacity(backgrounds.len());
+        for (slide_id, color) in backgrounds {
+            validate_color(*color)?;
+            if !seen.insert(*slide_id) {
+                return Err(invalid_input("slide selection contains duplicate IDs"));
+            }
+            if self.slide(*slide_id).is_none() {
+                return Err(invalid_input("slide does not exist"));
+            }
+        }
+        let changed = backgrounds
+            .iter()
+            .filter(|(slide_id, color)| self.slide(*slide_id).unwrap().background != *color)
+            .count();
+        if changed == 0 {
+            return Ok(0);
+        }
+        self.bump_revision()?;
+        for (slide_id, color) in backgrounds {
+            self.slide_mut(*slide_id).unwrap().background = *color;
+        }
+        Ok(changed)
+    }
+
     /// Add a text box to a slide and return its stable element ID.
     pub fn add_text(
         &mut self,
@@ -4952,6 +4985,28 @@ mod tests {
         };
         assert!(deck.apply_theme(&invalid).is_err());
         assert_eq!(deck, before);
+    }
+
+    #[test]
+    fn batch_slide_background_update_is_atomic_and_advances_revision_once() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        let second = deck.add_slide("Second").unwrap();
+        let revision = deck.revision();
+        assert_eq!(
+            deck.set_slide_backgrounds_batch(&[(first, 0x112233), (second, 0x445566)]).unwrap(),
+            2
+        );
+        assert_eq!(deck.revision(), revision + 1);
+        assert_eq!(deck.slide(first).unwrap().background(), 0x112233);
+        assert_eq!(deck.slide(second).unwrap().background(), 0x445566);
+        let before = deck.clone();
+        assert!(deck.set_slide_backgrounds_batch(&[(first, 0), (first, 1)]).is_err());
+        assert!(deck.set_slide_backgrounds_batch(&[(first, 0), (999, 1)]).is_err());
+        assert_eq!(deck, before);
+        let revision = deck.revision();
+        assert_eq!(deck.set_slide_backgrounds_batch(&[(first, 0x112233)]).unwrap(), 0);
+        assert_eq!(deck.revision(), revision);
     }
 
     #[test]

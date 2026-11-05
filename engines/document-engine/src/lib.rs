@@ -2130,6 +2130,47 @@ impl DocumentSession {
         Ok(first_cell_id)
     }
 
+    /// Duplicate a column immediately after its source, retaining cell formatting and assigning fresh IDs.
+    pub fn duplicate_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let mut next_id = next.next_block_id;
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        if column_index >= table.columns {
+            return Err(invalid_input("table column index is out of range"));
+        }
+        if table.columns >= 1024
+            || table
+                .rows
+                .len()
+                .checked_mul(table.columns + 1)
+                .is_none_or(|count| count > 65_536)
+        {
+            return Err(invalid_input("table column limit reached"));
+        }
+        let mut first_cell_id = None;
+        for row in &mut table.rows {
+            let mut cell = row.cells[column_index].clone();
+            cell.id = next_id;
+            first_cell_id.get_or_insert(next_id);
+            next_id = next_id
+                .checked_add(1)
+                .ok_or_else(|| invalid_input("block ID space exhausted"))?;
+            row.cells.insert(column_index + 1, cell);
+        }
+        table.columns += 1;
+        let width = table.column_widths_twips[column_index];
+        table.column_widths_twips.insert(column_index + 1, width);
+        next.next_block_id = next_id;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        first_cell_id.ok_or_else(|| invalid_data("table has no rows"))
+    }
+
     /// Remove a column by zero-based index. A table always retains at least one column.
     pub fn delete_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
@@ -3919,6 +3960,27 @@ mod tests {
         );
         assert_eq!(session.document().revision(), revision + 1);
         assert!(session.move_table_column(table_id, 0, 9).is_err());
+    }
+
+    #[test]
+    fn duplicate_table_column_copies_formatting_with_fresh_ids() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(2, 2).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "copied").unwrap();
+        let original = session.document().tables()[0].rows()[0].cells()[0].clone();
+        let width = session.document().tables()[0].column_widths_twips()[0];
+        let revision = session.document().revision();
+        let first_new_id = session.duplicate_table_column(table_id, 0).unwrap();
+        let table = &session.document().tables()[0];
+        assert_eq!(table.columns(), 3);
+        assert_eq!(table.rows()[0].cells()[1].text(), "copied");
+        assert_ne!(table.rows()[0].cells()[1].id(), original.id());
+        assert_eq!(table.rows()[0].cells()[1].alignment(), original.alignment());
+        assert_eq!(table.column_widths_twips()[1], width);
+        assert_eq!(table.rows()[0].cells()[1].id(), first_new_id);
+        assert_eq!(session.document().revision(), revision + 1);
+        assert!(session.duplicate_table_column(table_id, 9).is_err());
     }
 
     #[test]

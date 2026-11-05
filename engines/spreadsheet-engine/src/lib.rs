@@ -5085,6 +5085,36 @@ impl WorkbookSession {
 
     /// Copy a range through the durable session and rebuild formula dependencies.
     /// Formula references are translated by Workbook::copy_range before the journal commit.
+    /// Fill a numeric rectangle as one durable edit and refresh formula dependencies.
+    pub fn fill_number_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+        value: f64,
+    ) -> io::Result<usize> {
+        let mut next = self.workbook.clone();
+        let count = next.fill_number_range(sheet_id, start, end, value)?;
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(count)
+    }
+
+    /// Fill a text rectangle as one durable edit and refresh formula dependencies.
+    pub fn fill_text_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+        value: impl Into<String>,
+    ) -> io::Result<usize> {
+        let mut next = self.workbook.clone();
+        let count = next.fill_text_range(sheet_id, start, end, value)?;
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(count)
+    }
+
     pub fn copy_range(
         &mut self,
         sheet_id: u64,
@@ -5332,6 +5362,23 @@ mod session_tests {
             reopened.workbook().value(sheet, d4),
             CellValue::Number(11.0)
         );
+    }
+
+    #[test]
+    fn session_fill_number_and_text_ranges_are_durable() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let sheet = session.workbook().sheets()[0].id();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b2 = CellAddress::parse_a1("B2").unwrap();
+        assert_eq!(session.fill_number_range(sheet, a1, b2, 12.5).unwrap(), 4);
+        assert_eq!(session.workbook().value(sheet, a1), CellValue::Number(12.5));
+        assert_eq!(session.fill_text_range(sheet, a1, b2, "office").unwrap(), 4);
+        assert_eq!(session.workbook().value(sheet, b2), CellValue::Text("office".to_owned()));
+        session.save_now().unwrap();
+        let reopened = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(reopened.workbook().value(sheet, b2), CellValue::Text("office".to_owned()));
+        assert!(session.fill_number_range(999, a1, b2, 1.0).is_err());
     }
 
     #[test]
