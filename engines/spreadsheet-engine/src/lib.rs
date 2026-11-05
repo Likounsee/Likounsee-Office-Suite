@@ -3362,7 +3362,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn additional_logarithmic_and_hyperbolic_functions_are_evaluated() {
         let mut book = Workbook::new();
         let cases = [
@@ -3405,6 +3404,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn logarithms_and_inverse_trigonometry_reject_invalid_domains() {
         let mut book = Workbook::new();
         let address = CellAddress::parse_a1("A1").unwrap();
