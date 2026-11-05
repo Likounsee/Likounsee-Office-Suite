@@ -30,8 +30,8 @@ by the host application; save writes and verifies a checkpoint before compacting
 ## Current limitations
 
 - No presentation GUI, interactive canvas or slideshow playback yet. SVG/PDF are native export formats; PNG requires an external `PngRasterizer` implementation. This crate does not contain a rasterizer or general-purpose graphics engine.
-- No PPTX import/export; the current binary format is internal.
-- Image sources are references only; decoding, embedding and media packaging are not implemented.
+- A first PPTX export subset is available through `export_pptx`: it writes a ZIP/OOXML package with editable text and primitive shapes, slide dimensions, backgrounds, and a minimal master/layout/theme. Image references are preserved as relinkable placeholders, not embedded media; speaker notes, PPTX import, animations, transitions, charts and advanced layout features are not yet supported.
+- SVG keeps image references external. PDF can embed host-supplied JPEG bytes through `PdfImageProvider`. PPTX currently emits an editable placeholder containing the image alternative text and source reference; the host application must resolve and package actual image media in a later step.
 - Animations, transitions, master slides, charts, audio/video, comments and collaboration are not implemented. Themes currently apply directly to existing model styles; named theme metadata is not retained as a separately editable theme object.
 - Accurate font shaping, arbitrary font embedding, advanced text layout and Unicode font fallback are not implemented; PDF maps common font families to the built-in Helvetica/Times/Courier families and current SVG/PDF exports use approximate wrapping.
 - No clipboard integration, undo/redo history or accessibility tree yet.
