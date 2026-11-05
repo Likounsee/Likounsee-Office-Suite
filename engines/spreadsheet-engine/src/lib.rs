@@ -2395,7 +2395,11 @@ mod tests {
         for (index, (formula, expected)) in cases.into_iter().enumerate() {
             let address = CellAddress::new(index as u32, 0).unwrap();
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
         }
     }
 
@@ -2439,10 +2443,17 @@ mod tests {
         let address = CellAddress::parse_a1("A1").unwrap();
         for formula in ["=IFERROR(1)", "=IFERROR(1,2,3)", "=IFERROR(,2)"] {
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Parse), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(FormulaError::Parse),
+                "{formula}"
+            );
         }
         book.set_formula(1, address, "=IFERROR(1/0,2/0)").unwrap();
-        assert_eq!(book.value(1, address), CellValue::Error(FormulaError::DivisionByZero));
+        assert_eq!(
+            book.value(1, address),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
     }
 
     #[test]
