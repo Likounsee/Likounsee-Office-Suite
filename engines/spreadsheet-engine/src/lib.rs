@@ -707,16 +707,23 @@ impl Workbook {
             .find(|sheet| sheet.id == sheet_id)
             .ok_or_else(|| invalid_input("unknown worksheet"))?;
         let mut seen = HashSet::with_capacity(requested.len());
+        let mut additional_cells = 0usize;
         for (address, value) in requested {
             if !seen.insert(*address) {
                 return Err(invalid_input("duplicate cell address in text batch"));
             }
             validate_string(value)?;
+            if !sheet.cells.contains_key(address) {
+                additional_cells = additional_cells.saturating_add(1);
+            }
             if address.row() > MAX_ROW || address.column() > MAX_COLUMN {
                 return Err(invalid_input(
                     "cell address is outside supported worksheet limits",
                 ));
             }
+        }
+        if sheet.cells.len().saturating_add(additional_cells) > MAX_CELLS {
+            return Err(invalid_input("worksheet cell limit reached"));
         }
         let changed = requested
             .iter()
