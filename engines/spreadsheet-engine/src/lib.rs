@@ -2258,7 +2258,10 @@ mod tests {
         let b2 = CellAddress::parse_a1("B2").unwrap();
         let c2 = CellAddress::parse_a1("C2").unwrap();
         let d2 = CellAddress::parse_a1("D2").unwrap();
-        assert_eq!(workbook.value(sheet_id, a2), CellValue::Text("Widget, A".into()));
+        assert_eq!(
+            workbook.value(sheet_id, a2),
+            CellValue::Text("Widget, A".into())
+        );
         assert_eq!(workbook.value(sheet_id, b2), CellValue::Number(12.5));
         assert_eq!(workbook.value(sheet_id, c2), CellValue::Boolean(true));
         assert_eq!(workbook.value(sheet_id, d2), CellValue::Number(25.0));
@@ -2268,13 +2271,15 @@ mod tests {
         assert!(exported.contains("\"She said \"\"hello\"\"\""));
         assert_eq!(workbook.value(sheet_id, d2), CellValue::Number(25.0));
         workbook.set_text(sheet_id, CellAddress::parse_a1("E2").unwrap(), " leading ").unwrap();
-        assert!(export_sheet_csv(&workbook, sheet_id).unwrap().contains("\" leading \""));
+        assert!(Workbook::export_sheet_csv(&workbook, sheet_id)
+            .unwrap()
+            .contains("\" leading \""));
     }
 
     #[test]
     fn csv_parser_rejects_malformed_quotes_and_accepts_empty_fields() {
         assert!(Workbook::import_csv("Bad", "\"unterminated").is_err());
-        assert!(import_csv("Bad", "\"closed\"x,1").is_err());
+        assert!(Workbook::import_csv("Bad", "\"closed\"x,1").is_err());
         let workbook = Workbook::import_csv("Empty", "a,,c\r\n,2,").unwrap();
         let sheet = workbook.sheets()[0].id();
         assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()), CellValue::Blank);
