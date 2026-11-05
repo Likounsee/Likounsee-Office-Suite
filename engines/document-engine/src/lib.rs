@@ -449,6 +449,48 @@ impl Document {
 }
 
 /// Encode a document using the current versioned binary format.
+/// Export readable plain text while preserving paragraph order and table rows.
+/// Table cells are separated by tabs; rows are separated by newlines.
+pub fn export_text(document: &Document) -> io::Result<String> {
+    validate_document_size(document)?;
+    let mut output = String::new();
+    for (block_index, block) in document.block_order.iter().enumerate() {
+        if block_index > 0 && !output.ends_with('\n') {
+            output.push('\n');
+        }
+        match *block {
+            DocumentBlock::Paragraph(id) => {
+                let paragraph = document.paragraphs.iter()
+                    .find(|paragraph| paragraph.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing paragraph"))?;
+                output.push_str(&paragraph.text);
+                output.push('\n');
+            }
+            DocumentBlock::Table(id) => {
+                let table = document.tables.iter()
+                    .find(|table| table.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing table"))?;
+                for (row_index, row) in table.rows.iter().enumerate() {
+                    if row_index > 0 {
+                        output.push('\n');
+                    }
+                    for (column_index, cell) in row.cells.iter().enumerate() {
+                        if column_index > 0 {
+                            output.push('\t');
+                        }
+                        output.push_str(&cell.text);
+                    }
+                }
+                output.push('\n');
+            }
+        }
+    }
+    while output.ends_with("\n\n") {
+        output.pop();
+    }
+    Ok(output)
+}
+
 /// Export the document's editable block order to Markdown.
 ///
 /// Paragraph styles, list semantics, inline emphasis and tables are preserved
@@ -3095,6 +3137,20 @@ mod tests {
         assert!(html.contains("&lt;text&gt; &amp; &quot;quotes&quot;"));
         assert!(html.contains("<td>A &amp; B</td>"));
         assert!(html.contains("<!doctype html>"));
+    }
+
+    #[test]
+    fn plain_text_export_preserves_mixed_block_order_and_table_cells() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.insert_text(0, "First paragraph").unwrap();
+        let table_id = session.insert_table(2, 2).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "A").unwrap();
+        session.set_table_cell_text(table_id, 0, 1, "B").unwrap();
+        session.set_table_cell_text(table_id, 1, 0, "C").unwrap();
+        session.set_table_cell_text(table_id, 1, 1, "D").unwrap();
+        let text = export_text(session.document()).unwrap();
+        assert_eq!(text, "First paragraph\nA\tB\nC\tD");
     }
 
     #[test]

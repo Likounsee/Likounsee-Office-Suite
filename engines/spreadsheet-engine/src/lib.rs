@@ -1375,7 +1375,7 @@ impl<'a> Parser<'a> {
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
                 | "MOD" | "LOG" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN"
-                | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "SINH" | "COSH" | "TANH" | "COT" => {
+                | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "SINH" | "COSH" | "TANH" | "COT" | "FACT" | "TRUNC" => {
                     self.math_function_arguments(&function)
                 }
                 "AND" | "OR" => self.logical_arguments(&function),
@@ -1392,6 +1392,7 @@ impl<'a> Parser<'a> {
         match function.as_str() {
             "TRUE" => return Ok(1.0),
             "FALSE" => return Ok(0.0),
+            "PI" => return Ok(std::f64::consts::PI),
             _ => {}
         }
         let address = CellAddress::parse_a1(identifier).map_err(|_| FormulaError::Reference)?;
@@ -1594,6 +1595,8 @@ impl<'a> Parser<'a> {
                 | "COSH"
                 | "TANH"
                 | "COT"
+                | "FACT"
+                | "TRUNC"
         );
         if (function == "LOG" && !(1..=2).contains(&ranges.len()))
             || (function != "LOG" && ranges.len() != if unary { 1 } else { 2 })
@@ -1609,6 +1612,11 @@ impl<'a> Parser<'a> {
             "SIGN" if value < 0.0 => -1.0,
             "SIGN" => 0.0,
             "INT" => value.floor(),
+            "TRUNC" => value.trunc(),
+            "FACT" if value >= 0.0 && value.fract() == 0.0 && value <= 170.0 => {
+                (1..=value as u32).fold(1.0, |acc, item| acc * f64::from(item))
+            }
+            "FACT" => return Err(FormulaError::Number),
             "EXP" => value.exp(),
             "LN" if value > 0.0 => value.ln(),
             "LN" => return Err(FormulaError::Number),
@@ -3302,6 +3310,35 @@ mod tests {
                 CellValue::Number(expected),
                 "{formula}"
             );
+        }
+    }
+
+    #[test]
+    fn factorial_truncation_and_pi_cover_valid_and_invalid_inputs() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=FACT(0)", 1.0),
+            ("=FACT(1)", 1.0),
+            ("=FACT(5)", 120.0),
+            ("=TRUNC(3.9)", 3.0),
+            ("=TRUNC(-3.9)", -3.0),
+            ("=PI()", std::f64::consts::PI),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 11).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            match book.value(1, address) {
+                CellValue::Number(actual) => assert!(
+                    (actual - expected).abs() < 1e-10,
+                    "{formula}: {actual} != {expected}"
+                ),
+                other => panic!("{formula}: unexpected result {other:?}"),
+            }
+        }
+        for (index, formula) in ["=FACT(-1)", "=FACT(2.5)", "=FACT(171)"].iter().enumerate() {
+            let address = CellAddress::new(index as u32, 12).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Number));
         }
     }
 

@@ -380,6 +380,20 @@ impl SlideElement {
     }
 }
 
+/// A text match within a presentation element. Offsets are UTF-8 byte positions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextSearchMatch {
+    slide_id: u64,
+    element_id: u64,
+    start: usize,
+    end: usize,
+}
+impl TextSearchMatch {
+    pub fn slide_id(&self) -> u64 { self.slide_id }
+    pub fn element_id(&self) -> u64 { self.element_id }
+    pub fn range(&self) -> std::ops::Range<usize> { self.start..self.end }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Slide {
     id: u64,
@@ -456,6 +470,46 @@ impl Presentation {
     }
     pub fn slide(&self, id: u64) -> Option<&Slide> {
         self.slides.iter().find(|slide| slide.id == id)
+    }
+
+    /// Find literal text in text elements, returning UTF-8 byte ranges.
+    /// Matching is case-insensitive by default when case_sensitive is false.
+    pub fn find_text(&self, query: &str, case_sensitive: bool) -> io::Result<Vec<TextSearchMatch>> {
+        validate_string(query, "text search query")?;
+        if query.is_empty() {
+            return Err(invalid_input("text search query cannot be empty"));
+        }
+        let needle = if case_sensitive { query.to_owned() } else { query.to_lowercase() };
+        let mut matches = Vec::new();
+        for slide in &self.slides {
+            for element in &slide.elements {
+                let ElementKind::Text { text, .. } = &element.kind else { continue };
+                if case_sensitive {
+                    for (start, _) in text.match_indices(query) {
+                        matches.push(TextSearchMatch {
+                            slide_id: slide.id,
+                            element_id: element.id,
+                            start,
+                            end: start + query.len(),
+                        });
+                    }
+                } else {
+                    let folded = text.to_lowercase();
+                    for (start, found) in folded.match_indices(&needle) {
+                        let end = start + found.len();
+                        if text.is_char_boundary(start) && text.is_char_boundary(end) {
+                            matches.push(TextSearchMatch {
+                                slide_id: slide.id,
+                                element_id: element.id,
+                                start,
+                                end,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(matches)
     }
 
     fn bump_revision(&mut self) -> io::Result<()> {
@@ -4602,6 +4656,32 @@ mod tests {
         assert!(markdown.contains("_No speaker notes._"));
         assert!(markdown.contains("# Training — Speaker notes"));
         assert!(deck.slide(second).is_some());
+    }
+
+    #[test]
+    fn text_search_finds_multiple_matches_and_respects_case_sensitivity() {
+        let mut deck = Presentation::new("Search", 960.0, 540.0).unwrap();
+        let first_slide = deck.slides()[0].id();
+        let first = deck.add_text(
+            first_slide,
+            rect(10.0, 10.0, 300.0, 40.0),
+            "Office office",
+            TextStyle::default(),
+        ).unwrap();
+        let second_slide = deck.add_slide("Second").unwrap();
+        deck.add_text(
+            second_slide,
+            rect(10.0, 10.0, 300.0, 40.0),
+            "Office suite",
+            TextStyle::default(),
+        ).unwrap();
+        let all = deck.find_text("office", false).unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].slide_id(), first_slide);
+        assert_eq!(all[0].element_id(), first);
+        assert_eq!(all[0].range(), 0..6);
+        assert_eq!(deck.find_text("office", true).unwrap().len(), 1);
+        assert!(deck.find_text("", false).is_err());
     }
 
     #[test]
