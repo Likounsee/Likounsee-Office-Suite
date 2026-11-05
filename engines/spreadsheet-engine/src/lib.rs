@@ -3837,7 +3837,10 @@ impl WorkbookSession {
 mod session_tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     struct TestDirectory(PathBuf);
 
@@ -3847,8 +3850,9 @@ mod session_tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
+            let sequence = TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
-                "likounsee-spreadsheet-engine-{}-{nonce}",
+                "likounsee-spreadsheet-engine-{}-{nonce}-{sequence}",
                 std::process::id()
             ));
             fs::create_dir_all(&path).unwrap();
