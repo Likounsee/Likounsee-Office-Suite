@@ -2989,12 +2989,10 @@ mod tests {
 
     #[test]
     fn html_export_preserves_semantics_tables_and_escapes_untrusted_text() {
-        let mut document = Document::new("A < B & C").unwrap();
-        let paragraph_id = document.paragraphs()[0].id();
-        let mut session = DocumentSession::in_memory(document.clone());
-        session
-            .replace_text(paragraph_id, 0..0, "Safe <text> & \"quotes\"")
-            .unwrap();
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.insert_text(0, "Safe <text> & \"quotes\"").unwrap();
+        let paragraph_id = session.document().paragraphs()[0].id();
         session
             .set_paragraph_style(paragraph_id, ParagraphStyle::Heading1)
             .unwrap();
