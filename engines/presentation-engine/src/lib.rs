@@ -2163,7 +2163,11 @@ fn pdf_font_resource(family: &str, bold: bool, italic: bool) -> &'static str {
     }
 }
 
-fn render_pdf_page_content(\n    presentation: &Presentation,\n    slide: &Slide,\n    image_names: &HashMap<String, String>,\n) -> io::Result<String> {
+fn render_pdf_page_content(
+    presentation: &Presentation,
+    slide: &Slide,
+    image_names: &HashMap<String, String>,
+) -> io::Result<String> {
     let mut output = String::with_capacity(4096);
     let page_height = presentation.height;
     let background = pdf_rgb(slide.background);
