@@ -2286,9 +2286,11 @@ mod tests {
         workbook
             .set_text(sheet_id, CellAddress::parse_a1("E2").unwrap(), " leading ")
             .unwrap();
-        assert!(Workbook::export_sheet_csv(&workbook, sheet_id)
-            .unwrap()
-            .contains("\" leading \""));
+        assert!(
+            Workbook::export_sheet_csv(&workbook, sheet_id)
+                .unwrap()
+                .contains("\" leading \"")
+        );
     }
 
     #[test]
