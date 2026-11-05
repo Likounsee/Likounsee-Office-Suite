@@ -3309,7 +3309,9 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.insert_text(0, "two words").unwrap();
         let table_id = session.insert_table(1, 2).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "three").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "three")
+            .unwrap();
         session.set_table_cell_text(table_id, 0, 1, "猫").unwrap();
         let stats = document_statistics(session.document()).unwrap();
         assert_eq!(stats.paragraphs, 1);

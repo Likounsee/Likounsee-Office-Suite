@@ -193,8 +193,14 @@ impl Worksheet {
             max_column = max_column.max(address.column());
         }
         Some(UsedRange {
-            start: CellAddress { row: min_row, column: min_column },
-            end: CellAddress { row: max_row, column: max_column },
+            start: CellAddress {
+                row: min_row,
+                column: min_column,
+            },
+            end: CellAddress {
+                row: max_row,
+                column: max_column,
+            },
         })
     }
 

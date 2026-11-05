@@ -2840,13 +2840,16 @@ pub fn presentation_text_statistics(
     for slide in &presentation.slides {
         for element in &slide.elements {
             if let ElementKind::Text { text, .. } = &element.kind {
-                stats.text_elements = stats.text_elements
+                stats.text_elements = stats
+                    .text_elements
                     .checked_add(1)
                     .ok_or_else(|| invalid_data("presentation text element count overflow"))?;
-                stats.characters = stats.characters
+                stats.characters = stats
+                    .characters
                     .checked_add(text.chars().count())
                     .ok_or_else(|| invalid_data("presentation character count overflow"))?;
-                stats.words = stats.words
+                stats.words = stats
+                    .words
                     .checked_add(text.split_whitespace().count())
                     .ok_or_else(|| invalid_data("presentation word count overflow"))?;
             }
@@ -4859,9 +4862,21 @@ mod tests {
     fn presentation_text_statistics_aggregate_all_slides() {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
-        deck.add_text(first, rect(0.0, 0.0, 100.0, 30.0), "one two", TextStyle::default()).unwrap();
+        deck.add_text(
+            first,
+            rect(0.0, 0.0, 100.0, 30.0),
+            "one two",
+            TextStyle::default(),
+        )
+        .unwrap();
         let second = deck.add_slide("Second").unwrap();
-        deck.add_text(second, rect(0.0, 0.0, 100.0, 30.0), "猫 café", TextStyle::default()).unwrap();
+        deck.add_text(
+            second,
+            rect(0.0, 0.0, 100.0, 30.0),
+            "猫 café",
+            TextStyle::default(),
+        )
+        .unwrap();
         let stats = presentation_text_statistics(&deck).unwrap();
         assert_eq!(stats.slides, 2);
         assert_eq!(stats.text_elements, 2);
