@@ -452,6 +452,7 @@ fn formula_dependencies(
                 continue;
             }
             cursor += 1;
+            address = scan_cell_address(bytes, &mut cursor)?;
             let Some(id) = workbook
                 .sheets
                 .iter()
@@ -461,7 +462,6 @@ fn formula_dependencies(
                 continue;
             };
             sheet_id = id;
-            address = scan_cell_address(bytes, &mut cursor)?;
         } else if bytes[cursor].is_ascii_alphabetic() {
             let start = cursor;
             while cursor < bytes.len()
@@ -473,6 +473,7 @@ fn formula_dependencies(
                 .map_err(|_| invalid_input("formula contains invalid reference"))?;
             if bytes.get(cursor) == Some(&b'!') {
                 cursor += 1;
+                address = scan_cell_address(bytes, &mut cursor)?;
                 let Some(id) = workbook
                     .sheets
                     .iter()
@@ -482,7 +483,6 @@ fn formula_dependencies(
                     continue;
                 };
                 sheet_id = id;
-                address = scan_cell_address(bytes, &mut cursor)?;
             } else if let Ok(parsed) = CellAddress::parse_a1(token) {
                 sheet_id = current_sheet;
                 address = parsed;
