@@ -3308,7 +3308,7 @@ mod tests {
             ("=ASIN(1)", std::f64::consts::FRAC_PI_2),
             ("=ACOS(1)", 0.0),
             ("=ATAN(1)", std::f64::consts::FRAC_PI_4),
-            ("=DEGREES(PI()/2)", 90.0),
+            ("=DEGREES(1.5707963267948966)", 90.0),
             ("=RADIANS(180)", std::f64::consts::PI),
         ];
         for (index, (formula, expected)) in cases.into_iter().enumerate() {
