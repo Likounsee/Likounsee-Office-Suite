@@ -2533,15 +2533,15 @@ mod session_tests {
             &[(report, b1)]
         );
         recovered.rename_sheet(data, "Source").unwrap();
-        assert!(recovered
-            .dependency_index()
-            .dependencies_of(report, b1)
-            .is_empty());
-        let replacement_data = recovered.add_sheet("Data").unwrap();
-        assert_eq!(
+        assert!(
             recovered
                 .dependency_index()
-                .dependencies_of(report, b1),
+                .dependencies_of(report, b1)
+                .is_empty()
+        );
+        let replacement_data = recovered.add_sheet("Data").unwrap();
+        assert_eq!(
+            recovered.dependency_index().dependencies_of(report, b1),
             &[(replacement_data, a1)]
         );
         recovered.remove_sheet(replacement_data).unwrap();
@@ -2549,10 +2549,12 @@ mod session_tests {
             .dependency_index()
             .dependencies_of(report, b1)
             .is_empty());
-        assert!(recovered
-            .dependency_index()
-            .dependents_of(replacement_data, a1)
-            .is_empty());
+        assert!(
+            recovered
+                .dependency_index()
+                .dependents_of(replacement_data, a1)
+                .is_empty()
+        );
     }
 
     #[test]
