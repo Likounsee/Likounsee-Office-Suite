@@ -932,6 +932,89 @@ impl Presentation {
     /// Apply a theme to every slide in one atomic model revision.
     /// Text elements at 28 pt or larger are treated as titles; smaller text uses body styling.
     /// Existing emphasis, alignment, geometry, notes and media references are preserved.
+
+    /// Apply a presentation theme to a validated subset of slides in one revision.
+    /// Existing text emphasis/alignment and all geometry are retained.
+    pub fn apply_theme_to_slides(
+        &mut self,
+        slide_ids: &[u64],
+        theme: &PresentationTheme,
+    ) -> io::Result<usize> {
+        if slide_ids.is_empty() {
+            return Ok(0);
+        }
+        validate_string(&theme.name, "theme name")?;
+        validate_string(&theme.title_font, "theme title font")?;
+        validate_string(&theme.body_font, "theme body font")?;
+        if theme.name.is_empty()
+            || theme.title_font.is_empty()
+            || theme.body_font.is_empty()
+            || [theme.background, theme.title_color, theme.body_color, theme.accent_color]
+                .iter()
+                .any(|color| *color > 0x00ff_ffff)
+        {
+            return Err(invalid_input("presentation theme is invalid"));
+        }
+        let mut seen = std::collections::HashSet::with_capacity(slide_ids.len());
+        for slide_id in slide_ids {
+            if !seen.insert(*slide_id) {
+                return Err(invalid_input("slide selection contains duplicate IDs"));
+            }
+            if self.slide(*slide_id).is_none() {
+                return Err(invalid_input("slide does not exist"));
+            }
+        }
+        let mut next = self.clone();
+        let mut changed = 0usize;
+        for slide_id in slide_ids {
+            let slide = next.slide_mut(*slide_id)?;
+            let mut slide_changed = slide.background != theme.background;
+            for element in &slide.elements {
+                match &element.kind {
+                    ElementKind::Text { style, .. } => {
+                        let (font, color) = if style.font_size >= 28.0 {
+                            (&theme.title_font, theme.title_color)
+                        } else {
+                            (&theme.body_font, theme.body_color)
+                        };
+                        slide_changed |= style.font_family != *font || style.color != color;
+                    }
+                    ElementKind::Shape { fill: Some(fill), .. } => {
+                        slide_changed |= *fill != theme.accent_color;
+                    }
+                    _ => {}
+                }
+            }
+            if slide_changed {
+                changed += 1;
+                slide.background = theme.background;
+                for element in &mut slide.elements {
+                    match &mut element.kind {
+                        ElementKind::Text { style, .. } => {
+                            if style.font_size >= 28.0 {
+                                style.font_family.clone_from(&theme.title_font);
+                                style.color = theme.title_color;
+                            } else {
+                                style.font_family.clone_from(&theme.body_font);
+                                style.color = theme.body_color;
+                            }
+                        }
+                        ElementKind::Shape { fill: Some(fill), .. } => {
+                            *fill = theme.accent_color;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if changed == 0 {
+            return Ok(0);
+        }
+        next.bump_revision()?;
+        *self = next;
+        Ok(changed)
+    }
+
     pub fn apply_theme(&mut self, theme: &PresentationTheme) -> io::Result<()> {
         // Revalidate so malformed values cannot enter through future deserialization paths.
         validate_string(&theme.name, "theme name")?;
@@ -6249,4 +6332,34 @@ mod tests {
         );
         assert_eq!(deck.revision(), revision + 1);
     }
+
+    #[test]
+    fn apply_theme_to_selected_slides_is_atomic_and_preserves_unselected_slides() {
+        let mut deck = Presentation::new("Selected themes", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        let second = deck.add_slide("Second").unwrap();
+        let first_text = deck.add_text(
+            first,
+            rect(0.0, 0.0, 200.0, 40.0),
+            "Title",
+            TextStyle::new("Arial", 32.0, 0x111111).unwrap(),
+        ).unwrap();
+        let theme = PresentationTheme::new(
+            "Midnight", 0x101820, "Aptos Display", "Aptos", 0xffffff, 0xddeeff, 0x00aacc
+        ).unwrap();
+        let revision = deck.revision();
+        assert_eq!(deck.apply_theme_to_slides(&[first], &theme).unwrap(), 1);
+        assert_eq!(deck.revision(), revision + 1);
+        assert_eq!(deck.slides()[0].background(), 0x101820);
+        assert_eq!(deck.slides()[1].background(), 0xffffff);
+        let ElementKind::Text { style, .. } = deck.slides()[0].element(first_text).unwrap().kind() else {
+            panic!("expected text element");
+        };
+        assert_eq!(style.font_family(), "Aptos Display");
+        let before = deck.clone();
+        assert!(deck.apply_theme_to_slides(&[first, first], &theme).is_err());
+        assert_eq!(deck, before);
+        assert_eq!(deck.apply_theme_to_slides(&[first], &theme).unwrap(), 0);
+    }
+
 }

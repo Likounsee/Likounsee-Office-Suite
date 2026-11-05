@@ -2585,6 +2585,47 @@ impl DocumentSession {
     }
 
     /// Apply paragraph styles to several paragraphs as one atomic journalled edit.
+
+    /// Move one paragraph immediately before another without changing either ID.
+    /// Tables and all unrelated blocks retain their relative order.
+    pub fn move_paragraph_before(&mut self, paragraph_id: u64, before_id: u64) -> io::Result<()> {
+        if paragraph_id == before_id {
+            return Ok(());
+        }
+        if !self.document.paragraphs.iter().any(|paragraph| paragraph.id == paragraph_id)
+            || !self.document.paragraphs.iter().any(|paragraph| paragraph.id == before_id)
+        {
+            return Err(invalid_input("paragraph ID does not exist"));
+        }
+        let mut next = self.document.clone();
+        let source = next.block_order.iter()
+            .position(|block| *block == DocumentBlock::Paragraph(paragraph_id))
+            .ok_or_else(|| invalid_input("paragraph block is missing"))?;
+        next.block_order.remove(source);
+        let target = next.block_order.iter()
+            .position(|block| *block == DocumentBlock::Paragraph(before_id))
+            .ok_or_else(|| invalid_input("target paragraph block is missing"))?;
+        next.block_order.insert(target, DocumentBlock::Paragraph(paragraph_id));
+        let order = next.block_order.clone();
+        let mut paragraphs = Vec::with_capacity(next.paragraphs.len());
+        for block in order {
+            if let DocumentBlock::Paragraph(id) = block {
+                let paragraph = next.paragraphs.iter().find(|paragraph| paragraph.id == id)
+                    .ok_or_else(|| invalid_input("paragraph block references a missing paragraph"))?;
+                paragraphs.push(paragraph.clone());
+            }
+        }
+        next.paragraphs = paragraphs;
+        next.body = next.paragraphs.iter()
+            .map(|paragraph| paragraph.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(())
+    }
+
     /// Replace text in several paragraphs as one atomic, durable edit.
     /// Duplicate or missing IDs reject the entire batch; unchanged text is ignored.
     pub fn set_paragraph_texts_batch(&mut self, requested: &[(u64, String)]) -> io::Result<usize> {
@@ -4469,4 +4510,28 @@ mod tests {
         let reopened = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(reopened.document().paragraphs()[1].text(), "updated second");
     }
+
+    #[test]
+    fn moving_paragraph_preserves_ids_and_persists_reading_order() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("alpha\\nbeta\\ngamma").unwrap();
+        let ids = session.document().paragraphs().iter().map(Paragraph::id).collect::<Vec<_>>();
+        let revision = session.document().revision();
+        session.move_paragraph_before(ids[2], ids[0]).unwrap();
+        assert_eq!(session.document().revision(), revision + 1);
+        assert_eq!(
+            session.document().paragraphs().iter().map(Paragraph::id).collect::<Vec<_>>(),
+            vec![ids[2], ids[0], ids[1]]
+        );
+        assert_eq!(session.document().body(), "gamma\\nalpha\\nbeta");
+        let before = session.document().clone();
+        assert!(session.move_paragraph_before(ids[0], u64::MAX).is_err());
+        assert_eq!(session.document(), &before);
+        session.save_now().unwrap();
+        drop(session);
+        let reopened = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(reopened.document().body(), "gamma\\nalpha\\nbeta");
+    }
+
 }
