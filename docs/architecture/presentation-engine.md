@@ -15,6 +15,7 @@ application and can be used by a future presentation editor, command-line tool o
 - Multi-selection alignment against the collective bounding box or the slide canvas (left, horizontal center, right, top, vertical center and bottom).
 - Even horizontal or vertical distribution of three or more selected elements.
 - Text content/style updates, shape style updates, image source/alt-text updates.
+- Global presentation themes with title/body typography, slide backgrounds and accent colors. Applying a theme updates all existing slides atomically while preserving text emphasis/alignment, geometry, shape strokes, notes and image references; the resulting styles are persisted by the normal presentation serializer.
 - Model validation, stable IDs, bounded collection/string sizes.
 - Versioned binary serialization with CRC32 integrity checking.
 - Local session journal, crash recovery, autosave scheduling and checkpoint compaction.
@@ -31,7 +32,7 @@ by the host application; save writes and verifies a checkpoint before compacting
 - No presentation GUI, canvas renderer or slideshow playback yet.
 - No PPTX import/export; the current binary format is internal.
 - Image sources are references only; decoding, embedding and media packaging are not implemented.
-- Animations, transitions, masters, layouts, themes, charts, audio/video, comments and collaboration are not implemented.
+- Animations, transitions, master slides, charts, audio/video, comments and collaboration are not implemented. Themes currently apply directly to existing model styles; named theme metadata is not retained as a separately editable theme object.
 - Text layout, font fallback, wrapping and rendering belong to a future layout/rendering layer.
 - No clipboard integration, undo/redo history or accessibility tree yet.
 
