@@ -4557,14 +4557,29 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn html_export_embeds_all_slides_as_independent_svg_documents() {
         let mut deck = Presentation::new("Web deck", 960.0, 540.0).unwrap();
         deck.rename_slide(deck.slides()[0].id(), "Opening").unwrap();
         let second = deck.add_slide("Details").unwrap();
         let first = deck.slides()[0].id();
-        deck.add_shape(first, Rect::new(10.0, 10.0, 100.0, 50.0).unwrap(), ShapeKind::Arrow, Some(0x112233), Some(0x445566), 2.0).unwrap();
-        deck.add_shape(second, Rect::new(20.0, 20.0, 120.0, 60.0).unwrap(), ShapeKind::Arrow, Some(0x112233), Some(0x445566), 2.0).unwrap();
+        deck.add_shape(
+            first,
+            Rect::new(10.0, 10.0, 100.0, 50.0).unwrap(),
+            ShapeKind::Arrow,
+            Some(0x112233),
+            Some(0x445566),
+            2.0,
+        )
+        .unwrap();
+        deck.add_shape(
+            second,
+            Rect::new(20.0, 20.0, 120.0, 60.0).unwrap(),
+            ShapeKind::Arrow,
+            Some(0x112233),
+            Some(0x445566),
+            2.0,
+        )
+        .unwrap();
         let html = export_presentation_html(&deck).unwrap();
         assert!(html.contains("1. Opening"));
         assert!(html.contains("2. Details"));
@@ -4573,6 +4588,7 @@ mod tests {
         assert_eq!(html.matches("<svg ").count(), 2);
     }
 
+    #[test]
     fn speaker_notes_markdown_export_preserves_slide_order_and_empty_notes() {
         let mut deck = Presentation::new("Training", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
