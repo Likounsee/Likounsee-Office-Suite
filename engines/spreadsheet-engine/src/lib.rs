@@ -5370,11 +5370,7 @@ mod session_tests {
             .set_number(sheet, CellAddress::parse_a1("A2").unwrap(), 7.0)
             .unwrap();
         workbook
-            .set_text(
-                sheet,
-                CellAddress::parse_a1("B2").unwrap(),
-                "bottom-right",
-            )
+            .set_text(sheet, CellAddress::parse_a1("B2").unwrap(), "bottom-right")
             .unwrap();
         workbook
             .set_text(sheet, CellAddress::parse_a1("D1").unwrap(), "stale")

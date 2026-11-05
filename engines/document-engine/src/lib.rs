@@ -2595,11 +2595,13 @@ impl DocumentSession {
         }
         let paragraph = paragraphs.remove(source_index);
         let target_index = match after_id {
-            Some(anchor) => paragraphs
-                .iter()
-                .position(|paragraph| paragraph.id == anchor)
-                .unwrap()
-                + 1,
+            Some(anchor) => {
+                paragraphs
+                    .iter()
+                    .position(|paragraph| paragraph.id == anchor)
+                    .unwrap()
+                    + 1
+            },
             None => paragraphs.len(),
         };
         if target_index == source_index {
@@ -3714,9 +3716,7 @@ mod tests {
             .iter()
             .map(|paragraph| paragraph.id())
             .collect::<Vec<_>>();
-        session
-            .move_paragraph_after(ids[0], Some(ids[2]))
-            .unwrap();
+        session.move_paragraph_after(ids[0], Some(ids[2])).unwrap();
         assert_eq!(
             session
                 .document()

@@ -5360,7 +5360,9 @@ mod tests {
     fn clear_slide_notes_preserves_elements_and_is_noop_when_empty() {
         let mut presentation = Presentation::new("Notes", 100.0, 80.0).unwrap();
         let slide_id = presentation.slides()[0].id();
-        presentation.set_slide_notes(slide_id, "Presenter cue").unwrap();
+        presentation
+            .set_slide_notes(slide_id, "Presenter cue")
+            .unwrap();
         let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
         presentation
             .add_text(slide_id, rect(1.0, 1.0, 10.0, 10.0), "Keep", style)
