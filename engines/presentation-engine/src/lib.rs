@@ -1018,7 +1018,7 @@ impl Presentation {
         if backgrounds.is_empty() {
             return Ok(0);
         }
-        let mut seen = HashSet::with_capacity(backgrounds.len());
+        let mut seen = std::collections::HashSet::with_capacity(backgrounds.len());
         for (slide_id, color) in backgrounds {
             validate_color(*color)?;
             if !seen.insert(*slide_id) {
@@ -1640,7 +1640,7 @@ impl Presentation {
         let slide = self
             .slide(slide_id)
             .ok_or_else(|| invalid_input("slide does not exist"))?;
-        let mut seen = HashSet::with_capacity(requested.len());
+        let mut seen = std::collections::HashSet::with_capacity(requested.len());
         let mut updates = Vec::with_capacity(requested.len());
         for (element_id, bounds) in requested {
             bounds.validate()?;

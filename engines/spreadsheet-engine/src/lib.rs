@@ -5340,7 +5340,6 @@ mod session_tests {
         let a1 = CellAddress::parse_a1("A1").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let d4 = CellAddress::parse_a1("D4").unwrap();
-        let e4 = CellAddress::parse_a1("E4").unwrap();
         let f5 = CellAddress::parse_a1("F5").unwrap();
         let g5 = CellAddress::parse_a1("G5").unwrap();
         session.set_number(sheet, a1, 11.0).unwrap();
