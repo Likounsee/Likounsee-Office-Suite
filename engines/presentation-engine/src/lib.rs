@@ -2590,7 +2590,7 @@ mod tests {
         assert!(svg.contains(">alpha</tspan>"));
         assert!(svg.contains(">beta</tspan>"));
         assert!(svg.contains(">gamma</tspan>"));
-        assert!(svg.contains("extraordina"));
+        assert!(svg.contains(">extrao</tspan>"));
     }
 
     #[test]
