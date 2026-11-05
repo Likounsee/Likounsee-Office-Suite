@@ -410,12 +410,30 @@ impl Workbook {
                 "worksheet names must be unique (case-insensitive)",
             ));
         }
-        let sheet = self
+        let old_name = self
             .sheets
+            .iter()
+            .find(|sheet| sheet.id == id)
+            .map(|sheet| sheet.name.clone())
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        if old_name == name {
+            return Ok(());
+        }
+
+        // Rewrite references before changing the name so formulas keep pointing
+        // to the same stable worksheet ID after a rename.
+        for worksheet in &mut self.sheets {
+            for cell in worksheet.cells.values_mut() {
+                if let CellInput::Formula(formula) = &mut cell.input {
+                    *formula = rewrite_sheet_references(formula, &old_name, &name);
+                }
+            }
+        }
+        self.sheets
             .iter_mut()
             .find(|sheet| sheet.id == id)
-            .ok_or_else(|| invalid_input("unknown worksheet"))?;
-        sheet.name = name;
+            .expect("worksheet was validated above")
+            .name = name;
         Ok(())
     }
     pub fn remove_sheet(&mut self, id: u64) -> io::Result<()> {
@@ -758,6 +776,65 @@ fn reverse_dependency_graph(
         }
     }
     reverse
+}
+
+/// Rewrite only syntactically complete sheet-reference tokens. The new
+/// name is always quoted, which safely handles spaces and punctuation.
+fn rewrite_sheet_references(formula: &str, old_name: &str, new_name: &str) -> String {
+    let bytes = formula.as_bytes();
+    let mut output = String::with_capacity(formula.len() + new_name.len());
+    let mut cursor = 0;
+
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\'' {
+            let start = cursor + 1;
+            let mut end = start;
+            while end < bytes.len() && bytes[end] != b'\'' {
+                end += 1;
+            }
+            if end < bytes.len()
+                && bytes.get(end + 1) == Some(&b'!')
+                && formula[start..end].eq_ignore_ascii_case(old_name)
+            {
+                output.push('\'');
+                output.push_str(new_name);
+                output.push_str("'!");
+                cursor = end + 2;
+                continue;
+            }
+            let next = (end + 1).min(bytes.len());
+            output.push_str(&formula[cursor..next]);
+            cursor = next;
+            continue;
+        }
+
+        if bytes[cursor].is_ascii_alphabetic() || bytes[cursor] == b'_' {
+            let start = cursor;
+            cursor += 1;
+            while cursor < bytes.len()
+                && (bytes[cursor].is_ascii_alphanumeric() || bytes[cursor] == b'_')
+            {
+                cursor += 1;
+            }
+            if bytes.get(cursor) == Some(&b'!')
+                && formula[start..cursor].eq_ignore_ascii_case(old_name)
+            {
+                output.push('\'');
+                output.push_str(new_name);
+                output.push_str("'!");
+                cursor += 1;
+            } else {
+                output.push_str(&formula[start..cursor]);
+            }
+            continue;
+        }
+
+        let next = cursor + 1;
+        output.push_str(&formula[cursor..next]);
+        cursor = next;
+    }
+
+    output
 }
 
 fn formula_dependencies(
@@ -2151,6 +2228,84 @@ mod tests {
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
     #[test]
+    fn renaming_sheet_rewrites_quoted_unquoted_and_range_references() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data2026").unwrap();
+        let sales = book.add_sheet("Sales Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(data, a1, 7.0).unwrap();
+        book.set_number(data, b1, 5.0).unwrap();
+        book.set_number(sales, a1, 3.0).unwrap();
+        book.set_formula(report, a1, "=Data2026!A1+SUM(Data2026!A1:B1)").unwrap();
+        book.set_formula(report, b1, "='Sales Data'!A1*2").unwrap();
+
+        book.rename_sheet(data, "Primary Data").unwrap();
+        book.rename_sheet(sales, "Quarterly Sales").unwrap();
+
+        assert_eq!(
+            book.sheet(report).unwrap().cell(a1).unwrap().formula(),
+            Some("='Primary Data'!A1+SUM('Primary Data'!A1:B1)")
+        );
+        assert_eq!(
+            book.sheet(report).unwrap().cell(b1).unwrap().formula(),
+            Some("='Quarterly Sales'!A1*2")
+        );
+        assert_eq!(book.value(report, a1), CellValue::Number(19.0));
+        assert_eq!(book.value(report, b1), CellValue::Number(6.0));
+        assert_eq!(
+            book.dependencies_of(report, a1).unwrap(),
+            vec![(data, a1), (data, b1)]
+        );
+        assert_eq!(
+            book.dependencies_of(report, b1).unwrap(),
+            vec![(sales, a1)]
+        );
+        let c1_formula = "=Data2026!A1+1";
+        book.set_formula(report, c1, c1_formula).unwrap();
+        assert_eq!(book.value(report, c1), CellValue::Error(FormulaError::Reference));
+    }
+
+    #[test]
+    fn renaming_sheet_does_not_rewrite_prefix_or_unrelated_names() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let database = book.add_sheet("Database").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+
+        book.set_number(data, a1, 11.0).unwrap();
+        book.set_number(database, a1, 22.0).unwrap();
+        book.set_formula(report, a1, "=Data!A1+Database!A1").unwrap();
+        book.rename_sheet(data, "Source").unwrap();
+
+        assert_eq!(
+            book.sheet(report).unwrap().cell(a1).unwrap().formula(),
+            Some("='Source'!A1+Database!A1")
+        );
+        assert_eq!(book.value(report, a1), CellValue::Number(33.0));
+        assert_eq!(book.dependencies_of(report, a1).unwrap(), vec![(data, a1), (database, a1)]);
+        assert!(book.rename_sheet(data, "Database").is_err());
+        assert_eq!(book.sheet(data).unwrap().name(), "Source");
+        assert_eq!(book.value(report, a1), CellValue::Number(33.0));
+        assert_eq!(book.sheet(report).unwrap().cell(b1), None);
+    }
+
+    #[test]
+    fn renaming_sheet_is_a_noop_for_identical_name_and_rejects_unknown_id() {
+        let mut book = Workbook::new();
+        let original = book.clone();
+        book.rename_sheet(1, "Sheet1").unwrap();
+        assert_eq!(book, original);
+        assert!(book.rename_sheet(999, "Missing").is_err());
+        assert_eq!(book, original);
+    }
+
+    #[test]
     fn workbook_round_trip_preserves_sheets_inputs_and_formulas() {
         let mut book = Workbook::new();
         let sheet = book.sheets()[0].id();
@@ -2546,10 +2701,12 @@ mod session_tests {
             &[(replacement_data, a1)]
         );
         recovered.remove_sheet(replacement_data).unwrap();
-        assert!(recovered
-            .dependency_index()
-            .dependencies_of(report, b1)
-            .is_empty());
+        assert!(
+            recovered
+                .dependency_index()
+                .dependencies_of(report, b1)
+                .is_empty()
+        );
         assert!(
             recovered
                 .dependency_index()
