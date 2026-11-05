@@ -1710,6 +1710,7 @@ mod tests {
         assert_eq!(
             book.recalculate_after_change(1, a1).unwrap(),
             vec![
+                ((1, a1), CellValue::Number(15.0)),
                 ((1, b1), CellValue::Number(30.0)),
                 ((1, c1), CellValue::Number(31.0)),
             ]
