@@ -1121,7 +1121,7 @@ impl Presentation {
         let combined = if current.is_empty() {
             notes
         } else {
-            format!("{current}\\n{notes}")
+            format!("{current}\n{notes}")
         };
         validate_string(&combined, "slide notes")?;
         self.bump_revision()?;
@@ -5388,10 +5388,17 @@ mod tests {
     fn append_slide_notes_joins_entries_and_ignores_empty_input() {
         let mut presentation = Presentation::new("Notes", 100.0, 80.0).unwrap();
         let slide_id = presentation.slides()[0].id();
-        presentation.append_slide_notes(slide_id, "First cue").unwrap();
+        presentation
+            .append_slide_notes(slide_id, "First cue")
+            .unwrap();
         let revision = presentation.revision();
-        presentation.append_slide_notes(slide_id, "Second cue").unwrap();
-        assert_eq!(presentation.slide(slide_id).unwrap().notes(), "First cue\\nSecond cue");
+        presentation
+            .append_slide_notes(slide_id, "Second cue")
+            .unwrap();
+        assert_eq!(
+            presentation.slide(slide_id).unwrap().notes(),
+            "First cue\nSecond cue"
+        );
         assert_eq!(presentation.revision(), revision + 1);
         let revision = presentation.revision();
         presentation.append_slide_notes(slide_id, "").unwrap();

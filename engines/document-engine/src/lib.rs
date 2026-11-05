@@ -3734,7 +3734,9 @@ mod tests {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         let table_id = session.insert_table(1, 1).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "value").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "value")
+            .unwrap();
         let revision = session.document().revision();
         session.clear_table_cell(table_id, 0, 0).unwrap();
         assert_eq!(session.document().revision(), revision + 1);

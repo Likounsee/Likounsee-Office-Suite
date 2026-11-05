@@ -5424,14 +5424,16 @@ mod session_tests {
                 CellValue::Boolean(true)
             );
         }
-        assert!(workbook
-            .fill_boolean_range(
-                u64::MAX,
-                CellAddress::parse_a1("A1").unwrap(),
-                CellAddress::parse_a1("A1").unwrap(),
-                false,
-            )
-            .is_err());
+        assert!(
+            workbook
+                .fill_boolean_range(
+                    u64::MAX,
+                    CellAddress::parse_a1("A1").unwrap(),
+                    CellAddress::parse_a1("A1").unwrap(),
+                    false,
+                )
+                .is_err()
+        );
     }
 
     #[test]
