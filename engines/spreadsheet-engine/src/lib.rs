@@ -906,6 +906,9 @@ impl Workbook {
                 '"' if field.is_empty() && !after_quote => quoted = true,
                 ',' => {
                     row.push(std::mem::take(&mut field));
+                    if row.len() > MAX_COLUMN as usize + 1 {
+                        return Err(invalid_input("CSV column limit exceeded"));
+                    }
                     after_quote = false;
                 }
                 '\r' | '\n' => {
@@ -913,9 +916,13 @@ impl Workbook {
                         chars.next();
                     }
                     row.push(std::mem::take(&mut field));
+                    if row.len() > MAX_COLUMN as usize + 1 {
+                        return Err(invalid_input("CSV column limit exceeded"));
+                    }
                     rows.push(std::mem::take(&mut row));
                     after_quote = false;
                 }
+                '"' => return Err(invalid_input("quote inside an unquoted CSV field")),
                 _ => field.push(character),
             }
             if rows.len() > MAX_ROW as usize + 1 {
@@ -931,6 +938,9 @@ impl Workbook {
             || (input.ends_with(',') && !input.ends_with("\r\n"))
         {
             row.push(field);
+            if row.len() > MAX_COLUMN as usize + 1 {
+                return Err(invalid_input("CSV column limit exceeded"));
+            }
             rows.push(row);
         }
         Ok(rows)
