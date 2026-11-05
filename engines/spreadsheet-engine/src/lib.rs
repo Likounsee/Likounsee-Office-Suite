@@ -1375,9 +1375,8 @@ impl<'a> Parser<'a> {
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
                 | "MOD" | "LOG" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN"
-                | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "PI" | "SINH" | "COSH" | "TANH" | "COT" | "FACT" | "TRUNC" => {
-                    self.math_function_arguments(&function)
-                }
+                | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "PI" | "SINH" | "COSH"
+                | "TANH" | "COT" | "FACT" | "TRUNC" => self.math_function_arguments(&function),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
