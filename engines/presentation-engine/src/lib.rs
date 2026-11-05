@@ -647,7 +647,12 @@ impl Presentation {
                 )?;
                 self.add_text(
                     slide_id,
-                    Rect::new(margin_x + column_width + gap, body_y, column_width, heading_height)?,
+                    Rect::new(
+                        margin_x + column_width + gap,
+                        body_y,
+                        column_width,
+                        heading_height,
+                    )?,
                     "Option B",
                     body_style.clone(),
                 )?;
@@ -659,7 +664,12 @@ impl Presentation {
                 )?;
                 self.add_text(
                     slide_id,
-                    Rect::new(margin_x + column_width + gap, column_y, column_width, column_height)?,
+                    Rect::new(
+                        margin_x + column_width + gap,
+                        column_y,
+                        column_width,
+                        column_height,
+                    )?,
                     "Second option details",
                     body_style,
                 )?;
@@ -669,7 +679,12 @@ impl Presentation {
                 quote_style.set_alignment(TextAlignment::Center);
                 self.add_text(
                     slide_id,
-                    Rect::new(margin_x, self.height * 0.25, content_width, self.height * 0.35)?,
+                    Rect::new(
+                        margin_x,
+                        self.height * 0.25,
+                        content_width,
+                        self.height * 0.35,
+                    )?,
                     "“Your quote here”",
                     quote_style,
                 )?;
@@ -677,7 +692,12 @@ impl Presentation {
                 author_style.set_alignment(TextAlignment::Right);
                 self.add_text(
                     slide_id,
-                    Rect::new(margin_x, self.height * 0.66, content_width, self.height * 0.10)?,
+                    Rect::new(
+                        margin_x,
+                        self.height * 0.66,
+                        content_width,
+                        self.height * 0.10,
+                    )?,
                     "— Author",
                     author_style,
                 )?;
@@ -695,7 +715,12 @@ impl Presentation {
                 )?;
                 self.add_text(
                     slide_id,
-                    Rect::new(margin_x + main_width + gap, body_y, sidebar_width, body_height)?,
+                    Rect::new(
+                        margin_x + main_width + gap,
+                        body_y,
+                        sidebar_width,
+                        body_height,
+                    )?,
                     "Sidebar",
                     body_style,
                 )?;
@@ -2310,7 +2335,12 @@ mod tests {
             let id = deck.add_slide_with_layout("Preset", layout).unwrap();
             let slide = deck.slide(id).unwrap();
             assert_eq!(slide.elements().len(), expected_count);
-            assert!(slide.elements().iter().all(|element| matches!(element.kind(), ElementKind::Text { .. })));
+            assert!(
+                slide
+                    .elements()
+                    .iter()
+                    .all(|element| matches!(element.kind(), ElementKind::Text { .. }))
+            );
         }
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
