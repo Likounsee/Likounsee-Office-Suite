@@ -1767,10 +1767,10 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                         TextAlignment::Left | TextAlignment::Justify => bounds.x,
                         TextAlignment::Center => {
                             bounds.x + ((bounds.width - estimated_width) / 2.0).max(0.0)
-                        },
+                        }
                         TextAlignment::Right => {
                             bounds.x + (bounds.width - estimated_width).max(0.0)
-                        },
+                        }
                     };
                     let baseline =
                         page_height - bounds.y - style.font_size - line_index as f32 * line_height;
