@@ -2278,6 +2278,44 @@ mod tests {
     }
 
     #[test]
+    fn exponentiation_works_with_references_aggregates_and_dependency_recalculation() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(data, a1, 3.0).unwrap();
+        book.set_number(data, b1, 4.0).unwrap();
+        book.set_formula(report, a1, "=Data!A1^2+Data!B1^2")
+            .unwrap();
+        book.set_formula(report, b1, "=SUM(Data!A1:B1)^2")
+            .unwrap();
+        book.set_formula(report, c1, "=AVERAGE(Data!A1:B1)^2")
+            .unwrap();
+
+        assert_eq!(book.value(report, a1), CellValue::Number(25.0));
+        assert_eq!(book.value(report, b1), CellValue::Number(49.0));
+        assert_eq!(book.value(report, c1), CellValue::Number(12.25));
+
+        let mut index = DependencyIndex::build(&book).unwrap();
+        book.set_number(data, a1, 5.0).unwrap();
+        index.update_cell(&book, data, a1).unwrap();
+        let recalculated = book
+            .recalculate_after_change_with_index(&index, data, a1)
+            .unwrap();
+        assert_eq!(
+            recalculated,
+            vec![
+                ((report, a1), CellValue::Number(41.0)),
+                ((report, b1), CellValue::Number(81.0)),
+                ((report, c1), CellValue::Number(20.25)),
+            ]
+        );
+    }
+
+    #[test]
     fn formula_exponentiation_reports_non_finite_results() {
         let mut book = Workbook::new();
         let address = CellAddress::parse_a1("A1").unwrap();
