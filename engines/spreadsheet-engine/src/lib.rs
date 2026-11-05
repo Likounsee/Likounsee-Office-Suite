@@ -2244,7 +2244,8 @@ mod tests {
         book.set_number(data, a1, 7.0).unwrap();
         book.set_number(data, b1, 5.0).unwrap();
         book.set_number(sales, a1, 3.0).unwrap();
-        book.set_formula(report, a1, "=Data2026!A1+SUM(Data2026!A1:B1)").unwrap();
+        book.set_formula(report, a1, "=Data2026!A1+SUM(Data2026!A1:B1)")
+            .unwrap();
         book.set_formula(report, b1, "='Sales Data'!A1*2").unwrap();
 
         book.rename_sheet(data, "Primary Data").unwrap();
@@ -2264,13 +2265,13 @@ mod tests {
             book.dependencies_of(report, a1).unwrap(),
             vec![(data, a1), (data, b1)]
         );
-        assert_eq!(
-            book.dependencies_of(report, b1).unwrap(),
-            vec![(sales, a1)]
-        );
+        assert_eq!(book.dependencies_of(report, b1).unwrap(), vec![(sales, a1)]);
         let c1_formula = "=Data2026!A1+1";
         book.set_formula(report, c1, c1_formula).unwrap();
-        assert_eq!(book.value(report, c1), CellValue::Error(FormulaError::Reference));
+        assert_eq!(
+            book.value(report, c1),
+            CellValue::Error(FormulaError::Reference)
+        );
     }
 
     #[test]
@@ -2284,7 +2285,8 @@ mod tests {
 
         book.set_number(data, a1, 11.0).unwrap();
         book.set_number(database, a1, 22.0).unwrap();
-        book.set_formula(report, a1, "=Data!A1+Database!A1").unwrap();
+        book.set_formula(report, a1, "=Data!A1+Database!A1")
+            .unwrap();
         book.rename_sheet(data, "Source").unwrap();
 
         assert_eq!(
@@ -2292,7 +2294,10 @@ mod tests {
             Some("='Source'!A1+Database!A1")
         );
         assert_eq!(book.value(report, a1), CellValue::Number(33.0));
-        assert_eq!(book.dependencies_of(report, a1).unwrap(), vec![(data, a1), (database, a1)]);
+        assert_eq!(
+            book.dependencies_of(report, a1).unwrap(),
+            vec![(data, a1), (database, a1)]
+        );
         assert!(book.rename_sheet(data, "Database").is_err());
         assert_eq!(book.sheet(data).unwrap().name(), "Source");
         assert_eq!(book.value(report, a1), CellValue::Number(33.0));
