@@ -1701,6 +1701,7 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
     let mut offset = SIGNATURE.len();
     let mut chunk_index = 0usize;
     let mut has_palette = false;
+    let mut color_type = None;
     let mut has_image_data = false;
     let mut image_data_ended = false;
     let mut has_end = false;
@@ -1718,6 +1719,9 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
             .and_then(|value| value.checked_add(length))
             .filter(|end| *end <= png.len())
             .ok_or_else(|| invalid_input("PNG chunk exceeds file bounds"))?;
+        if length > 0x7fff_ffff {
+            return Err(invalid_input("PNG chunk exceeds the format size limit"));
+        }
         let chunk_type = &png[offset + 4..offset + 8];
         if !chunk_type.iter().all(u8::is_ascii_alphabetic)
             || chunk_type[2].is_ascii_lowercase()
@@ -1751,11 +1755,11 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
                     .expect("four-byte PNG height"),
             );
             let bit_depth = png[data_start + 8];
-            let color_type = png[data_start + 9];
+            let current_color_type = png[data_start + 9];
             let compression = png[data_start + 10];
             let filter = png[data_start + 11];
             let interlace = png[data_start + 12];
-            let valid_bit_depth = match color_type {
+            let valid_bit_depth = match current_color_type {
                 0 => matches!(bit_depth, 1 | 2 | 4 | 8 | 16),
                 2 => matches!(bit_depth, 8 | 16),
                 3 => matches!(bit_depth, 1 | 2 | 4 | 8),
@@ -1773,18 +1777,28 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
             if !valid_bit_depth || compression != 0 || filter != 0 || interlace > 1 {
                 return Err(invalid_input("PNG IHDR contains unsupported or invalid values"));
             }
+            color_type = Some(current_color_type);
         } else if chunk_type == b"IHDR" {
             return Err(invalid_input("PNG contains more than one IHDR chunk"));
         }
 
         match chunk_type {
             b"PLTE" => {
-                if has_palette || has_image_data || length == 0 || length > 768 || length % 3 != 0 {
+                if has_palette
+                    || has_image_data
+                    || !matches!(color_type, Some(2 | 3 | 6))
+                    || length == 0
+                    || length > 768
+                    || length % 3 != 0
+                {
                     return Err(invalid_input("PNG palette chunk is invalid or misplaced"));
                 }
                 has_palette = true;
             }
             b"IDAT" => {
+                if color_type == Some(3) && !has_palette {
+                    return Err(invalid_input("indexed PNG is missing its palette"));
+                }
                 if image_data_ended {
                     return Err(invalid_input("PNG IDAT chunks must be consecutive"));
                 }
