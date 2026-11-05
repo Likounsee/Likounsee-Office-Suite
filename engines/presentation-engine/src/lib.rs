@@ -2783,6 +2783,37 @@ pub fn export_slide_text(presentation: &Presentation) -> io::Result<String> {
     Ok(output)
 }
 
+/// Text statistics for one slide, excluding notes and non-text elements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlideTextStatistics {
+    pub slide_id: u64,
+    pub characters: usize,
+    pub words: usize,
+}
+
+pub fn slide_text_statistics(
+    presentation: &Presentation,
+    slide_id: u64,
+) -> io::Result<SlideTextStatistics> {
+    presentation.validate()?;
+    let slide = presentation
+        .slide(slide_id)
+        .ok_or_else(|| invalid_input("slide ID does not exist"))?;
+    let mut characters = 0usize;
+    let mut words = 0usize;
+    for element in &slide.elements {
+        if let ElementKind::Text { text, .. } = &element.kind {
+            characters = characters
+                .checked_add(text.chars().count())
+                .ok_or_else(|| invalid_data("slide character count overflow"))?;
+            words = words
+                .checked_add(text.split_whitespace().count())
+                .ok_or_else(|| invalid_data("slide word count overflow"))?;
+        }
+    }
+    Ok(SlideTextStatistics { slide_id, characters, words })
+}
+
 /// Export the editable text of one slide in element order.
 pub fn export_single_slide_text(presentation: &Presentation, slide_id: u64) -> io::Result<String> {
     presentation.validate()?;
@@ -4781,6 +4812,20 @@ mod tests {
             "Second slide\n"
         );
         assert!(export_single_slide_text(&deck, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn slide_text_statistics_count_only_text_elements_on_requested_slide() {
+        let mut deck = Presentation::new("Statistics", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.add_text(first, rect(0.0, 0.0, 100.0, 30.0), "Hello world", TextStyle::default()).unwrap();
+        deck.add_text(first, rect(0.0, 40.0, 100.0, 30.0), "café", TextStyle::default()).unwrap();
+        deck.add_shape(first, rect(0.0, 80.0, 20.0, 20.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        let stats = slide_text_statistics(&deck, first).unwrap();
+        assert_eq!(stats.slide_id, first);
+        assert_eq!(stats.characters, 15);
+        assert_eq!(stats.words, 3);
+        assert!(slide_text_statistics(&deck, u64::MAX).is_err());
     }
 
     #[test]

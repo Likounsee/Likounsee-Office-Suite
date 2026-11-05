@@ -537,6 +537,40 @@ pub fn find_text(document: &Document, query: &str) -> io::Result<Vec<DocumentSea
     Ok(matches)
 }
 
+/// Find literal text while ignoring ASCII letter case. Returned offsets remain UTF-8 byte ranges.
+pub fn find_text_ascii_case_insensitive(
+    document: &Document,
+    query: &str,
+) -> io::Result<Vec<DocumentSearchMatch>> {
+    validate_document_size(document)?;
+    if query.is_empty() {
+        return Err(invalid_input("text search query cannot be empty"));
+    }
+    let mut matches = Vec::new();
+    let mut search_text = |block_id: u64, cell_id: Option<u64>, text: &str| {
+        for (start, _) in text.char_indices() {
+            if let Some(end) = start.checked_add(query.len()) {
+                if let Some(candidate) = text.get(start..end) {
+                    if candidate.eq_ignore_ascii_case(query) {
+                        matches.push(DocumentSearchMatch { block_id, cell_id, start, end });
+                    }
+                }
+            }
+        }
+    };
+    for paragraph in &document.paragraphs {
+        search_text(paragraph.id, None, &paragraph.text);
+    }
+    for table in &document.tables {
+        for row in &table.rows {
+            for cell in &row.cells {
+                search_text(table.id, Some(cell.id), &cell.text);
+            }
+        }
+    }
+    Ok(matches)
+}
+
 /// Export readable plain text while preserving paragraph order and table rows.
 /// Table cells are separated by tabs; rows are separated by newlines.
 pub fn export_text(document: &Document) -> io::Result<String> {
@@ -3209,8 +3243,18 @@ mod tests {
         let matches = find_text(&document, "needle").unwrap();
         assert_eq!(matches.len(), 3);
         assert_eq!(matches[0].cell_id, None);
-        assert_eq!(matches[2].cell_id.is_some(), true);
+        assert!(matches[2].cell_id.is_some());
         assert!(find_text(&document, "").is_err());
+    }
+
+    #[test]
+    fn case_insensitive_search_preserves_utf8_byte_ranges() {
+        let document = Document::from_plain_text("Search", "Needle café needle").unwrap();
+        let matches = find_text_ascii_case_insensitive(&document, "NEEDLE").unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!((matches[0].start, matches[0].end), (0, 6));
+        assert_eq!((matches[1].start, matches[1].end), (13, 19));
+        assert!(find_text_ascii_case_insensitive(&document, "").is_err());
     }
 
     #[test]
