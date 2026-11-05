@@ -2893,7 +2893,8 @@ pub fn overlapping_slide_elements(
     slide_id: u64,
 ) -> io::Result<Vec<(u64, u64)>> {
     presentation.validate()?;
-    let slide = presentation.slide(slide_id)
+    let slide = presentation
+        .slide(slide_id)
         .ok_or_else(|| invalid_input("slide does not exist"))?;
     let mut overlaps = Vec::new();
     for (index, first) in slide.elements.iter().enumerate() {
@@ -5217,9 +5218,21 @@ mod tests {
         let mut presentation = Presentation::new("Canvas", 100.0, 80.0).unwrap();
         let slide_id = presentation.slides()[0].id();
         let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
-        presentation.add_text(slide_id, rect(10.0, 10.0, 20.0, 10.0), "Inside", style.clone()).unwrap();
-        let outside_id = presentation.add_text(slide_id, rect(95.0, 10.0, 20.0, 10.0), "Outside", style).unwrap();
-        assert_eq!(slide_elements_outside_canvas(&presentation, slide_id).unwrap(), vec![outside_id]);
+        presentation
+            .add_text(
+                slide_id,
+                rect(10.0, 10.0, 20.0, 10.0),
+                "Inside",
+                style.clone(),
+            )
+            .unwrap();
+        let outside_id = presentation
+            .add_text(slide_id, rect(95.0, 10.0, 20.0, 10.0), "Outside", style)
+            .unwrap();
+        assert_eq!(
+            slide_elements_outside_canvas(&presentation, slide_id).unwrap(),
+            vec![outside_id]
+        );
         assert!(slide_elements_outside_canvas(&presentation, u64::MAX).is_err());
     }
 
@@ -5228,10 +5241,18 @@ mod tests {
         let mut presentation = Presentation::new("Overlap", 100.0, 80.0).unwrap();
         let slide_id = presentation.slides()[0].id();
         let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
-        let first = presentation.add_text(slide_id, rect(0.0, 0.0, 20.0, 20.0), "A", style.clone()).unwrap();
-        let second = presentation.add_text(slide_id, rect(10.0, 10.0, 20.0, 20.0), "B", style.clone()).unwrap();
-        presentation.add_text(slide_id, rect(20.0, 0.0, 10.0, 10.0), "Touch", style).unwrap();
-        assert_eq!(overlapping_slide_elements(&presentation, slide_id).unwrap(), vec![(first, second)]);
+        let first = presentation
+            .add_text(slide_id, rect(0.0, 0.0, 20.0, 20.0), "A", style.clone())
+            .unwrap();
+        let second = presentation
+            .add_text(slide_id, rect(10.0, 10.0, 20.0, 20.0), "B", style.clone())
+            .unwrap();
+        presentation
+            .add_text(slide_id, rect(20.0, 0.0, 10.0, 10.0), "Touch", style)
+            .unwrap();
+        assert_eq!(
+            overlapping_slide_elements(&presentation, slide_id).unwrap(),
+            vec![(first, second)]
+        );
     }
-
 }

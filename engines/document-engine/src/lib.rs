@@ -2144,18 +2144,16 @@ impl DocumentSession {
 
     /// Replace every literal occurrence in paragraphs and table cells in one journaled edit.
     /// Returns the number of replacements; an empty search term is rejected.
-    pub fn replace_all_text(
-        &mut self,
-        search: &str,
-        replacement: &str,
-    ) -> io::Result<usize> {
+    pub fn replace_all_text(&mut self, search: &str, replacement: &str) -> io::Result<usize> {
         if search.is_empty() {
             return Err(invalid_input("search text cannot be empty"));
         }
         validate_string(search, "search text")?;
         validate_string(replacement, "replacement text")?;
         if replacement.contains('\n') {
-            return Err(invalid_input("paragraph replacement cannot contain line-feed characters"));
+            return Err(invalid_input(
+                "paragraph replacement cannot contain line-feed characters",
+            ));
         }
         let mut next = self.document.clone();
         let mut replacements = 0usize;
@@ -2163,7 +2161,8 @@ impl DocumentSession {
             let count = paragraph.text.matches(search).count();
             if count > 0 {
                 paragraph.text = paragraph.text.replace(search, replacement);
-                replacements = replacements.checked_add(count)
+                replacements = replacements
+                    .checked_add(count)
                     .ok_or_else(|| invalid_input("replacement count overflow"))?;
             }
         }
@@ -2173,7 +2172,8 @@ impl DocumentSession {
                     let count = cell.text.matches(search).count();
                     if count > 0 {
                         cell.text = cell.text.replace(search, replacement);
-                        replacements = replacements.checked_add(count)
+                        replacements = replacements
+                            .checked_add(count)
                             .ok_or_else(|| invalid_input("replacement count overflow"))?;
                     }
                 }
@@ -2198,10 +2198,14 @@ impl DocumentSession {
         let text = text.into();
         validate_string(&text, "table cell text")?;
         let mut next = self.document.clone();
-        let table = next.tables.iter_mut()
+        let table = next
+            .tables
+            .iter_mut()
             .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let cell = table.rows.get_mut(row_index)
+        let cell = table
+            .rows
+            .get_mut(row_index)
             .and_then(|row| row.cells.get_mut(column_index))
             .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
         cell.text = text;
@@ -3566,13 +3570,18 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         let table_id = session.insert_table(1, 1).unwrap();
         let cell_id = session.document().tables()[0].rows()[0].cells()[0].id();
-        session.set_table_cell_text(table_id, 0, 0, "Quarterly result").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "Quarterly result")
+            .unwrap();
         let cell = &session.document().tables()[0].rows()[0].cells()[0];
         assert_eq!(cell.id(), cell_id);
         assert_eq!(cell.text(), "Quarterly result");
         session.save_now().unwrap();
         let reopened = DocumentSession::open(&directory.0).unwrap();
-        assert_eq!(reopened.document().tables()[0].rows()[0].cells()[0].text(), "Quarterly result");
+        assert_eq!(
+            reopened.document().tables()[0].rows()[0].cells()[0].text(),
+            "Quarterly result"
+        );
     }
 
     #[test]
@@ -3581,13 +3590,21 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_body("alpha beta alpha").unwrap();
         let table_id = session.insert_table(1, 1).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "alpha cell").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "alpha cell")
+            .unwrap();
         let before = session.document().revision();
         assert_eq!(session.replace_all_text("alpha", "omega").unwrap(), 3);
         assert_eq!(session.document().revision(), before + 1);
-        assert!(export_text(session.document()).unwrap().contains("omega beta omega"));
+        assert!(
+            export_text(session.document())
+                .unwrap()
+                .contains("omega beta omega")
+        );
         assert!(export_text(session.document()).unwrap().contains("omega cell"));
-        assert_eq!(session.replace_all_text("", "x").unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            session.replace_all_text("", "x").unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
     }
-
 }

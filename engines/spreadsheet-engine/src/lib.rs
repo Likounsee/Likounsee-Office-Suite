@@ -608,7 +608,8 @@ impl Workbook {
         let max_column = start.column().max(end.column());
         let rows = (max_row - min_row + 1) as usize;
         let columns = (max_column - min_column + 1) as usize;
-        let count = rows.checked_mul(columns)
+        let count = rows
+            .checked_mul(columns)
             .filter(|count| *count <= MAX_CELLS)
             .ok_or_else(|| invalid_input("fill range exceeds the cell limit"))?;
         for row in min_row..=max_row {
@@ -625,7 +626,9 @@ impl Workbook {
         start: CellAddress,
         end: CellAddress,
     ) -> io::Result<usize> {
-        let sheet = self.sheets.iter_mut()
+        let sheet = self
+            .sheets
+            .iter_mut()
             .find(|sheet| sheet.id == sheet_id)
             .ok_or_else(|| invalid_input("unknown worksheet"))?;
         let min_row = start.row().min(end.row());
@@ -5090,21 +5093,36 @@ mod session_tests {
         let mut workbook = Workbook::new();
         let sheet = workbook.sheets()[0].id();
         assert_eq!(
-            workbook.fill_number_range(
-                sheet,
-                CellAddress::parse_a1("B2").unwrap(),
-                CellAddress::parse_a1("C3").unwrap(),
-                7.5,
-            ).unwrap(),
+            workbook
+                .fill_number_range(
+                    sheet,
+                    CellAddress::parse_a1("B2").unwrap(),
+                    CellAddress::parse_a1("C3").unwrap(),
+                    7.5,
+                )
+                .unwrap(),
             4
         );
-        assert_eq!(workbook.range_statistics(sheet, CellAddress::parse_a1("B2").unwrap(), CellAddress::parse_a1("C3").unwrap()).unwrap().sum, 30.0);
-        assert!(workbook.fill_number_range(
-            sheet,
-            CellAddress::new(0, 0).unwrap(),
-            CellAddress::new(1000, 1000).unwrap(),
-            1.0,
-        ).is_err());
+        assert_eq!(
+            workbook
+                .range_statistics(
+                    sheet,
+                    CellAddress::parse_a1("B2").unwrap(),
+                    CellAddress::parse_a1("C3").unwrap()
+                )
+                .unwrap()
+                .sum,
+            30.0
+        );
+        assert!(
+            workbook
+                .fill_number_range(
+                    sheet,
+                    CellAddress::new(0, 0).unwrap(),
+                    CellAddress::new(1000, 1000).unwrap(),
+                    1.0,
+                )
+                .is_err()
+        );
     }
-
 }
