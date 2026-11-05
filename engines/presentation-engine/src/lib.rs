@@ -3856,13 +3856,8 @@ mod tests {
         )
         .unwrap();
         let second = deck.add_slide("Second").unwrap();
-        deck.add_image(
-            second,
-            rect(10.0, 10.0, 50.0, 50.0),
-            "missing.jpg",
-            "",
-        )
-        .unwrap();
+        deck.add_image(second, rect(10.0, 10.0, 50.0, 50.0), "missing.jpg", "")
+            .unwrap();
 
         let pdf = render_presentation_pdf_with_images(&deck, &TestJpegProvider).unwrap();
         let content = String::from_utf8_lossy(&pdf);
