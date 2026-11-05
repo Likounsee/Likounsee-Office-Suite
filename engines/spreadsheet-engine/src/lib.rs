@@ -2689,29 +2689,37 @@ mod session_tests {
             &[(report, b1)]
         );
         recovered.rename_sheet(data, "Source").unwrap();
-        assert!(
-            recovered
-                .dependency_index()
-                .dependencies_of(report, b1)
-                .is_empty()
+        assert_eq!(
+            recovered.dependency_index().dependencies_of(report, b1),
+            &[(data, a1)]
+        );
+        assert_eq!(
+            recovered.workbook().sheet(report).unwrap().cell(b1).unwrap().formula(),
+            Some("='Source'!A1*2")
         );
         let replacement_data = recovered.add_sheet("Data").unwrap();
         assert_eq!(
             recovered.dependency_index().dependencies_of(report, b1),
-            &[(replacement_data, a1)]
+            &[(data, a1)]
         );
         recovered.remove_sheet(replacement_data).unwrap();
-        assert!(
-            recovered
-                .dependency_index()
-                .dependencies_of(report, b1)
-                .is_empty()
+        assert_eq!(
+            recovered.dependency_index().dependencies_of(report, b1),
+            &[(data, a1)]
         );
-        assert!(
-            recovered
-                .dependency_index()
-                .dependents_of(replacement_data, a1)
-                .is_empty()
+        assert_eq!(
+            recovered.dependency_index().dependents_of(data, a1),
+            &[(report, b1)]
+        );
+        recovered.save_now().unwrap();
+        let reopened = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(
+            reopened.dependency_index().dependencies_of(report, b1),
+            &[(data, a1)]
+        );
+        assert_eq!(
+            reopened.workbook().value(report, b1),
+            CellValue::Number(16.0)
         );
     }
 
@@ -2729,7 +2737,7 @@ mod session_tests {
         assert!(session.set_formula(1, b1, "=''!A1").is_err());
         assert_eq!(session.dependency_index(), &before);
         assert_eq!(session.workbook().value(1, b1), previous_value);
-        assert_eq!(session.workbook().value(1, a1), CellValue::Empty);
+        assert_eq!(session.workbook().value(1, a1), CellValue::Blank);
         assert_eq!(session.is_dirty(), previous_dirty);
     }
 
