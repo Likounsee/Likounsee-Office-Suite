@@ -3623,7 +3623,12 @@ mod tests {
             book.set_number(data, CellAddress::parse_a1(address).unwrap(), value)
                 .unwrap();
         }
-        for (address, value) in [("B1", "East"), ("B2", "West"), ("B3", "East"), ("B4", "East")] {
+        for (address, value) in [
+            ("B1", "East"),
+            ("B2", "West"),
+            ("B3", "East"),
+            ("B4", "East"),
+        ] {
             book.set_text(data, CellAddress::parse_a1(address).unwrap(), value)
                 .unwrap();
         }
