@@ -3028,7 +3028,6 @@ mod tests {
     #[test]
     fn cell_type_predicates_classify_blank_number_text_boolean_and_formula_cells() {
         let mut book = Workbook::new();
-        let a1 = CellAddress::parse_a1("A1").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let c1 = CellAddress::parse_a1("C1").unwrap();
         let d1 = CellAddress::parse_a1("D1").unwrap();
