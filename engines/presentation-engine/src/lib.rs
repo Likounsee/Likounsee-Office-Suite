@@ -734,6 +734,30 @@ impl Presentation {
         elements.insert(new_index, element);
         Ok(())
     }
+    /// Duplicate an element directly after its source, assigning a fresh stable ID.
+    pub fn duplicate_element(&mut self, slide_id: u64, element_id: u64) -> io::Result<u64> {
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if slide.elements.len() >= MAX_ELEMENTS_PER_SLIDE {
+            return Err(invalid_input("slide element limit reached"));
+        }
+        let mut duplicate = slide
+            .element(element_id)
+            .cloned()
+            .ok_or_else(|| invalid_input("element does not exist"))?;
+        self.bump_revision()?;
+        duplicate.id = self.take_id()?;
+        let id = duplicate.id;
+        let elements = &mut self.slide_mut(slide_id)?.elements;
+        let index = elements
+            .iter()
+            .position(|element| element.id == element_id)
+            .ok_or_else(|| invalid_input("element does not exist"))?;
+        elements.insert(index + 1, duplicate);
+        Ok(id)
+    }
+
     pub fn remove_element(&mut self, slide_id: u64, element_id: u64) -> io::Result<()> {
         let slide = self
             .slide(slide_id)
@@ -1534,6 +1558,51 @@ mod tests {
         assert!(
             matches!(deck.slide(slide).unwrap().element(image).unwrap().kind(), ElementKind::Image { source, alt_text } if source == "new.png" && alt_text == "Updated image")
         );
+
+        let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
+        assert_eq!(restored, deck);
+    }
+
+    #[test]
+    fn creates_and_duplicates_all_element_types_with_independent_ids() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let text = deck
+            .add_text(
+                slide,
+                rect(10.0, 10.0, 200.0, 50.0),
+                "Title",
+                TextStyle::default(),
+            )
+            .unwrap();
+        let shape = deck
+            .add_shape(
+                slide,
+                rect(10.0, 70.0, 100.0, 100.0),
+                ShapeKind::Ellipse,
+                Some(0x123456),
+                None,
+                0.0,
+            )
+            .unwrap();
+        let image = deck
+            .add_image(
+                slide,
+                rect(120.0, 70.0, 100.0, 100.0),
+                "assets/photo.png",
+                "Photo",
+            )
+            .unwrap();
+
+        let duplicate = deck.duplicate_element(slide, text).unwrap();
+        let elements = deck.slide(slide).unwrap().elements();
+        assert_eq!(elements.len(), 4);
+        assert_eq!(elements[0].id(), text);
+        assert_eq!(elements[1].id(), duplicate);
+        assert_ne!(elements[1].id(), elements[0].id());
+        assert_eq!(elements[1].kind(), elements[0].kind());
+        assert!(deck.slide(slide).unwrap().element(shape).is_some());
+        assert!(deck.slide(slide).unwrap().element(image).is_some());
 
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
