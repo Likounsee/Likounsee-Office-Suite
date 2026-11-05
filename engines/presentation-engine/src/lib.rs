@@ -235,27 +235,48 @@ impl PresentationTheme {
         if theme.name.is_empty()
             || theme.title_font.is_empty()
             || theme.body_font.is_empty()
-            || [theme.background, theme.title_color, theme.body_color, theme.accent_color]
-                .iter()
-                .any(|color| *color > 0x00ff_ffff)
+            || [
+                theme.background,
+                theme.title_color,
+                theme.body_color,
+                theme.accent_color,
+            ]
+            .iter()
+            .any(|color| *color > 0x00ff_ffff)
         {
             return Err(invalid_input("presentation theme is invalid"));
         }
         Ok(theme)
     }
-    pub fn name(&self) -> &str { &self.name }
-    pub fn background(&self) -> u32 { self.background }
-    pub fn title_font(&self) -> &str { &self.title_font }
-    pub fn body_font(&self) -> &str { &self.body_font }
-    pub fn title_color(&self) -> u32 { self.title_color }
-    pub fn body_color(&self) -> u32 { self.body_color }
-    pub fn accent_color(&self) -> u32 { self.accent_color }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn background(&self) -> u32 {
+        self.background
+    }
+    pub fn title_font(&self) -> &str {
+        &self.title_font
+    }
+    pub fn body_font(&self) -> &str {
+        &self.body_font
+    }
+    pub fn title_color(&self) -> u32 {
+        self.title_color
+    }
+    pub fn body_color(&self) -> u32 {
+        self.body_color
+    }
+    pub fn accent_color(&self) -> u32 {
+        self.accent_color
+    }
 }
 
 impl Default for PresentationTheme {
     fn default() -> Self {
-        Self::new("Modern", 0xffffff, "Arial", "Arial", 0x202020, 0x404040, 0x356ae6)
-            .expect("built-in theme is valid")
+        Self::new(
+            "Modern", 0xffffff, "Arial", "Arial", 0x202020, 0x404040, 0x356ae6,
+        )
+        .expect("built-in theme is valid")
     }
 }
 
@@ -629,15 +650,25 @@ impl Presentation {
         validate_string(&theme.name, "theme name")?;
         validate_string(&theme.title_font, "theme title font")?;
         validate_string(&theme.body_font, "theme body font")?;
-        if theme.name.is_empty() || theme.title_font.is_empty() || theme.body_font.is_empty()
-            || [theme.background, theme.title_color, theme.body_color, theme.accent_color]
-                .iter().any(|color| *color > 0x00ff_ffff)
+        if theme.name.is_empty()
+            || theme.title_font.is_empty()
+            || theme.body_font.is_empty()
+            || [
+                theme.background,
+                theme.title_color,
+                theme.body_color,
+                theme.accent_color,
+            ]
+            .iter()
+            .any(|color| *color > 0x00ff_ffff)
         {
             return Err(invalid_input("presentation theme is invalid"));
         }
         let mut changed = false;
         for slide in &self.slides {
-            if slide.background != theme.background { changed = true; }
+            if slide.background != theme.background {
+                changed = true;
+            }
             for element in &slide.elements {
                 match &element.kind {
                     ElementKind::Text { style, .. } => {
@@ -646,14 +677,20 @@ impl Presentation {
                         } else {
                             (&theme.body_font, theme.body_color)
                         };
-                        if style.font_family != *font || style.color != color { changed = true; }
+                        if style.font_family != *font || style.color != color {
+                            changed = true;
+                        }
                     }
-                    ElementKind::Shape { fill: Some(fill), .. } if *fill != theme.accent_color => changed = true,
+                    ElementKind::Shape {
+                        fill: Some(fill), ..
+                    } if *fill != theme.accent_color => changed = true,
                     _ => {}
                 }
             }
         }
-        if !changed { return Ok(()); }
+        if !changed {
+            return Ok(());
+        }
         self.bump_revision()?;
         for slide in &mut self.slides {
             slide.background = theme.background;
@@ -668,7 +705,9 @@ impl Presentation {
                             style.color = theme.body_color;
                         }
                     }
-                    ElementKind::Shape { fill: Some(fill), .. } => *fill = theme.accent_color,
+                    ElementKind::Shape {
+                        fill: Some(fill), ..
+                    } => *fill = theme.accent_color,
                     _ => {}
                 }
             }
@@ -2145,9 +2184,27 @@ mod tests {
         let mut body_style = TextStyle::new("Old", 18.0, 0x222222).unwrap();
         body_style.set_emphasis(true, true, false);
         body_style.set_alignment(TextAlignment::Center);
-        let title = deck.add_text(first, rect(10.0, 10.0, 300.0, 60.0), "Title", title_style).unwrap();
-        let body = deck.add_text(first, rect(10.0, 90.0, 300.0, 100.0), "Body", body_style.clone()).unwrap();
-        let shape = deck.add_shape(first, rect(400.0, 90.0, 100.0, 100.0), ShapeKind::Rectangle, Some(0xabcdef), Some(0x010203), 2.0).unwrap();
+        let title = deck
+            .add_text(first, rect(10.0, 10.0, 300.0, 60.0), "Title", title_style)
+            .unwrap();
+        let body = deck
+            .add_text(
+                first,
+                rect(10.0, 90.0, 300.0, 100.0),
+                "Body",
+                body_style.clone(),
+            )
+            .unwrap();
+        let shape = deck
+            .add_shape(
+                first,
+                rect(400.0, 90.0, 100.0, 100.0),
+                ShapeKind::Rectangle,
+                Some(0xabcdef),
+                Some(0x010203),
+                2.0,
+            )
+            .unwrap();
         let second = deck.add_slide("Second").unwrap();
         let theme = PresentationTheme::new("Night", 0x101820, "Inter Display", "Inter", 0xf0f0f0, 0xd0d0d0, 0x00aacc).unwrap();
         let revision = deck.revision();
@@ -2155,9 +2212,15 @@ mod tests {
         assert_eq!(deck.revision(), revision + 1);
         assert_eq!(deck.slide(first).unwrap().background(), 0x101820);
         assert_eq!(deck.slide(second).unwrap().background(), 0x101820);
-        assert!(matches!(deck.slide(first).unwrap().element(title).unwrap().kind(), ElementKind::Text { style, .. } if style.font_family() == "Inter Display" && style.color() == 0xf0f0f0));
-        assert!(matches!(deck.slide(first).unwrap().element(body).unwrap().kind(), ElementKind::Text { style, .. } if style.font_family() == "Inter" && style.color() == 0xd0d0d0 && style.bold() && style.italic() && style.alignment() == TextAlignment::Center));
-        assert!(matches!(deck.slide(first).unwrap().element(shape).unwrap().kind(), ElementKind::Shape { fill: Some(0x00aacc), stroke: Some(0x010203), stroke_width, .. } if *stroke_width == 2.0));
+        assert!(
+            matches!(deck.slide(first).unwrap().element(title).unwrap().kind(), ElementKind::Text { style, .. } if style.font_family() == "Inter Display" && style.color() == 0xf0f0f0)
+        );
+        assert!(
+            matches!(deck.slide(first).unwrap().element(body).unwrap().kind(), ElementKind::Text { style, .. } if style.font_family() == "Inter" && style.color() == 0xd0d0d0 && style.bold() && style.italic() && style.alignment() == TextAlignment::Center)
+        );
+        assert!(
+            matches!(deck.slide(first).unwrap().element(shape).unwrap().kind(), ElementKind::Shape { fill: Some(0x00aacc), stroke: Some(0x010203), stroke_width, .. } if *stroke_width == 2.0)
+        );
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
         let unchanged_revision = deck.revision();
@@ -2172,9 +2235,13 @@ mod tests {
         assert!(PresentationTheme::new("", 0, "Arial", "Arial", 0, 0, 0).is_err());
         assert!(PresentationTheme::new("Bad color", 0x1000000, "Arial", "Arial", 0, 0, 0).is_err());
         let invalid = PresentationTheme {
-            name: "Bad".to_owned(), background: 0x1000000,
-            title_font: "Arial".to_owned(), body_font: "Arial".to_owned(),
-            title_color: 0, body_color: 0, accent_color: 0,
+            name: "Bad".to_owned(),
+            background: 0x1000000,
+            title_font: "Arial".to_owned(),
+            body_font: "Arial".to_owned(),
+            title_color: 0,
+            body_color: 0,
+            accent_color: 0,
         };
         assert!(deck.apply_theme(&invalid).is_err());
         assert_eq!(deck, before);
