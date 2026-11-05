@@ -3122,17 +3122,22 @@ mod tests {
         assert!(validate_png(b"not png", 320, 180).is_err());
 
         let mut invalid_ihdr = test_png(320, 180);
-        let bit_depth = invalid_ihdr.windows(4).position(|window| window == b"IHDR").unwrap() + 12;
+        let ihdr_type = invalid_ihdr.windows(4).position(|window| window == b"IHDR").unwrap();
+        let bit_depth = ihdr_type + 4 + 8;
         invalid_ihdr[bit_depth] = 3;
-        let ihdr_crc = bit_depth + 1 + 4;
-        let ihdr_start = bit_depth - 8;
-        let crc = crc32fast::hash(&invalid_ihdr[ihdr_start..ihdr_crc - 4]);
-        invalid_ihdr[ihdr_crc - 4..ihdr_crc].copy_from_slice(&crc.to_be_bytes());
+        let ihdr_crc = ihdr_type + 4 + 13;
+        let crc = crc32fast::hash(&invalid_ihdr[ihdr_type..ihdr_crc]);
+        invalid_ihdr[ihdr_crc..ihdr_crc + 4].copy_from_slice(&crc.to_be_bytes());
         assert!(validate_png(&invalid_ihdr, 320, 180).is_err());
 
         let mut non_consecutive_idat = test_png(320, 180);
-        let idat = non_consecutive_idat.windows(4).position(|window| window == b"IDAT").unwrap();
-        let iend = non_consecutive_idat.windows(4).position(|window| window == b"IEND").unwrap();
+        let idat_type = non_consecutive_idat.windows(4).position(|window| window == b"IDAT").unwrap();
+        let idat_length = u32::from_be_bytes(
+            non_consecutive_idat[idat_type - 4..idat_type].try_into().unwrap(),
+        ) as usize;
+        let idat_end = idat_type + 4 + idat_length + 4;
+        let duplicate_idat = non_consecutive_idat[idat_type - 4..idat_end].to_vec();
+        let iend_type = non_consecutive_idat.windows(4).position(|window| window == b"IEND").unwrap();
         let ancillary = {
             let mut chunk = Vec::new();
             chunk.extend_from_slice(&0u32.to_be_bytes());
@@ -3140,8 +3145,9 @@ mod tests {
             chunk.extend_from_slice(&crc32fast::hash(b"tEXt").to_be_bytes());
             chunk
         };
-        non_consecutive_idat.splice(iend - 4..iend - 4, ancillary);
-        let _ = idat;
+        non_consecutive_idat.splice(iend_type - 4..iend_type - 4, ancillary);
+        let iend_type = non_consecutive_idat.windows(4).position(|window| window == b"IEND").unwrap();
+        non_consecutive_idat.splice(iend_type - 4..iend_type - 4, duplicate_idat);
         assert!(validate_png(&non_consecutive_idat, 320, 180).is_err());
     }
 
