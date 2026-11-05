@@ -83,7 +83,10 @@ impl CellAddress {
         self.column
     }
     pub fn parse_a1(value: &str) -> io::Result<Self> {
-        let normalized: String = value.chars().filter(|character| *character != char::from(36)).collect();
+        let normalized: String = value
+            .chars()
+            .filter(|character| *character != char::from(36))
+            .collect();
         let value = normalized.as_str();
         let split = value
             .bytes()
@@ -899,22 +902,22 @@ fn formula_dependencies(
                 let token = std::str::from_utf8(&bytes[start..cursor])
                     .map_err(|_| invalid_input("formula contains invalid reference"))?;
                 if bytes.get(cursor) == Some(&b'!') {
-                cursor += 1;
-                address = scan_cell_address(bytes, &mut cursor)?;
-                let Some(id) = workbook
-                    .sheets
-                    .iter()
-                    .find(|sheet| sheet.name.eq_ignore_ascii_case(token))
-                    .map(|sheet| sheet.id)
-                else {
-                    continue;
-                };
-                sheet_id = id;
-            } else {
-                cursor = start;
-                address = scan_cell_address(bytes, &mut cursor)?;
-                sheet_id = current_sheet;
-            }
+                    cursor += 1;
+                    address = scan_cell_address(bytes, &mut cursor)?;
+                    let Some(id) = workbook
+                        .sheets
+                        .iter()
+                        .find(|sheet| sheet.name.eq_ignore_ascii_case(token))
+                        .map(|sheet| sheet.id)
+                    else {
+                        continue;
+                    };
+                    sheet_id = id;
+                } else {
+                    cursor = start;
+                    address = scan_cell_address(bytes, &mut cursor)?;
+                    sheet_id = current_sheet;
+                }
             }
         } else {
             cursor += 1;
@@ -934,7 +937,9 @@ fn formula_dependencies(
 
 fn scan_cell_address(bytes: &[u8], cursor: &mut usize) -> io::Result<CellAddress> {
     let start = *cursor;
-    if bytes.get(*cursor) == Some(&36) { *cursor += 1; }
+    if bytes.get(*cursor) == Some(&36) {
+        *cursor += 1;
+    }
     while *cursor < bytes.len() && bytes[*cursor].is_ascii_alphabetic() {
         *cursor += 1;
     }
@@ -1349,7 +1354,11 @@ impl<'a> Parser<'a> {
         } else {
             (None, source)
         };
-        if address_text.is_empty() || !address_text.bytes().all(|b| b.is_ascii_alphanumeric() || b == 36) {
+        if address_text.is_empty()
+            || !address_text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == 36)
+        {
             return Ok(None);
         }
         let address = match CellAddress::parse_a1(address_text) {
@@ -1421,21 +1430,45 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn range_bounds(&self, start: usize, end: usize) -> Result<(u64, CellAddress, CellAddress), FormulaError> {
-        let source = std::str::from_utf8(&self.input[start..end]).map_err(|_| FormulaError::Parse)?.trim();
+    fn range_bounds(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<(u64, CellAddress, CellAddress), FormulaError> {
+        let source = std::str::from_utf8(&self.input[start..end])
+            .map_err(|_| FormulaError::Parse)?
+            .trim();
         let (left, right) = source.split_once(':').ok_or(FormulaError::Parse)?;
-        let first = self.direct_cell_reference(left.trim())?.ok_or(FormulaError::Parse)?;
-        let last = self.direct_cell_reference(right.trim())?.ok_or(FormulaError::Parse)?;
-        if first.0 != last.0 { return Err(FormulaError::Reference); }
+        let first = self
+            .direct_cell_reference(left.trim())?
+            .ok_or(FormulaError::Parse)?;
+        let last = self
+            .direct_cell_reference(right.trim())?
+            .ok_or(FormulaError::Parse)?;
+        if first.0 != last.0 {
+            return Err(FormulaError::Reference);
+        }
         let rows = first.1.row().abs_diff(last.1.row()) as u64 + 1;
         let columns = first.1.column().abs_diff(last.1.column()) as u64 + 1;
-        if rows.saturating_mul(columns) > MAX_CELLS as u64 { return Err(FormulaError::Number); }
+        if rows.saturating_mul(columns) > MAX_CELLS as u64 {
+            return Err(FormulaError::Number);
+        }
         Ok((first.0, first.1, last.1))
     }
 
-    fn range_cell(&mut self, sheet_id: u64, first: CellAddress, row: u32, column: u32) -> Result<f64, FormulaError> {
-        let address = CellAddress::new(first.row() + row, first.column() + column).map_err(|_| FormulaError::Reference)?;
-        match self.workbook.evaluate(sheet_id, address, self.visiting, self.cache) {
+    fn range_cell(
+        &mut self,
+        sheet_id: u64,
+        first: CellAddress,
+        row: u32,
+        column: u32,
+    ) -> Result<f64, FormulaError> {
+        let address = CellAddress::new(first.row() + row, first.column() + column)
+            .map_err(|_| FormulaError::Reference)?;
+        match self
+            .workbook
+            .evaluate(sheet_id, address, self.visiting, self.cache)
+        {
             CellValue::Number(value) => Ok(value),
             CellValue::Blank => Ok(0.0),
             CellValue::Error(error) => Err(error),
@@ -1445,20 +1478,32 @@ impl<'a> Parser<'a> {
 
     fn lookup_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let args = self.function_argument_ranges()?;
-        if args.len() < 3 || args.len() > 4 { return Err(FormulaError::Parse); }
+        if args.len() < 3 || args.len() > 4 {
+            return Err(FormulaError::Parse);
+        }
         let lookup = self.evaluate_argument(args[0].0, args[0].1)?;
         let (sheet, first, last) = self.range_bounds(args[1].0, args[1].1)?;
         let row_count = first.row().abs_diff(last.row()) + 1;
         let col_count = first.column().abs_diff(last.column()) + 1;
         let index = self.evaluate_argument(args[2].0, args[2].1)?;
-        if index.fract() != 0.0 || index < 1.0 { return Err(FormulaError::Reference); }
-        let match_mode = if args.len() == 4 { self.evaluate_argument(args[3].0, args[3].1)? } else { 0.0 };
-        if match_mode != 0.0 && match_mode != 1.0 { return Err(FormulaError::Number); }
+        if index.fract() != 0.0 || index < 1.0 {
+            return Err(FormulaError::Reference);
+        }
+        let match_mode = if args.len() == 4 {
+            self.evaluate_argument(args[3].0, args[3].1)?
+        } else {
+            0.0
+        };
+        if match_mode != 0.0 && match_mode != 1.0 {
+            return Err(FormulaError::Number);
+        }
         let exact = match_mode == 0.0;
         let vertical = function == "VLOOKUP";
         let lookup_len = if vertical { row_count } else { col_count };
         let return_len = if vertical { col_count } else { row_count };
-        if index as u32 > return_len { return Err(FormulaError::Reference); }
+        if index as u32 > return_len {
+            return Err(FormulaError::Reference);
+        }
         let mut candidate = None;
         for offset in 0..lookup_len {
             let value = if vertical {
@@ -1466,28 +1511,58 @@ impl<'a> Parser<'a> {
             } else {
                 self.range_cell(sheet, first, 0, offset)?
             };
-            if value == lookup { candidate = Some(offset); if exact { break; } }
-            else if !exact && value <= lookup { candidate = Some(offset); }
-            else if !exact && value > lookup { break; }
+            if value == lookup {
+                candidate = Some(offset);
+                if exact {
+                    break;
+                }
+            } else if !exact && value <= lookup {
+                candidate = Some(offset);
+            } else if !exact && value > lookup {
+                break;
+            }
         }
-        let Some(found) = candidate else { return Err(FormulaError::NotAvailable); };
+        let Some(found) = candidate else {
+            return Err(FormulaError::NotAvailable);
+        };
         if exact {
-            let key = if vertical { self.range_cell(sheet, first, found, 0)? } else { self.range_cell(sheet, first, 0, found)? };
-            if key != lookup { return Err(FormulaError::NotAvailable); }
+            let key = if vertical {
+                self.range_cell(sheet, first, found, 0)?
+            } else {
+                self.range_cell(sheet, first, 0, found)?
+            };
+            if key != lookup {
+                return Err(FormulaError::NotAvailable);
+            }
         }
-        if vertical { self.range_cell(sheet, first, found, index as u32 - 1) }
-        else { self.range_cell(sheet, first, index as u32 - 1, found) }
+        if vertical {
+            self.range_cell(sheet, first, found, index as u32 - 1)
+        } else {
+            self.range_cell(sheet, first, index as u32 - 1, found)
+        }
     }
 
     fn index_arguments(&mut self) -> Result<f64, FormulaError> {
         let args = self.function_argument_ranges()?;
-        if args.len() < 2 || args.len() > 3 { return Err(FormulaError::Parse); }
+        if args.len() < 2 || args.len() > 3 {
+            return Err(FormulaError::Parse);
+        }
         let (sheet, first, last) = self.range_bounds(args[0].0, args[0].1)?;
         let row = self.evaluate_argument(args[1].0, args[1].1)?;
-        let column = if args.len() == 3 { self.evaluate_argument(args[2].0, args[2].1)? } else { 1.0 };
+        let column = if args.len() == 3 {
+            self.evaluate_argument(args[2].0, args[2].1)?
+        } else {
+            1.0
+        };
         let rows = first.row().abs_diff(last.row()) + 1;
         let columns = first.column().abs_diff(last.column()) + 1;
-        if row.fract() != 0.0 || column.fract() != 0.0 || row < 1.0 || column < 1.0 || row as u32 > rows || column as u32 > columns {
+        if row.fract() != 0.0
+            || column.fract() != 0.0
+            || row < 1.0
+            || column < 1.0
+            || row as u32 > rows
+            || column as u32 > columns
+        {
             return Err(FormulaError::Reference);
         }
         self.range_cell(sheet, first, row as u32 - 1, column as u32 - 1)
@@ -1495,29 +1570,55 @@ impl<'a> Parser<'a> {
 
     fn match_arguments(&mut self) -> Result<f64, FormulaError> {
         let args = self.function_argument_ranges()?;
-        if args.len() < 2 || args.len() > 3 { return Err(FormulaError::Parse); }
+        if args.len() < 2 || args.len() > 3 {
+            return Err(FormulaError::Parse);
+        }
         let lookup = self.evaluate_argument(args[0].0, args[0].1)?;
         let (sheet, first, last) = self.range_bounds(args[1].0, args[1].1)?;
         let rows = first.row().abs_diff(last.row()) + 1;
         let columns = first.column().abs_diff(last.column()) + 1;
-        if rows != 1 && columns != 1 { return Err(FormulaError::Reference); }
+        if rows != 1 && columns != 1 {
+            return Err(FormulaError::Reference);
+        }
         let length = rows.max(columns);
-        let mode = if args.len() == 3 { self.evaluate_argument(args[2].0, args[2].1)? } else { 1.0 };
-        if ![-1.0, 0.0, 1.0].contains(&mode) { return Err(FormulaError::Number); }
+        let mode = if args.len() == 3 {
+            self.evaluate_argument(args[2].0, args[2].1)?
+        } else {
+            1.0
+        };
+        if ![-1.0, 0.0, 1.0].contains(&mode) {
+            return Err(FormulaError::Number);
+        }
         let mut candidate = None;
         for offset in 0..length {
-            let value = if rows == 1 { self.range_cell(sheet, first, 0, offset)? } else { self.range_cell(sheet, first, offset, 0)? };
-            if value == lookup { return Ok(offset as f64 + 1.0); }
-            if mode == 1.0 && value <= lookup { candidate = Some(offset); }
-            if mode == -1.0 && value >= lookup { candidate = Some(offset); }
-            if mode == 0.0 { continue; }
+            let value = if rows == 1 {
+                self.range_cell(sheet, first, 0, offset)?
+            } else {
+                self.range_cell(sheet, first, offset, 0)?
+            };
+            if value == lookup {
+                return Ok(offset as f64 + 1.0);
+            }
+            if mode == 1.0 && value <= lookup {
+                candidate = Some(offset);
+            }
+            if mode == -1.0 && value >= lookup {
+                candidate = Some(offset);
+            }
+            if mode == 0.0 {
+                continue;
+            }
         }
-        candidate.map(|offset| offset as f64 + 1.0).ok_or(FormulaError::NotAvailable)
+        candidate
+            .map(|offset| offset as f64 + 1.0)
+            .ok_or(FormulaError::NotAvailable)
     }
 
     fn ifna_arguments(&mut self) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
-        if ranges.len() != 2 { return Err(FormulaError::Parse); }
+        if ranges.len() != 2 {
+            return Err(FormulaError::Parse);
+        }
         match self.evaluate_argument(ranges[0].0, ranges[0].1) {
             Ok(value) => Ok(value),
             Err(FormulaError::NotAvailable) => self.evaluate_argument(ranges[1].0, ranges[1].1),
@@ -1527,7 +1628,9 @@ impl<'a> Parser<'a> {
 
     fn error_test_arguments(&mut self, exclude_na: bool) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
-        if ranges.len() != 1 { return Err(FormulaError::Parse); }
+        if ranges.len() != 1 {
+            return Err(FormulaError::Parse);
+        }
         let is_error = match self.evaluate_argument(ranges[0].0, ranges[0].1) {
             Ok(_) => false,
             Err(FormulaError::NotAvailable) if exclude_na => false,
@@ -1710,11 +1813,15 @@ impl<'a> Parser<'a> {
     fn cell_address(&mut self) -> Result<CellAddress, FormulaError> {
         self.whitespace();
         let start = self.cursor;
-        if self.peek() == Some(36) { self.cursor += 1; }
+        if self.peek() == Some(36) {
+            self.cursor += 1;
+        }
         while matches!(self.peek(), Some(b'A'..=b'Z' | b'a'..=b'z')) {
             self.cursor += 1;
         }
-        if self.peek() == Some(36) { self.cursor += 1; }
+        if self.peek() == Some(36) {
+            self.cursor += 1;
+        }
         while matches!(self.peek(), Some(b'0'..=b'9')) {
             self.cursor += 1;
         }
@@ -1982,7 +2089,10 @@ mod tests {
         let mut book = Workbook::new();
         let cases = [
             ("=IFNA(NA(),42)", CellValue::Number(42.0)),
-            ("=IFNA(1/0,42)", CellValue::Error(FormulaError::DivisionByZero)),
+            (
+                "=IFNA(1/0,42)",
+                CellValue::Error(FormulaError::DivisionByZero),
+            ),
             ("=ISERROR(1/0)", CellValue::Number(1.0)),
             ("=ISERROR(NA())", CellValue::Number(1.0)),
             ("=ISERR(NA())", CellValue::Number(0.0)),
@@ -1998,7 +2108,11 @@ mod tests {
         let invalid = CellAddress::parse_a1("K20").unwrap();
         for formula in ["=NA(1)", "=IFNA(1)", "=ISERROR()", "=ISERR(1,2)"] {
             book.set_formula(1, invalid, formula).unwrap();
-            assert_eq!(book.value(1, invalid), CellValue::Error(FormulaError::Parse), "{formula}");
+            assert_eq!(
+                book.value(1, invalid),
+                CellValue::Error(FormulaError::Parse),
+                "{formula}"
+            );
         }
     }
 
@@ -2006,11 +2120,22 @@ mod tests {
     fn lookup_and_index_functions_cover_rows_columns_modes_and_errors() {
         let mut book = Workbook::new();
         for (address, value) in [
-            ("A1", 10.0), ("A2", 20.0), ("A3", 30.0),
-            ("B1", 100.0), ("B2", 200.0), ("B3", 300.0),
-            ("D1", 1.0), ("D2", 3.0), ("D3", 5.0),
-            ("E1", 11.0), ("E2", 33.0), ("E3", 55.0),
-        ] { book.set_number(1, CellAddress::parse_a1(address).unwrap(), value).unwrap(); }
+            ("A1", 10.0),
+            ("A2", 20.0),
+            ("A3", 30.0),
+            ("B1", 100.0),
+            ("B2", 200.0),
+            ("B3", 300.0),
+            ("D1", 1.0),
+            ("D2", 3.0),
+            ("D3", 5.0),
+            ("E1", 11.0),
+            ("E2", 33.0),
+            ("E3", 55.0),
+        ] {
+            book.set_number(1, CellAddress::parse_a1(address).unwrap(), value)
+                .unwrap();
+        }
         let formulas = [
             ("=VLOOKUP(20,A1:B3,2,0)", 200.0),
             ("=HLOOKUP(100,A1:C2,2,0)", 200.0),
@@ -2024,13 +2149,31 @@ mod tests {
         for (index, (formula, expected)) in formulas.into_iter().enumerate() {
             let address = CellAddress::new(index as u32, 8).unwrap();
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
         }
-        for (index, formula) in ["=VLOOKUP(99,A1:B3,2,0)", "=INDEX(A1:B3,9,1)", "=MATCH(99,A1:A3,0)", "=VLOOKUP(1,A1:B3,9,0)"].into_iter().enumerate() {
+        for (index, formula) in [
+            "=VLOOKUP(99,A1:B3,2,0)",
+            "=INDEX(A1:B3,9,1)",
+            "=MATCH(99,A1:A3,0)",
+            "=VLOOKUP(1,A1:B3,9,0)",
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let address = CellAddress::new(index as u32, 9).unwrap();
             book.set_formula(1, address, formula).unwrap();
             let value = book.value(1, address);
-            assert!(matches!(value, CellValue::Error(FormulaError::NotAvailable | FormulaError::Reference)), "{formula}: {value:?}");
+            assert!(
+                matches!(
+                    value,
+                    CellValue::Error(FormulaError::NotAvailable | FormulaError::Reference)
+                ),
+                "{formula}: {value:?}"
+            );
         }
     }
 
@@ -2973,7 +3116,11 @@ mod tests {
         for (index, (formula, expected)) in cases.into_iter().enumerate() {
             let address = CellAddress::new(index as u32, 0).unwrap();
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
         }
     }
 
