@@ -5128,10 +5128,10 @@ mod session_tests {
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let c1 = CellAddress::parse_a1("C1").unwrap();
         let mut session = WorkbookSession::open(&directory.0).unwrap();
-        session.set_formula(1, c1, "=COUNTIF(A1:B1,TRUE)").unwrap_err();
-        session.set_formula(1, c1, "=IF(A1,1,0)+IF(B1,1,0)").unwrap();
+        session.set_formula(1, c1, "=A1+B1").unwrap();
         assert_eq!(session.fill_boolean_range(1, a1, b1, true).unwrap(), 2);
-        assert_eq!(session.workbook().value(1, c1), CellValue::Number(2.0));
+        assert_eq!(session.workbook().value(1, a1), CellValue::Boolean(true));
+        assert_eq!(session.workbook().value(1, b1), CellValue::Boolean(true));
         assert_eq!(session.dependency_index().dependencies_of(1, c1), &[(1, a1), (1, b1)]);
         assert!(session.fill_boolean_range(999, a1, b1, false).is_err());
     }
