@@ -464,7 +464,7 @@ pub fn export_markdown(document: &Document) -> io::Result<String> {
                         output.push_str(&paragraph.text.replace('\n', "\n    "));
                     }
                 }
-                output.push_str("\n");
+                output.push('\n');
             }
             DocumentBlock::Table(id) => {
                 let table = document
