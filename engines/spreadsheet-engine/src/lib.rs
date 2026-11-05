@@ -2193,6 +2193,32 @@ mod tests {
     }
 
     #[test]
+    fn quoted_cross_sheet_lookup_range_is_parsed_as_one_argument() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Lookup Data").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        book.set_number(data, a1, 7.0).unwrap();
+        book.set_number(data, b1, 70.0).unwrap();
+
+        let formula = "VLOOKUP(7,'Lookup Data'!A1:B1,2,0)";
+        let mut visiting = HashSet::new();
+        let mut cache = HashMap::new();
+        let mut parser = Parser::new(formula, &book, 1, &mut visiting, &mut cache);
+        parser.cursor = "VLOOKUP(".len();
+        let arguments = parser.function_argument_ranges().unwrap();
+        assert_eq!(arguments.len(), 4);
+        let range = parser.range_bounds(arguments[1].0, arguments[1].1);
+        assert!(range.is_ok(), "range parsing: {range:?}");
+
+        let mut visiting = HashSet::new();
+        let mut cache = HashMap::new();
+        let mut parser = Parser::new(formula, &book, 1, &mut visiting, &mut cache);
+        parser.cursor = "VLOOKUP(".len();
+        assert_eq!(parser.lookup_arguments("VLOOKUP"), Ok(70.0));
+    }
+
+    #[test]
     fn lookup_functions_support_cross_sheet_ranges_and_recalculate_after_edits() {
         let mut book = Workbook::new();
         let data = book.add_sheet("Lookup Data").unwrap();
