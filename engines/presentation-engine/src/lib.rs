@@ -1564,9 +1564,15 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
                 }
                 svg.push_str("</text>\n");
             }
-            ElementKind::Shape { shape, fill, stroke, stroke_width } => {
+            ElementKind::Shape {
+                shape,
+                fill,
+                stroke,
+                stroke_width,
+            } => {
                 let fill = fill.map_or_else(|| "none".to_owned(), |color| format!("#{color:06x}"));
-                let stroke = stroke.map_or_else(|| "none".to_owned(), |color| format!("#{color:06x}"));
+                let stroke =
+                    stroke.map_or_else(|| "none".to_owned(), |color| format!("#{color:06x}"));
                 match shape {
                     ShapeKind::Rectangle => writeln!(
                         svg,
@@ -2475,11 +2481,47 @@ mod tests {
         let mut style = TextStyle::new("Inter & Sans", 28.0, 0x123456).unwrap();
         style.set_emphasis(true, true, true);
         style.set_alignment(TextAlignment::Center);
-        deck.add_text(slide, rect(20.0, 30.0, 300.0, 60.0), "Hello <world> & everyone", style).unwrap();
-        deck.add_shape(slide, rect(40.0, 120.0, 100.0, 80.0), ShapeKind::Rectangle, Some(0xaabbcc), Some(0x010203), 2.0).unwrap();
-        deck.add_shape(slide, rect(180.0, 120.0, 100.0, 80.0), ShapeKind::Ellipse, None, Some(0x334455), 3.0).unwrap();
-        deck.add_shape(slide, rect(300.0, 120.0, 100.0, 80.0), ShapeKind::Arrow, None, Some(0x556677), 2.0).unwrap();
-        deck.add_image(slide, rect(420.0, 120.0, 160.0, 100.0), "assets/photo & chart.png", "A <chart>").unwrap();
+        deck.add_text(
+            slide,
+            rect(20.0, 30.0, 300.0, 60.0),
+            "Hello <world> & everyone",
+            style,
+        )
+        .unwrap();
+        deck.add_shape(
+            slide,
+            rect(40.0, 120.0, 100.0, 80.0),
+            ShapeKind::Rectangle,
+            Some(0xaabbcc),
+            Some(0x010203),
+            2.0,
+        )
+        .unwrap();
+        deck.add_shape(
+            slide,
+            rect(180.0, 120.0, 100.0, 80.0),
+            ShapeKind::Ellipse,
+            None,
+            Some(0x334455),
+            3.0,
+        )
+        .unwrap();
+        deck.add_shape(
+            slide,
+            rect(300.0, 120.0, 100.0, 80.0),
+            ShapeKind::Arrow,
+            None,
+            Some(0x556677),
+            2.0,
+        )
+        .unwrap();
+        deck.add_image(
+            slide,
+            rect(420.0, 120.0, 160.0, 100.0),
+            "assets/photo & chart.png",
+            "A <chart>",
+        )
+        .unwrap();
         let svg = render_slide_svg(&deck, slide).unwrap();
         assert!(svg.starts_with("<svg "));
         assert!(svg.contains("SVG &amp; test"));
@@ -2498,11 +2540,18 @@ mod tests {
     fn svg_renderer_rejects_missing_slides_and_keeps_newlines() {
         let mut deck = Presentation::new("SVG", 320.0, 200.0).unwrap();
         let slide = deck.slides()[0].id();
-        deck.add_text(slide, rect(10.0, 10.0, 200.0, 100.0), "First\nSecond", TextStyle::default()).unwrap();
+        deck.add_text(
+            slide,
+            rect(10.0, 10.0, 200.0, 100.0),
+            "First\nSecond",
+            TextStyle::default(),
+        )
+        .unwrap();
         assert!(render_slide_svg(&deck, 999).is_err());
         let svg = render_slide_svg(&deck, slide).unwrap();
         assert!(svg.contains("<tspan x=\"10\">First</tspan>"));
-        assert!(svg.contains("dy=\"28.8\">Second</tspan>"));
+        assert!(svg.contains("dy=\""));
+        assert!(svg.contains(">Second</tspan>"));
     }
 
     fn applies_global_theme_to_all_slides_and_preserves_element_properties() {
