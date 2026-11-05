@@ -12,3 +12,4 @@ thiserror = "2"
 crc32fast = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
