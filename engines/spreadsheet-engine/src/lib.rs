@@ -424,7 +424,7 @@ impl Workbook {
         let graph = self.dependency_graph()?;
         let reverse = reverse_dependency_graph(&graph);
         let mut pending = VecDeque::from([(sheet_id, address)]);
-        let mut visited = std::collections::BTreeSet::new();
+        let mut visited = std::collections::BTreeSet::from([(sheet_id, address)]);
 
         while let Some(source) = pending.pop_front() {
             if let Some(dependents) = reverse.get(&source) {
@@ -436,6 +436,7 @@ impl Workbook {
             }
         }
 
+        visited.remove(&(sheet_id, address));
         Ok(visited.into_iter().collect())
     }
 
@@ -478,11 +479,10 @@ fn formula_dependencies(
                 cursor += 1;
             }
             if cursor == bytes.len() {
-                break;
+                return Err(invalid_input("unterminated worksheet name in formula"));
             }
             if cursor == name_start {
-                cursor += 1;
-                continue;
+                return Err(invalid_input("empty worksheet name in formula"));
             }
             let name = std::str::from_utf8(&bytes[name_start..cursor])
                 .map_err(|_| invalid_input("formula contains invalid sheet name"))?;
