@@ -607,8 +607,10 @@ impl Workbook {
         }
         let before = sheet.cells.len();
         sheet.cells.retain(|address, _| {
-            address.row() < min_row || address.row() > max_row
-                || address.column() < min_column || address.column() > max_column
+            address.row() < min_row
+                || address.row() > max_row
+                || address.column() < min_column
+                || address.column() > max_column
         });
         Ok(before - sheet.cells.len())
     }
@@ -5023,20 +5025,31 @@ mod session_tests {
         let mut workbook = Workbook::new();
         let sheet = workbook.sheets()[0].id();
         for (address, value) in [("A1", 1.0), ("B2", 2.0), ("C3", 3.0), ("D4", 4.0)] {
-            workbook.set_number(sheet, CellAddress::parse_a1(address).unwrap(), value).unwrap();
+            workbook
+                .set_number(sheet, CellAddress::parse_a1(address).unwrap(), value)
+                .unwrap();
         }
-        let removed = workbook.clear_range(
-            sheet,
-            CellAddress::parse_a1("B2").unwrap(),
-            CellAddress::parse_a1("C3").unwrap(),
-        ).unwrap();
+        let removed = workbook
+            .clear_range(
+                sheet,
+                CellAddress::parse_a1("B2").unwrap(),
+                CellAddress::parse_a1("C3").unwrap(),
+            )
+            .unwrap();
         assert_eq!(removed, 2);
         assert_eq!(workbook.sheet(sheet).unwrap().stored_cell_count(), 2);
-        assert_eq!(workbook.values(&[
-            (sheet, CellAddress::parse_a1("A1").unwrap()),
-            (sheet, CellAddress::parse_a1("B2").unwrap()),
-            (sheet, CellAddress::parse_a1("D4").unwrap()),
-        ]), vec![CellValue::Number(1.0), CellValue::Blank, CellValue::Number(4.0)]);
+        assert_eq!(
+            workbook.values(&[
+                (sheet, CellAddress::parse_a1("A1").unwrap()),
+                (sheet, CellAddress::parse_a1("B2").unwrap()),
+                (sheet, CellAddress::parse_a1("D4").unwrap()),
+            ]),
+            vec![
+                CellValue::Number(1.0),
+                CellValue::Blank,
+                CellValue::Number(4.0)
+            ]
+        );
     }
 
 }
