@@ -3189,6 +3189,7 @@ impl PresentationSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use zip::ZipArchive;
 
     fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
