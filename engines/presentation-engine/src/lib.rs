@@ -2839,10 +2839,12 @@ pub fn speaker_notes_statistics(presentation: &Presentation) -> io::Result<Speak
         if !slide.notes.trim().is_empty() {
             stats.slides_with_notes += 1;
         }
-        stats.characters = stats.characters
+        stats.characters = stats
+            .characters
             .checked_add(slide.notes.chars().count())
             .ok_or_else(|| invalid_data("speaker notes character count overflow"))?;
-        stats.words = stats.words
+        stats.words = stats
+            .words
             .checked_add(slide.notes.split_whitespace().count())
             .ok_or_else(|| invalid_data("speaker notes word count overflow"))?;
     }
