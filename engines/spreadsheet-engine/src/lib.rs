@@ -2234,7 +2234,8 @@ mod tests {
         let sheet = book.sheets()[0].id();
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let c1 = CellAddress::parse_a1("C1").unwrap();
-        book.set_number(sheet, CellAddress::parse_a1("A1").unwrap(), 10.0).unwrap();
+        book.set_number(sheet, CellAddress::parse_a1("A1").unwrap(), 10.0)
+            .unwrap();
         book.set_number(sheet, b1, 5.0).unwrap();
         book.set_formula(sheet, c1, "=A1+B1*2").unwrap();
         assert_eq!(book.value(sheet, c1), CellValue::Number(20.0));
