@@ -1160,6 +1160,55 @@ mod tests {
     }
 
     #[test]
+    fn referenced_cells_recalculate_after_edit_and_clear() {
+        let mut book = Workbook::new();
+        let source = CellAddress::parse_a1("A1").unwrap();
+        let dependent = CellAddress::parse_a1("B1").unwrap();
+        let chained = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(1, source, 4.0).unwrap();
+        book.set_formula(1, dependent, "=A1*3").unwrap();
+        book.set_formula(1, chained, "=B1+2").unwrap();
+        assert_eq!(book.value(1, chained), CellValue::Number(14.0));
+
+        book.set_number(1, source, 10.0).unwrap();
+        assert_eq!(book.value(1, chained), CellValue::Number(32.0));
+
+        book.clear_cell(1, source).unwrap();
+        assert_eq!(book.value(1, dependent), CellValue::Number(0.0));
+        assert_eq!(book.value(1, chained), CellValue::Number(2.0));
+    }
+
+    #[test]
+    fn cross_sheet_cycles_and_removed_sheet_references_are_reported() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+
+        book.set_formula(data, a1, "=Report!B1+1").unwrap();
+        book.set_formula(report, b1, "=Data!A1+1").unwrap();
+        assert_eq!(
+            book.value(data, a1),
+            CellValue::Error(FormulaError::CircularReference)
+        );
+
+        book.set_number(report, b1, 5.0).unwrap();
+        assert_eq!(book.value(data, a1), CellValue::Number(6.0));
+        book.remove_sheet(data).unwrap();
+        assert_eq!(
+            book.value(report, b1),
+            CellValue::Number(5.0)
+        );
+        book.set_formula(report, b1, "=Data!A1").unwrap();
+        assert_eq!(
+            book.value(report, b1),
+            CellValue::Error(FormulaError::Reference)
+        );
+    }
+
+    #[test]
     fn formulas_detect_cycles_and_division_by_zero() {
         let mut book = Workbook::new();
         let sheet = 1;
