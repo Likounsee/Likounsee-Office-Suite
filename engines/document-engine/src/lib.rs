@@ -263,6 +263,39 @@ pub struct Document {
 }
 
 impl Document {
+    /// Build an editable document from plain text, preserving every line as a paragraph.
+    pub fn from_plain_text(title: impl Into<String>, text: &str) -> io::Result<Self> {
+        if text.len() > MAX_DOCUMENT_SIZE {
+            return Err(invalid_input("plain text exceeds the document size limit"));
+        }
+        let mut document = Self::new(title)?;
+        document.body = text.to_owned();
+        document.paragraphs.clear();
+        document.block_order.clear();
+        for (index, line) in text.split('\n').enumerate() {
+            let id = u64::try_from(index)
+                .ok()
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(|| invalid_input("paragraph ID space exhausted"))?;
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            document.paragraphs.push(Paragraph {
+                id,
+                text: line.to_owned(),
+                style: ParagraphStyle::Normal,
+                list_kind: ListKind::None,
+                list_level: 0,
+                spans: Vec::new(),
+            });
+            document.block_order.push(DocumentBlock::Paragraph(id));
+        }
+        document.next_block_id = u64::try_from(document.paragraphs.len())
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or_else(|| invalid_input("paragraph ID space exhausted"))?;
+        validate_document_size(&document)?;
+        Ok(document)
+    }
+
     pub fn new(title: impl Into<String>) -> io::Result<Self> {
         let title = title.into();
         if title.len() > MAX_TITLE_SIZE {
@@ -504,6 +537,46 @@ pub fn export_markdown(document: &Document) -> io::Result<String> {
 /// Export a document as standalone semantic HTML (without external assets).
 /// Paragraph formatting and table cell text are retained; unsupported page
 /// layout features are intentionally not synthesized.
+/// Export paragraphs and tables as UTF-8 plain text.
+pub fn export_plain_text(document: &Document) -> io::Result<String> {
+    validate_document_size(document)?;
+    let mut output = String::new();
+    for (index, block) in document.block_order.iter().enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
+        match *block {
+            DocumentBlock::Paragraph(id) => {
+                let paragraph = document
+                    .paragraphs
+                    .iter()
+                    .find(|paragraph| paragraph.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing paragraph"))?;
+                output.push_str(&paragraph.text);
+            }
+            DocumentBlock::Table(id) => {
+                let table = document
+                    .tables
+                    .iter()
+                    .find(|table| table.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing table"))?;
+                for (row_index, row) in table.rows.iter().enumerate() {
+                    if row_index > 0 {
+                        output.push('\n');
+                    }
+                    for (column_index, cell) in row.cells.iter().enumerate() {
+                        if column_index > 0 {
+                            output.push('\t');
+                        }
+                        output.push_str(&cell.text);
+                    }
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
 pub fn export_html(document: &Document) -> io::Result<String> {
     validate_document_size(document)?;
     let mut output = String::from(
@@ -2988,6 +3061,15 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn plain_text_import_and_export_preserve_lines_and_table_cells() {
+        let document = Document::from_plain_text("Notes", "First line\r\nSecond line\n").unwrap();
+        assert_eq!(document.paragraphs().len(), 3);
+        assert_eq!(document.paragraphs()[0].text(), "First line");
+        assert_eq!(document.paragraphs()[1].text(), "Second line");
+        assert_eq!(export_plain_text(&document).unwrap(), "First line\nSecond line\n");
+    }
+
     fn html_export_preserves_semantics_tables_and_escapes_untrusted_text() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
