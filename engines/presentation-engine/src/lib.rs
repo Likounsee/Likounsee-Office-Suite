@@ -190,6 +190,15 @@ impl ShapeKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlideLayout {
+    Blank,
+    Title,
+    TitleAndContent,
+    TwoColumns,
+    SectionHeader,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ElementAlignment {
     Left,
     CenterHorizontal,
@@ -376,6 +385,84 @@ impl Presentation {
         });
         Ok(id)
     }
+    /// Create a slide and populate it with editable text placeholders for a built-in layout.
+    /// Placeholders are ordinary text elements so they can be styled, moved or replaced.
+    pub fn add_slide_with_layout(
+        &mut self,
+        name: impl Into<String>,
+        layout: SlideLayout,
+    ) -> io::Result<u64> {
+        let name = name.into();
+        validate_string(&name, "slide name")?;
+        let placeholder_count = match layout {
+            SlideLayout::Blank => 0,
+            SlideLayout::Title => 2,
+            SlideLayout::TitleAndContent | SlideLayout::SectionHeader => 2,
+            SlideLayout::TwoColumns => 3,
+        };
+        if self.slides.len() >= MAX_SLIDES {
+            return Err(invalid_input("slide limit reached"));
+        }
+        if self.next_id.checked_add(placeholder_count as u64).is_none() {
+            return Err(invalid_input("presentation ID space exhausted"));
+        }
+        let slide_id = self.add_slide(name)?;
+        let title_style = TextStyle::new("Arial", 30.0, 0x202020)?;
+        let body_style = TextStyle::new("Arial", 20.0, 0x404040)?;
+        let title_bounds = Rect::new(48.0, 28.0, self.width - 96.0, 72.0)?;
+        let body_bounds = Rect::new(64.0, 132.0, self.width - 128.0, self.height - 180.0)?;
+
+        match layout {
+            SlideLayout::Blank => {}
+            SlideLayout::Title => {
+                self.add_text(
+                    slide_id,
+                    Rect::new(64.0, self.height * 0.30, self.width - 128.0, 84.0)?,
+                    "Title",
+                    title_style,
+                )?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(96.0, self.height * 0.50, self.width - 192.0, 56.0)?,
+                    "Subtitle",
+                    body_style,
+                )?;
+            }
+            SlideLayout::TitleAndContent => {
+                self.add_text(slide_id, title_bounds, "Title", title_style)?;
+                self.add_text(slide_id, body_bounds, "Click to add content", body_style)?;
+            }
+            SlideLayout::TwoColumns => {
+                self.add_text(slide_id, title_bounds, "Title", title_style)?;
+                let gap = 24.0;
+                let column_width = (self.width - 128.0 - gap) / 2.0;
+                let column_bounds = Rect::new(64.0, 132.0, column_width, self.height - 180.0)?;
+                self.add_text(slide_id, column_bounds, "Left content", body_style.clone())?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(64.0 + column_width + gap, 132.0, column_width, self.height - 180.0)?,
+                    "Right content",
+                    body_style,
+                )?;
+            }
+            SlideLayout::SectionHeader => {
+                self.add_text(
+                    slide_id,
+                    Rect::new(64.0, self.height * 0.34, self.width - 128.0, 76.0)?,
+                    "Section title",
+                    title_style,
+                )?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(64.0, self.height * 0.52, self.width - 128.0, 48.0)?,
+                    "Section subtitle",
+                    body_style,
+                )?;
+            }
+        }
+        Ok(slide_id)
+    }
+
     pub fn duplicate_slide(&mut self, slide_id: u64) -> io::Result<u64> {
         let source = self
             .slide(slide_id)
@@ -1843,6 +1930,29 @@ mod tests {
         assert!(deck.slide(slide).unwrap().element(shape).is_some());
         assert!(deck.slide(slide).unwrap().element(image).is_some());
 
+        let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
+        assert_eq!(restored, deck);
+    }
+
+    #[test]
+    fn built_in_slide_layouts_create_editable_placeholders_and_round_trip() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let title = deck
+            .add_slide_with_layout("Title slide", SlideLayout::Title)
+            .unwrap();
+        let columns = deck
+            .add_slide_with_layout("Comparison", SlideLayout::TwoColumns)
+            .unwrap();
+        let blank = deck
+            .add_slide_with_layout("Blank", SlideLayout::Blank)
+            .unwrap();
+
+        assert_eq!(deck.slide(title).unwrap().elements().len(), 2);
+        assert_eq!(deck.slide(columns).unwrap().elements().len(), 3);
+        assert!(deck.slide(blank).unwrap().elements().is_empty());
+        assert!(deck.slide(title).unwrap().elements().iter().all(|element| {
+            matches!(element.kind(), ElementKind::Text { .. })
+        }));
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
     }
