@@ -5362,12 +5362,15 @@ mod tests {
         let slide_id = presentation.slides()[0].id();
         presentation.set_slide_notes(slide_id, "Presenter cue").unwrap();
         let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
-        presentation.add_text(slide_id, rect(1.0, 1.0, 10.0, 10.0), "Keep", style).unwrap();
+        presentation
+            .add_text(slide_id, rect(1.0, 1.0, 10.0, 10.0), "Keep", style)
+            .unwrap();
         let revision = presentation.revision();
         assert!(presentation.clear_slide_notes(slide_id).unwrap());
         assert_eq!(presentation.revision(), revision + 1);
         let slide = presentation.slide(slide_id).unwrap();
-        assert!(slide.notes().is_empty()); assert_eq!(slide.elements().len(), 1);
+        assert!(slide.notes().is_empty());
+        assert_eq!(slide.elements().len(), 1);
         let revision = presentation.revision();
         assert!(!presentation.clear_slide_notes(slide_id).unwrap());
         assert_eq!(presentation.revision(), revision);
