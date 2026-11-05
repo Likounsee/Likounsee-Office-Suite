@@ -794,7 +794,8 @@ impl Workbook {
                 let address = CellAddress::new(row_index as u32, column_index as u32)?;
                 if value.starts_with('=') && value.len() > 1 {
                     workbook.set_formula(sheet_id, address, value.clone())?;
-                } else if value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false") {
+                } else if value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false")
+                {
                     workbook.set_boolean(sheet_id, address, value.eq_ignore_ascii_case("true"))?;
                 } else if let Ok(number) = value.parse::<f64>() {
                     if number.is_finite() {
@@ -809,7 +810,7 @@ impl Workbook {
         }
         Ok(workbook)
     }
-    
+
     /// Export a worksheet's used range as RFC 4180-style CSV.
     pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String> {
         let sheet = workbook
@@ -826,7 +827,9 @@ impl Workbook {
             .unwrap_or(0);
         let cell_count = (max_row as u64 + 1).saturating_mul(max_column as u64 + 1);
         if cell_count > MAX_CELLS as u64 {
-            return Err(invalid_input("CSV export range exceeds the supported cell limit"));
+            return Err(invalid_input(
+                "CSV export range exceeds the supported cell limit",
+            ));
         }
         let mut output = String::new();
         for row in 0..=max_row {
@@ -860,7 +863,7 @@ impl Workbook {
         }
         Ok(output)
     }
-    
+
     fn csv_escape(value: &str) -> String {
         if value
             .chars()
@@ -873,7 +876,7 @@ impl Workbook {
             value.to_owned()
         }
     }
-    
+
     fn parse_csv_records(input: &str) -> io::Result<Vec<Vec<String>>> {
         let mut rows = Vec::new();
         let mut row = Vec::new();
@@ -932,8 +935,8 @@ impl Workbook {
         }
         Ok(rows)
     }
-    
-        pub fn encode(&self) -> io::Result<Vec<u8>> {
+
+    pub fn encode(&self) -> io::Result<Vec<u8>> {
         encode_workbook(self)
     }
     pub fn decode(bytes: &[u8]) -> io::Result<Self> {
@@ -2270,7 +2273,9 @@ mod tests {
         assert!(exported.contains("\"Widget, A\",12.5,true,=B2*2\r\n"));
         assert!(exported.contains("\"She said \"\"hello\"\"\""));
         assert_eq!(workbook.value(sheet_id, d2), CellValue::Number(25.0));
-        workbook.set_text(sheet_id, CellAddress::parse_a1("E2").unwrap(), " leading ").unwrap();
+        workbook
+            .set_text(sheet_id, CellAddress::parse_a1("E2").unwrap(), " leading ")
+            .unwrap();
         assert!(Workbook::export_sheet_csv(&workbook, sheet_id)
             .unwrap()
             .contains("\" leading \""));
@@ -2282,8 +2287,14 @@ mod tests {
         assert!(Workbook::import_csv("Bad", "\"closed\"x,1").is_err());
         let workbook = Workbook::import_csv("Empty", "a,,c\r\n,2,").unwrap();
         let sheet = workbook.sheets()[0].id();
-        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()), CellValue::Blank);
-        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B2").unwrap()), CellValue::Number(2.0));
+        assert_eq!(
+            workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()),
+            CellValue::Blank
+        );
+        assert_eq!(
+            workbook.value(sheet, CellAddress::parse_a1("B2").unwrap()),
+            CellValue::Number(2.0)
+        );
     }
 
     #[test]
