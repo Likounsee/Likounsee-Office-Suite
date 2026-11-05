@@ -943,7 +943,9 @@ fn scan_cell_address(bytes: &[u8], cursor: &mut usize) -> io::Result<CellAddress
     while *cursor < bytes.len() && bytes[*cursor].is_ascii_alphabetic() {
         *cursor += 1;
     }
-    if bytes.get(*cursor) == Some(&36) { *cursor += 1; }
+    if bytes.get(*cursor) == Some(&36) {
+        *cursor += 1;
+    }
     while *cursor < bytes.len() && bytes[*cursor].is_ascii_digit() {
         *cursor += 1;
     }
