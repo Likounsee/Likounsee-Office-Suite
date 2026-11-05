@@ -1255,8 +1255,12 @@ impl Presentation {
         slide_id: u64,
         requested: &[(u64, TextStyle)],
     ) -> io::Result<usize> {
-        if requested.is_empty() { return Ok(0); }
-        let slide = self.slide(slide_id).ok_or_else(|| invalid_input("slide does not exist"))?;
+        if requested.is_empty() {
+            return Ok(0);
+        }
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
         let mut seen = std::collections::HashSet::with_capacity(requested.len());
         let mut updates = Vec::new();
         for (id, style) in requested {
@@ -1264,17 +1268,25 @@ impl Presentation {
                 return Err(invalid_input("text style batch contains duplicate IDs"));
             }
             style.validate()?;
-            let element = slide.element(*id).ok_or_else(|| invalid_input("text element does not exist"))?;
+            let element = slide
+                .element(*id)
+                .ok_or_else(|| invalid_input("text element does not exist"))?;
             let ElementKind::Text { style: current, .. } = &element.kind else {
                 return Err(invalid_input("text element does not exist"));
             };
-            if current != style { updates.push((*id, style.clone())); }
+            if current != style {
+                updates.push((*id, style.clone()));
+            }
         }
-        if updates.is_empty() { return Ok(0); }
+        if updates.is_empty() {
+            return Ok(0);
+        }
         self.bump_revision()?;
         let elements = &mut self.slide_mut(slide_id)?.elements;
         for (id, style) in &updates {
-            let element = elements.iter_mut().find(|element| element.id == *id)
+            let element = elements
+                .iter_mut()
+                .find(|element| element.id == *id)
                 .expect("text IDs were validated");
             if let ElementKind::Text { style: current, .. } = &mut element.kind {
                 *current = style.clone();
@@ -6198,17 +6210,45 @@ mod tests {
     fn batch_text_styles_is_atomic_and_skips_unchanged_styles() {
         let mut deck = Presentation::new("Text styles", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
-        let first = deck.add_text(slide, rect(0.0, 0.0, 100.0, 30.0), "First", TextStyle::default()).unwrap();
-        let second = deck.add_text(slide, rect(0.0, 40.0, 100.0, 30.0), "Second", TextStyle::default()).unwrap();
+        let first = deck
+            .add_text(
+                slide,
+                rect(0.0, 0.0, 100.0, 30.0),
+                "First",
+                TextStyle::default(),
+            )
+            .unwrap();
+        let second = deck
+            .add_text(
+                slide,
+                rect(0.0, 40.0, 100.0, 30.0),
+                "Second",
+                TextStyle::default(),
+            )
+            .unwrap();
         let mut bold = TextStyle::new("Arial", 28.0, 0x123456).unwrap();
         bold.set_emphasis(true, false, false);
         let revision = deck.revision();
-        assert_eq!(deck.set_text_styles_batch(slide, &[(first, bold.clone()), (second, bold.clone())]).unwrap(), 2);
+        assert_eq!(
+            deck.set_text_styles_batch(slide, &[(first, bold.clone()), (second, bold.clone())])
+                .unwrap(),
+            2
+        );
         assert_eq!(deck.revision(), revision + 1);
         let before = deck.clone();
-        assert!(deck.set_text_styles_batch(slide, &[(first, TextStyle::default()), (first, bold.clone())]).is_err());
+        assert!(
+            deck.set_text_styles_batch(
+                slide,
+                &[(first, TextStyle::default()), (first, bold.clone())]
+            )
+            .is_err()
+        );
         assert_eq!(deck, before);
-        assert_eq!(deck.set_text_styles_batch(slide, &[(first, bold.clone()), (second, bold)]).unwrap(), 0);
+        assert_eq!(
+            deck.set_text_styles_batch(slide, &[(first, bold.clone()), (second, bold)])
+                .unwrap(),
+            0
+        );
         assert_eq!(deck.revision(), revision + 1);
     }
 
