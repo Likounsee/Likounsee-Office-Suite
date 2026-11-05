@@ -666,19 +666,19 @@ pub fn encode_presentation(presentation: &Presentation) -> io::Result<Vec<u8>> {
     presentation.validate()?;
     let mut out = Vec::new();
     out.extend_from_slice(PRESENTATION_MAGIC);
-    put_u32(&mut out, PRESENTATION_VERSION);
+    put_u32(&mut out, PRESENTATION_VERSION)?;
     put_u64(&mut out, presentation.revision);
     put_f32(&mut out, presentation.width);
     put_f32(&mut out, presentation.height);
     put_u64(&mut out, presentation.next_id);
     put_string(&mut out, &presentation.title)?;
-    put_u32(&mut out, presentation.slides.len())?;
+    put_count(&mut out, presentation.slides.len())?;
     for slide in &presentation.slides {
         put_u64(&mut out, slide.id);
         put_string(&mut out, &slide.name)?;
-        put_u32(&mut out, slide.background);
+        put_u32(&mut out, slide.background)?;
         put_string(&mut out, &slide.notes)?;
-        put_u32(&mut out, slide.elements.len())?;
+        put_count(&mut out, slide.elements.len())?;
         for element in &slide.elements {
             put_u64(&mut out, element.id);
             put_f32(&mut out, element.bounds.x);
@@ -691,7 +691,7 @@ pub fn encode_presentation(presentation: &Presentation) -> io::Result<Vec<u8>> {
                     put_string(&mut out, text)?;
                     put_string(&mut out, &style.font_family)?;
                     put_f32(&mut out, style.font_size);
-                    put_u32(&mut out, style.color);
+                    put_u32(&mut out, style.color)?;
                     out.push(u8::from(style.bold));
                     out.push(u8::from(style.italic));
                     out.push(u8::from(style.underline));
@@ -724,7 +724,7 @@ pub fn encode_presentation(presentation: &Presentation) -> io::Result<Vec<u8>> {
         return Err(invalid_input("presentation exceeds 64 MiB"));
     }
     let checksum = crc32fast::hash(&out);
-    put_u32(&mut out, checksum);
+    put_u32(&mut out, checksum)?;
     Ok(out)
 }
 
@@ -865,11 +865,14 @@ fn validate_string(value: &str, label: &str) -> io::Result<()> {
         Ok(())
     }
 }
-fn put_u32(out: &mut Vec<u8>, value: usize) -> io::Result<()> {
-    let value = u32::try_from(value)
-        .map_err(|_| invalid_input("collection length is not representable"))?;
+fn put_u32(out: &mut Vec<u8>, value: u32) -> io::Result<()> {
     out.extend_from_slice(&value.to_le_bytes());
     Ok(())
+}
+fn put_count(out: &mut Vec<u8>, value: usize) -> io::Result<()> {
+    let value = u32::try_from(value)
+        .map_err(|_| invalid_input("collection length is not representable"))?;
+    put_u32(out, value)
 }
 fn put_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_le_bytes());
@@ -879,7 +882,7 @@ fn put_f32(out: &mut Vec<u8>, value: f32) {
 }
 fn put_string(out: &mut Vec<u8>, value: &str) -> io::Result<()> {
     validate_string(value, "string")?;
-    put_u32(out, value.len())?;
+    put_count(out, value.len())?;
     out.extend_from_slice(value.as_bytes());
     Ok(())
 }
@@ -1407,7 +1410,7 @@ mod tests {
         let end = encoded.len();
         encoded[end - 4..].copy_from_slice(&checksum.to_le_bytes());
         assert!(decode_presentation(&encoded).is_err());
-        let mut encoded = encode_presentation(&deck).unwrap();
+        let encoded = encode_presentation(&deck).unwrap();
         let end = encoded.len();
         let mut payload = encoded[..end - 4].to_vec();
         payload.push(0);
