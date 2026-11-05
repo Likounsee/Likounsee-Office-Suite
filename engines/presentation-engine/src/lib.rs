@@ -2629,7 +2629,6 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
         .map_err(|error| io::Error::other(format!("PPTX ZIP finalization failed: {error}")))
 }
 
-
 /// Export speaker notes as a portable Markdown document in slide order.
 pub fn export_speaker_notes_markdown(presentation: &Presentation) -> io::Result<String> {
     presentation.validate()?;
