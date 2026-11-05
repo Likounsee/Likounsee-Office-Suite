@@ -551,10 +551,7 @@ impl Presentation {
                     let mut matched = None;
                     for (offset, _) in remainder.char_indices() {
                         let start = cursor + offset;
-                        let candidate = text[start..]
-                            .chars()
-                            .take(query_chars)
-                            .collect::<String>();
+                        let candidate = text[start..].chars().take(query_chars).collect::<String>();
                         let equal = if case_sensitive {
                             candidate == query
                         } else {
@@ -587,7 +584,10 @@ impl Presentation {
         self.bump_revision()?;
         for (slide_id, element_id, replacement_text, _) in changes {
             let slide = self.slide_mut(slide_id)?;
-            let element = slide.elements.iter_mut().find(|element| element.id == element_id)
+            let element = slide
+                .elements
+                .iter_mut()
+                .find(|element| element.id == element_id)
                 .ok_or_else(|| invalid_data("text element disappeared during replacement"))?;
             if let ElementKind::Text { text, .. } = &mut element.kind {
                 *text = replacement_text;
