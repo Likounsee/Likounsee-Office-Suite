@@ -1104,8 +1104,14 @@ impl Presentation {
     /// Clear speaker notes while preserving the slide and its visual elements.
     /// Clearing already-empty notes is a no-op and does not advance the revision.
     pub fn clear_slide_notes(&mut self, slide_id: u64) -> io::Result<bool> {
-        let notes = self.slide(slide_id).ok_or_else(|| invalid_input("slide does not exist"))?.notes.clone();
-        if notes.is_empty() { return Ok(false); }
+        let notes = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?
+            .notes
+            .clone();
+        if notes.is_empty() {
+            return Ok(false);
+        }
         self.bump_revision()?;
         self.slide_mut(slide_id)?.notes.clear();
         Ok(true)
