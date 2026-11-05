@@ -416,6 +416,9 @@ pub struct RangeStatistics {
     pub errors: usize,
     pub blanks: usize,
     pub sum: f64,
+    pub minimum: Option<f64>,
+    pub maximum: Option<f64>,
+    pub average: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -642,6 +645,9 @@ impl Workbook {
             errors: 0,
             blanks: 0,
             sum: 0.0,
+            minimum: None,
+            maximum: None,
+            average: None,
         };
         let mut cache = HashMap::new();
         for row in min_row..=max_row {
@@ -652,6 +658,8 @@ impl Workbook {
                     CellValue::Number(value) => {
                         stats.numbers += 1;
                         stats.sum += value;
+                        stats.minimum = Some(stats.minimum.map_or(value, |current| current.min(value)));
+                        stats.maximum = Some(stats.maximum.map_or(value, |current| current.max(value)));
                     }
                     CellValue::Text(_) => stats.text += 1,
                     CellValue::Boolean(_) => stats.booleans += 1,
@@ -662,6 +670,7 @@ impl Workbook {
         if !stats.sum.is_finite() {
             return Err(invalid_data("range statistics sum overflow"));
         }
+        stats.average = (stats.numbers > 0).then(|| stats.sum / stats.numbers as f64);
         Ok(stats)
     }
 
@@ -2654,6 +2663,9 @@ mod tests {
         assert_eq!(stats.errors, 0);
         assert_eq!(stats.blanks, 4);
         assert_eq!(stats.sum, 16.0);
+        assert_eq!(stats.minimum, Some(4.0));
+        assert_eq!(stats.maximum, Some(12.0));
+        assert_eq!(stats.average, Some(8.0));        assert_eq!(stats.sum, 16.0);
         assert!(workbook.range_statistics(999, a1, a1).is_err());
     }
 

@@ -483,6 +483,41 @@ pub fn document_statistics(document: &Document) -> io::Result<DocumentStatistics
     })
 }
 
+/// A heading extracted from a document's semantic outline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentOutlineEntry {
+    pub paragraph_id: u64,
+    pub level: u8,
+    pub text: String,
+}
+
+/// Extract Heading 1 and Heading 2 paragraphs in document reading order.
+pub fn document_outline(document: &Document) -> io::Result<Vec<DocumentOutlineEntry>> {
+    validate_document_size(document)?;
+    let mut outline = Vec::new();
+    for block in &document.block_order {
+        let DocumentBlock::Paragraph(id) = block else {
+            continue;
+        };
+        let paragraph = document
+            .paragraphs
+            .iter()
+            .find(|paragraph| paragraph.id == *id)
+            .ok_or_else(|| invalid_data("document outline references a missing paragraph"))?;
+        let level = match paragraph.style {
+            ParagraphStyle::Heading1 => 1,
+            ParagraphStyle::Heading2 => 2,
+            _ => continue,
+        };
+        outline.push(DocumentOutlineEntry {
+            paragraph_id: paragraph.id,
+            level,
+            text: paragraph.text.clone(),
+        });
+    }
+    Ok(outline)
+}
+
 /// Encode a document using the current versioned binary format.
 /// Count Unicode whitespace-delimited words in paragraphs and table cells.
 pub fn word_count(document: &Document) -> io::Result<usize> {
@@ -3362,6 +3397,22 @@ mod tests {
         assert_eq!(session.document().paragraphs()[1].id(), second_id);
         assert_eq!(session.document().paragraphs()[1].text(), "猫 updated");
         assert!(session.replace_paragraph_text(u64::MAX, "missing").is_err());
+    }
+
+    #[test]
+    fn document_outline_extracts_heading_levels_in_reading_order() {
+        let document = Document::from_plain_text("Outline", "Title\\nBody\\nSection\\nSubsection").unwrap();
+        let mut document = document;
+        document.paragraphs[0].style = ParagraphStyle::Heading1;
+        document.paragraphs[2].style = ParagraphStyle::Heading1;
+        document.paragraphs[3].style = ParagraphStyle::Heading2;
+        let outline = document_outline(&document).unwrap();
+        assert_eq!(outline.len(), 3);
+        assert_eq!(outline[0].level, 1);
+        assert_eq!(outline[0].text, "Title");
+        assert_eq!(outline[1].text, "Section");
+        assert_eq!(outline[2].level, 2);
+        assert_eq!(outline[2].text, "Subsection");
     }
 
     #[test]

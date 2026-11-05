@@ -2818,6 +2818,52 @@ pub fn slide_text_statistics(
     })
 }
 
+/// Counts and extents of the objects placed on one slide.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlideLayoutStatistics {
+    pub elements: usize,
+    pub text_elements: usize,
+    pub shapes: usize,
+    pub images: usize,
+    pub content_bounds: Option<Rect>,
+}
+
+pub fn slide_layout_statistics(
+    presentation: &Presentation,
+    slide_id: u64,
+) -> io::Result<SlideLayoutStatistics> {
+    presentation.validate()?;
+    let slide = presentation
+        .slide(slide_id)
+        .ok_or_else(|| invalid_input("slide does not exist"))?;
+    let mut stats = SlideLayoutStatistics {
+        elements: slide.elements.len(),
+        text_elements: 0,
+        shapes: 0,
+        images: 0,
+        content_bounds: None,
+    };
+    let mut left = f32::INFINITY;
+    let mut top = f32::INFINITY;
+    let mut right: f32 = f32::NEG_INFINITY;
+    let mut bottom: f32 = f32::NEG_INFINITY;
+    for element in &slide.elements {
+        match element.kind {
+            ElementKind::Text { .. } => stats.text_elements += 1,
+            ElementKind::Shape { .. } => stats.shapes += 1,
+            ElementKind::Image { .. } => stats.images += 1,
+        }
+        left = left.min(element.bounds.x);
+        top = top.min(element.bounds.y);
+        right = right.max(element.bounds.x + element.bounds.width);
+        bottom = bottom.max(element.bounds.y + element.bounds.height);
+    }
+    if stats.elements > 0 {
+        stats.content_bounds = Some(Rect::new(left, top, right - left, bottom - top)?);
+    }
+    Ok(stats)
+}
+
 /// Aggregate speaker-note metrics across all slides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpeakerNotesStatistics {
@@ -4930,6 +4976,26 @@ mod tests {
         assert_eq!(stats.slides_with_notes, 2);
         assert_eq!(stats.characters, 22);
         assert_eq!(stats.words, 5);
+    }
+
+    #[test]
+    fn slide_layout_statistics_count_objects_and_union_bounds() {
+        let mut deck = Presentation::new("Layout", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        deck.add_text(slide, rect(10.0, 20.0, 100.0, 30.0), "Title", TextStyle::default()).unwrap();
+        deck.add_shape(slide, rect(50.0, 60.0, 40.0, 20.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        deck.add_image(slide, rect(5.0, 5.0, 10.0, 10.0), "asset://logo", "Logo").unwrap();
+        let stats = slide_layout_statistics(&deck, slide).unwrap();
+        assert_eq!(stats.elements, 3);
+        assert_eq!(stats.text_elements, 1);
+        assert_eq!(stats.shapes, 1);
+        assert_eq!(stats.images, 1);
+        let bounds = stats.content_bounds.unwrap();
+        assert_eq!(bounds.x(), 5.0);
+        assert_eq!(bounds.y(), 5.0);
+        assert_eq!(bounds.width(), 105.0);
+        assert_eq!(bounds.height(), 55.0);
+        assert!(slide_layout_statistics(&deck, u64::MAX).is_err());
     }
 
     #[test]
