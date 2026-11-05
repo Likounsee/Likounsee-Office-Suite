@@ -497,8 +497,7 @@ impl<'a> Parser<'a> {
     }
     fn identifier_or_function(&mut self) -> Result<f64, FormulaError> {
         let start = self.cursor;
-        while matches!(
-            self.peek(),
+        while matches!(            self.peek(),
             Some(b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_')
         ) {
             self.cursor += 1;
@@ -997,8 +996,7 @@ mod tests {
         let a3 = CellAddress::parse_a1("A3").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let c1 = CellAddress::parse_a1("C1").unwrap();
-        book.set_number(sheet, a1, 2.0).unwrap();
-        book.set_number(sheet, a2, 3.5).unwrap();
+        book.set_number(sheet, a1, 2.0).unwrap();        book.set_number(sheet, a2, 3.5).unwrap();
         book.set_text(sheet, a3, "ignored").unwrap();
         book.set_number(sheet, b1, 4.0).unwrap();
         book.set_formula(sheet, c1, "=SUM(A1:A3,B1,4)").unwrap();
@@ -1121,6 +1119,40 @@ mod tests {
 
         book.set_number(1, a1, 9.0).unwrap();
         assert_eq!(book.value(1, c1), CellValue::Number(27.0));
+    }
+
+    #[test]
+    fn batch_cache_handles_cross_sheet_ranges_and_error_dependencies() {
+        let mut book = Workbook::new();
+        let source = book.add_sheet("Source Data").unwrap();
+        let summary = book.add_sheet("Summary").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(source, a1, 3.0).unwrap();
+        book.set_number(source, a2, 5.0).unwrap();
+        book.set_formula(summary, b1, "=SUM('Source Data'!A1:A2)").unwrap();
+        book.set_formula(summary, c1, "=B1+'Source Data'!A2").unwrap();
+
+        assert_eq!(
+            book.values(&[(summary, c1), (summary, b1), (summary, c1)]),
+            vec![
+                CellValue::Number(13.0),
+                CellValue::Number(8.0),
+                CellValue::Number(13.0),
+            ]
+        );
+
+        book.set_formula(source, a2, "=1/0").unwrap();
+        assert_eq!(
+            book.values(&[(summary, b1), (summary, c1)]),
+            vec![
+                CellValue::Error(FormulaError::DivisionByZero),
+                CellValue::Error(FormulaError::DivisionByZero),
+            ]
+        );
     }
 
     #[test]
