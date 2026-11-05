@@ -1653,6 +1653,62 @@ mod tests {
     }
 
     #[test]
+    fn targeted_recalculation_tracks_single_cell_changes_inside_ranges() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(data, a1, 1.0).unwrap();
+        book.set_number(data, a2, 2.0).unwrap();
+        book.set_number(data, a3, 3.0).unwrap();
+        book.set_formula(report, b1, "=SUM(Data!A1:A3)").unwrap();
+        book.set_formula(report, c1, "=B1*10").unwrap();
+
+        book.set_number(data, a2, 20.0).unwrap();
+        assert_eq!(
+            book.recalculate_after_change(data, a2).unwrap(),
+            vec![
+                ((report, b1), CellValue::Number(24.0)),
+                ((report, c1), CellValue::Number(240.0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn targeted_recalculation_handles_cleared_inputs_and_formula_replacement() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(1, a1, 8.0).unwrap();
+        book.set_formula(1, b1, "=A1*2").unwrap();
+        book.set_formula(1, c1, "=B1+1").unwrap();
+        book.clear_cell(1, a1).unwrap();
+        assert_eq!(
+            book.recalculate_after_change(1, a1).unwrap(),
+            vec![
+                ((1, b1), CellValue::Number(0.0)),
+                ((1, c1), CellValue::Number(1.0)),
+            ]
+        );
+
+        book.set_formula(1, a1, "=10+5").unwrap();
+        assert_eq!(
+            book.recalculate_after_change(1, a1).unwrap(),
+            vec![
+                ((1, b1), CellValue::Number(30.0)),
+                ((1, c1), CellValue::Number(31.0)),
+            ]
+        );
+    }
+
+    #[test]
     fn recalculation_order_is_empty_for_cells_without_dependents() {
         let book = Workbook::new();
         let a1 = CellAddress::parse_a1("A1").unwrap();
