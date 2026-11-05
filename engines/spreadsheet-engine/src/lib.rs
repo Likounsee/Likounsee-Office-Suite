@@ -1376,7 +1376,9 @@ impl<'a> Parser<'a> {
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
                 | "MOD" | "LOG" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN"
                 | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "PI" | "SINH" | "COSH" | "TANH"
-                | "COT" | "FACT" | "TRUNC" | "CEILING" | "FLOOR" => {\n                    self.math_function_arguments(&function)\n                },
+                | "COT" | "FACT" | "TRUNC" | "CEILING" | "FLOOR" => {
+                    self.math_function_arguments(&function)
+                },
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
