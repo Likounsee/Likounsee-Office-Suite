@@ -1,7 +1,8 @@
 //! UI-independent presentation model, validation and versioned persistence.
 //!
 //! Coordinates are expressed in points. Image sources are references (paths or
-//! URIs); the engine does not decode or embed image bytes yet.
+//! URIs); PDF can embed host-supplied JPEG bytes through `PdfImageProvider` without
+//! decoding them, while SVG keeps external references and PNG uses a host rasterizer.
 
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
