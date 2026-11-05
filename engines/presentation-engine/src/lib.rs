@@ -389,9 +389,15 @@ pub struct TextSearchMatch {
     end: usize,
 }
 impl TextSearchMatch {
-    pub fn slide_id(&self) -> u64 { self.slide_id }
-    pub fn element_id(&self) -> u64 { self.element_id }
-    pub fn range(&self) -> std::ops::Range<usize> { self.start..self.end }
+    pub fn slide_id(&self) -> u64 {
+        self.slide_id
+    }
+    pub fn element_id(&self) -> u64 {
+        self.element_id
+    }
+    pub fn range(&self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -479,11 +485,17 @@ impl Presentation {
         if query.is_empty() {
             return Err(invalid_input("text search query cannot be empty"));
         }
-        let needle = if case_sensitive { query.to_owned() } else { query.to_lowercase() };
+        let needle = if case_sensitive {
+            query.to_owned()
+        } else {
+            query.to_lowercase()
+        };
         let mut matches = Vec::new();
         for slide in &self.slides {
             for element in &slide.elements {
-                let ElementKind::Text { text, .. } = &element.kind else { continue };
+                let ElementKind::Text { text, .. } = &element.kind else {
+                    continue;
+                };
                 if case_sensitive {
                     for (start, _) in text.match_indices(query) {
                         matches.push(TextSearchMatch {
@@ -4662,19 +4674,22 @@ mod tests {
     fn text_search_finds_multiple_matches_and_respects_case_sensitivity() {
         let mut deck = Presentation::new("Search", 960.0, 540.0).unwrap();
         let first_slide = deck.slides()[0].id();
-        let first = deck.add_text(
-            first_slide,
-            rect(10.0, 10.0, 300.0, 40.0),
-            "Office office",
-            TextStyle::default(),
-        ).unwrap();
+        let first = deck
+            .add_text(
+                first_slide,
+                rect(10.0, 10.0, 300.0, 40.0),
+                "Office office",
+                TextStyle::default(),
+            )
+            .unwrap();
         let second_slide = deck.add_slide("Second").unwrap();
         deck.add_text(
             second_slide,
             rect(10.0, 10.0, 300.0, 40.0),
             "Office suite",
             TextStyle::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let all = deck.find_text("office", false).unwrap();
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].slide_id(), first_slide);

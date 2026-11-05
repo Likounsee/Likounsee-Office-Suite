@@ -460,14 +460,18 @@ pub fn export_text(document: &Document) -> io::Result<String> {
         }
         match *block {
             DocumentBlock::Paragraph(id) => {
-                let paragraph = document.paragraphs.iter()
+                let paragraph = document
+                    .paragraphs
+                    .iter()
                     .find(|paragraph| paragraph.id == id)
                     .ok_or_else(|| invalid_data("document block references a missing paragraph"))?;
                 output.push_str(&paragraph.text);
                 output.push('\n');
             }
             DocumentBlock::Table(id) => {
-                let table = document.tables.iter()
+                let table = document
+                    .tables
+                    .iter()
                     .find(|table| table.id == id)
                     .ok_or_else(|| invalid_data("document block references a missing table"))?;
                 for (row_index, row) in table.rows.iter().enumerate() {

@@ -3345,7 +3345,10 @@ mod tests {
         for (index, formula) in ["=FACT(-1)", "=FACT(2.5)", "=FACT(171)"].iter().enumerate() {
             let address = CellAddress::new(index as u32, 12).unwrap();
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Number));
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(FormulaError::Number)
+            );
         }
     }
 
