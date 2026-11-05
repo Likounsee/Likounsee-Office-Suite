@@ -1519,6 +1519,8 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
     .expect("writing to String cannot fail");
     writeln!(svg, "<title>{}</title>", escape_xml(&slide.name))
         .expect("writing to String cannot fail");
+    writeln!(svg, "<desc>{}</desc>", escape_xml(presentation.title()))
+        .expect("writing to String cannot fail");
     svg.push_str("<defs><marker id=\"arrowhead\" markerWidth=\"10\" markerHeight=\"7\" refX=\"9\" refY=\"3.5\" orient=\"auto\"><polygon points=\"0 0, 10 3.5, 0 7\" fill=\"context-stroke\"/></marker></defs>\n");
     writeln!(
         svg,
