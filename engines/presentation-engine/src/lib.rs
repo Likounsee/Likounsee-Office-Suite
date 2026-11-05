@@ -1844,11 +1844,16 @@ fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Res
     if slides.is_empty() {
         return Err(invalid_input("a PDF must contain at least one page"));
     }
-    let mut objects: Vec<Vec<u8>> = vec![Vec::new(); 7 + slides.len() * 2];
+    // Twelve built-in PDF Type 1 fonts: Helvetica, Times and Courier,
+    // each with regular, bold, italic and bold-italic variants.
+    const FONT_COUNT: usize = 12;
+    const FIRST_PAGE_ID: usize = 3 + FONT_COUNT;
+    let mut objects: Vec<Vec<u8>> =
+        vec![Vec::new(); FIRST_PAGE_ID + slides.len() * 2];
     objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>".to_vec();
 
     let page_ids = (0..slides.len())
-        .map(|index| 7 + index * 2)
+        .map(|index| FIRST_PAGE_ID + index * 2)
         .collect::<Vec<_>>();
     let kids = page_ids
         .iter()
@@ -1862,24 +1867,39 @@ fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Res
     )
     .into_bytes();
 
-    for (index, base_font) in [
-        (3, "Helvetica"),
-        (4, "Helvetica-Bold"),
-        (5, "Helvetica-Oblique"),
-        (6, "Helvetica-BoldOblique"),
-    ] {
-        objects[index] = format!(
+    let font_names = [
+        "Helvetica",
+        "Helvetica-Bold",
+        "Helvetica-Oblique",
+        "Helvetica-BoldOblique",
+        "Times-Roman",
+        "Times-Bold",
+        "Times-Italic",
+        "Times-BoldItalic",
+        "Courier",
+        "Courier-Bold",
+        "Courier-Oblique",
+        "Courier-BoldOblique",
+    ];
+    for (offset, base_font) in font_names.iter().enumerate() {
+        let object_id = 3 + offset;
+        objects[object_id] = format!(
             "<< /Type /Font /Subtype /Type1 /BaseFont /{base_font} /Encoding /WinAnsiEncoding >>"
         )
         .into_bytes();
     }
+
+    let font_resources = (0..FONT_COUNT)
+        .map(|offset| format!("/F{} {} 0 R", offset + 1, offset + 3))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     for (index, slide) in slides.iter().enumerate() {
         let page_id = page_ids[index];
         let content_id = page_id + 1;
         let stream = render_pdf_page_content(presentation, slide)?;
         objects[page_id] = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> /Contents {content_id} 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {font_resources} >> >> /Contents {content_id} 0 R >>",
             presentation.width, presentation.height
         )
         .into_bytes();
@@ -1915,6 +1935,49 @@ fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Res
     Ok(pdf)
 }
 
+/// Map common font-family names to the portable PDF base-14 font families.
+/// Fonts outside these families fall back to Helvetica; arbitrary fonts are not embedded.
+fn pdf_font_resource(family: &str, bold: bool, italic: bool) -> &'static str {
+    let normalized = family
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    let family_offset = if normalized.contains("courier")
+        || normalized.contains("consolas")
+        || normalized.contains("monospace")
+    {
+        8
+    } else if normalized.contains("times")
+        || normalized.contains("georgia")
+        || normalized.contains("serif")
+    {
+        4
+    } else {
+        0
+    };
+    let style_offset = match (bold, italic) {
+        (false, false) => 0,
+        (true, false) => 1,
+        (false, true) => 2,
+        (true, true) => 3,
+    };
+    match family_offset + style_offset {
+        0 => "F1",
+        1 => "F2",
+        2 => "F3",
+        3 => "F4",
+        4 => "F5",
+        5 => "F6",
+        6 => "F7",
+        7 => "F8",
+        8 => "F9",
+        9 => "F10",
+        10 => "F11",
+        _ => "F12",
+    }
+}
+
 fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Result<String> {
     let mut output = String::with_capacity(4096);
     let page_height = presentation.height;
@@ -1931,12 +1994,7 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
         let bottom = page_height - bounds.y - bounds.height;
         match &element.kind {
             ElementKind::Text { text, style } => {
-                let font = match (style.bold, style.italic) {
-                    (false, false) => "F1",
-                    (true, false) => "F2",
-                    (false, true) => "F3",
-                    (true, true) => "F4",
-                };
+                let font = pdf_font_resource(&style.font_family, style.bold, style.italic);
                 let color = pdf_rgb(style.color);
                 let lines = wrap_text_for_svg(text, bounds.width, style.font_size);
                 let line_height = style.font_size * 1.2;
@@ -3209,10 +3267,22 @@ mod tests {
         assert!(content.contains("/Type /Catalog"));
         assert!(content.contains("/Count 1"));
         assert!(content.contains("/Helvetica-BoldOblique"));
+        assert!(content.contains("/Times-BoldItalic"));
+        assert!(content.contains("/Courier-BoldOblique"));
         assert!(content.contains("426F6E6A6F75722080209720E974E9"));
         assert!(content.contains(" re W n"));
         assert!(content.ends_with("%%EOF\n"));
         assert!(render_slide_pdf(&deck, 999).is_err());
+    }
+
+    #[test]
+    fn pdf_font_selection_maps_common_families_and_falls_back_safely() {
+        assert_eq!(pdf_font_resource("Arial", false, false), "F1");
+        assert_eq!(pdf_font_resource("Times New Roman", true, true), "F8");
+        assert_eq!(pdf_font_resource("Georgia", true, false), "F6");
+        assert_eq!(pdf_font_resource("Consolas", false, true), "F11");
+        assert_eq!(pdf_font_resource("Courier New", true, false), "F10");
+        assert_eq!(pdf_font_resource("Inter Display", false, false), "F1");
     }
 
     #[test]
@@ -3231,7 +3301,7 @@ mod tests {
         let pdf = render_presentation_pdf(&deck).unwrap();
         let content = String::from_utf8_lossy(&pdf);
         assert!(content.contains("/Count 2"));
-        assert!(content.contains("/Kids [7 0 R 9 0 R]"));
+        assert!(content.contains("/Kids [15 0 R 17 0 R]"));
         assert!(content.contains("50686F746F206E6F6E20696E74E96772E965"));
         assert!(content.contains("[4 3] 0 d"));
         assert!(content.contains("/MediaBox [0 0 640 360]"));
