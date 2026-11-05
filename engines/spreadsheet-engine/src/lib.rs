@@ -854,7 +854,10 @@ pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String
 }
 
 fn csv_escape(value: &str) -> String {
-    if value.contains([',', '"', '\r', '\n']) || value.starts_with(' ') || value.ends_with(' ') {
+    if value.chars().any(|character| matches!(character, ',' | '"' | '\r' | '\n'))
+        || value.starts_with(' ')
+        || value.ends_with(' ')
+    {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_owned()
@@ -2232,6 +2235,38 @@ fn invalid_data(message: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn csv_import_export_preserves_types_formulas_and_quoted_text() {
+        let csv = "Name,Amount,Enabled,Formula\r\n\"Widget, A\",12.5,true,=B2*2\r\n\"She said \"\"hello\"\"\",,false,";
+        let mut workbook = import_csv("Imported", csv).unwrap();
+        let sheet_id = workbook.sheets()[0].id();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let b2 = CellAddress::parse_a1("B2").unwrap();
+        let c2 = CellAddress::parse_a1("C2").unwrap();
+        let d2 = CellAddress::parse_a1("D2").unwrap();
+        assert_eq!(workbook.value(sheet_id, a2), CellValue::Text("Widget, A".into()));
+        assert_eq!(workbook.value(sheet_id, b2), CellValue::Number(12.5));
+        assert_eq!(workbook.value(sheet_id, c2), CellValue::Boolean(true));
+        assert_eq!(workbook.value(sheet_id, d2), CellValue::Number(25.0));
+        let exported = export_sheet_csv(&workbook, sheet_id).unwrap();
+        assert!(exported.starts_with("Name,Amount,Enabled,Formula\r\n"));
+        assert!(exported.contains("\"Widget, A\",12.5,true,=B2*2\r\n"));
+        assert!(exported.contains("\"She said \"\"hello\"\"\""));
+        assert_eq!(workbook.value(sheet_id, d2), CellValue::Number(25.0));
+        workbook.set_text(sheet_id, CellAddress::parse_a1("E2").unwrap(), " leading ").unwrap();
+        assert!(export_sheet_csv(&workbook, sheet_id).unwrap().contains("\" leading \""));
+    }
+
+    #[test]
+    fn csv_parser_rejects_malformed_quotes_and_accepts_empty_fields() {
+        assert!(import_csv("Bad", "\"unterminated").is_err());
+        assert!(import_csv("Bad", "\"closed\"x,1").is_err());
+        let workbook = import_csv("Empty", "a,,c\r\n,2,").unwrap();
+        let sheet = workbook.sheets()[0].id();
+        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()), CellValue::Blank);
+        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B2").unwrap()), CellValue::Number(2.0));
+    }
+
     #[test]
     fn engine_has_a_name() {
         assert_eq!(engine_name(), "Spreadsheet Engine");
