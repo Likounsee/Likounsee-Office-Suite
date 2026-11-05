@@ -2623,10 +2623,10 @@ fn points_to_emu(points: f32) -> u64 {
 fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
     let mut xml = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name="<p:bgPr><a:solidFill><a:srgbClr val=""#,
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld name=""#,
     );
     xml.push_str(&xml_escape(&slide.name));
-    xml.push_str(r#""><p:bg>"#);
+    xml.push_str(r#""><p:bg><p:bgPr><a:solidFill><a:srgbClr val=""#);
     let _ = write!(xml, "{:06X}", slide.background);
     xml.push_str(r#""/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>"#);
     for (index, element) in slide.elements.iter().enumerate() {
