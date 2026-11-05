@@ -2575,19 +2575,51 @@ impl DocumentSession {
 
     /// Move a paragraph after another paragraph, or to the end when after_id is None.
     /// Paragraph identity and formatting are preserved; moving onto itself is a no-op.
-    pub fn move_paragraph_after(&mut self, paragraph_id: u64, after_id: Option<u64>) -> io::Result<()> {
-        if after_id == Some(paragraph_id) { return Ok(()); }
+    pub fn move_paragraph_after(
+        &mut self,
+        paragraph_id: u64,
+        after_id: Option<u64>,
+    ) -> io::Result<()> {
+        if after_id == Some(paragraph_id) {
+            return Ok(());
+        }
         let mut paragraphs = self.document.paragraphs.clone();
-        let source_index = paragraphs.iter().position(|p| p.id == paragraph_id).ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
-        if let Some(anchor) = after_id { if !paragraphs.iter().any(|p| p.id == anchor) { return Err(invalid_input("target paragraph ID does not exist")); } }
+        let source_index = paragraphs
+            .iter()
+            .position(|paragraph| paragraph.id == paragraph_id)
+            .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        if let Some(anchor) = after_id {
+            if !paragraphs.iter().any(|paragraph| paragraph.id == anchor) {
+                return Err(invalid_input("target paragraph ID does not exist"));
+            }
+        }
         let paragraph = paragraphs.remove(source_index);
-        let target_index = match after_id { Some(anchor) => paragraphs.iter().position(|p| p.id == anchor).unwrap() + 1, None => paragraphs.len() };
-        if target_index == source_index { return Ok(()); }
+        let target_index = match after_id {
+            Some(anchor) => paragraphs
+                .iter()
+                .position(|paragraph| paragraph.id == anchor)
+                .unwrap()
+                + 1,
+            None => paragraphs.len(),
+        };
+        if target_index == source_index {
+            return Ok(());
+        }
         paragraphs.insert(target_index, paragraph);
-        let mut next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        let mut next = self
+            .document
+            .with_paragraphs(paragraphs, self.document.next_block_id)?;
         let block = DocumentBlock::Paragraph(paragraph_id);
         next.block_order.retain(|item| *item != block);
-        let insert_at = match after_id { Some(anchor) => next.block_order.iter().position(|item| *item == DocumentBlock::Paragraph(anchor)).map(|i| i + 1).ok_or_else(|| invalid_input("target paragraph block is missing"))?, None => next.block_order.len() };
+        let insert_at = match after_id {
+            Some(anchor) => next
+                .block_order
+                .iter()
+                .position(|item| *item == DocumentBlock::Paragraph(anchor))
+                .map(|index| index + 1)
+                .ok_or_else(|| invalid_input("target paragraph block is missing"))?,
+            None => next.block_order.len(),
+        };
         next.block_order.insert(insert_at, block);
         validate_document_size(&next)?;
         self.record_change(next)?;
