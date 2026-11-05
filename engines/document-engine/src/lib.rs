@@ -4212,7 +4212,7 @@ mod tests {
             "first\nfirst\nsecond\n"
         );
     }
-    
+
     #[test]
     fn paragraph_style_batch_is_atomic_and_advances_revision_once() {
         let directory = TestDirectory::new();
