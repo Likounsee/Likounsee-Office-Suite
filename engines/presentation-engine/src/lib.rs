@@ -1639,6 +1639,315 @@ pub fn render_all_slides_svg(presentation: &Presentation) -> io::Result<Vec<(u64
         .collect()
 }
 
+
+/// Export one slide as a standalone PDF document.
+pub fn render_slide_pdf(presentation: &Presentation, slide_id: u64) -> io::Result<Vec<u8>> {
+    presentation.validate()?;
+    let slide = presentation
+        .slide(slide_id)
+        .ok_or_else(|| invalid_input("slide does not exist"))?;
+    render_pdf_document(presentation, std::slice::from_ref(slide))
+}
+
+/// Export the complete presentation as a multi-page PDF document.
+pub fn render_presentation_pdf(presentation: &Presentation) -> io::Result<Vec<u8>> {
+    presentation.validate()?;
+    render_pdf_document(presentation, &presentation.slides)
+}
+
+fn render_pdf_document(presentation: &Presentation, slides: &[Slide]) -> io::Result<Vec<u8>> {
+    if slides.is_empty() {
+        return Err(invalid_input("a PDF must contain at least one page"));
+    }
+    let mut objects: Vec<Vec<u8>> = vec![Vec::new(); 7 + slides.len() * 2];
+    objects[1] = b"<< /Type /Catalog /Pages 2 0 R >>".to_vec();
+
+    let page_ids = (0..slides.len())
+        .map(|index| 7 + index * 2)
+        .collect::<Vec<_>>();
+    let kids = page_ids
+        .iter()
+        .map(|id| format!("{id} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    objects[2] = format!(
+        "<< /Type /Pages /Count {} /Kids [{}] >>",
+        slides.len(),
+        kids
+    )
+    .into_bytes();
+
+    for (index, base_font) in [
+        (3, "Helvetica"),
+        (4, "Helvetica-Bold"),
+        (5, "Helvetica-Oblique"),
+        (6, "Helvetica-BoldOblique"),
+    ] {
+        objects[index] = format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /{base_font} /Encoding /WinAnsiEncoding >>"
+        )
+        .into_bytes();
+    }
+
+    for (index, slide) in slides.iter().enumerate() {
+        let page_id = page_ids[index];
+        let content_id = page_id + 1;
+        let stream = render_pdf_page_content(presentation, slide)?;
+        objects[page_id] = format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> /Contents {content_id} 0 R >>",
+            presentation.width, presentation.height
+        )
+        .into_bytes();
+        let mut stream_object = format!("<< /Length {} >>\nstream\n", stream.len()).into_bytes();
+        stream_object.extend_from_slice(stream.as_bytes());
+        stream_object.extend_from_slice(b"\nendstream");
+        objects[content_id] = stream_object;
+    }
+
+    let mut pdf = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
+    let mut offsets = vec![0usize; objects.len()];
+    for id in 1..objects.len() {
+        offsets[id] = pdf.len();
+        pdf.extend_from_slice(format!("{id} 0 obj\n").as_bytes());
+        pdf.extend_from_slice(&objects[id]);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+    let xref_offset = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n", objects.len()).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R /Info << /Title <{}> >> >>\nstartxref\n{}\n%%EOF\n",
+            objects.len(),
+            pdf_hex_string(presentation.title()),
+            xref_offset
+        )
+        .as_bytes(),
+    );
+    Ok(pdf)
+}
+
+fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Result<String> {
+    let mut output = String::with_capacity(4096);
+    let page_height = presentation.height;
+    let background = pdf_rgb(slide.background);
+    writeln!(
+        output,
+        "q {background} rg 0 0 {} {} re f Q",
+        presentation.width, presentation.height
+    )
+    .expect("writing to String cannot fail");
+
+    for element in &slide.elements {
+        let bounds = element.bounds;
+        let bottom = page_height - bounds.y - bounds.height;
+        match &element.kind {
+            ElementKind::Text { text, style } => {
+                let font = match (style.bold, style.italic) {
+                    (false, false) => "F1",
+                    (true, false) => "F2",
+                    (false, true) => "F3",
+                    (true, true) => "F4",
+                };
+                let color = pdf_rgb(style.color);
+                let lines = wrap_text_for_svg(text, bounds.width, style.font_size);
+                let line_height = style.font_size * 1.2;
+                let clip_bottom = page_height - bounds.y - bounds.height;
+                writeln!(
+                    output,
+                    "q {} {} {} {} re W n",
+                    bounds.x, clip_bottom, bounds.width, bounds.height
+                )
+                .expect("writing to String cannot fail");
+                for (line_index, line) in lines.iter().enumerate() {
+                    let estimated_width = line.chars().count() as f32 * style.font_size * 0.5;
+                    let x = match style.alignment {
+                        TextAlignment::Left | TextAlignment::Justify => bounds.x,
+                        TextAlignment::Center => bounds.x + ((bounds.width - estimated_width) / 2.0).max(0.0),
+                        TextAlignment::Right => bounds.x + (bounds.width - estimated_width).max(0.0),
+                    };
+                    let baseline = page_height - bounds.y - style.font_size
+                        - line_index as f32 * line_height;
+                    writeln!(
+                        output,
+                        "BT /{font} {} Tf {color} rg 1 0 0 1 {} {} Tm <{}> Tj ET",
+                        style.font_size,
+                        x,
+                        baseline,
+                        pdf_hex_string(line)
+                    )
+                    .expect("writing to String cannot fail");
+                    if style.underline {
+                        let underline_y = baseline - style.font_size * 0.12;
+                        let underline_width = estimated_width.min(bounds.width);
+                        writeln!(
+                            output,
+                            "q {color} RG 0.6 w {} {} m {} {} l S Q",
+                            x, underline_y, x + underline_width, underline_y
+                        )
+                        .expect("writing to String cannot fail");
+                    }
+                }
+                output.push_str("Q\n");
+            }
+            ElementKind::Shape {
+                shape,
+                fill,
+                stroke,
+                stroke_width,
+            } => {
+                let fill_command = fill.map(|color| format!("{} rg ", pdf_rgb(color))).unwrap_or_default();
+                let stroke_command = stroke.map(|color| format!("{} RG ", pdf_rgb(color))).unwrap_or_default();
+                let paint = match (fill.is_some(), stroke.is_some()) {
+                    (true, true) => "B",
+                    (true, false) => "f",
+                    (false, true) => "S",
+                    (false, false) => "n",
+                };
+                match shape {
+                    ShapeKind::Rectangle => {
+                        writeln!(
+                            output,
+                            "q {fill_command}{stroke_command}{} w {} {} {} {} re {paint} Q",
+                            stroke_width, bounds.x, bottom, bounds.width, bounds.height
+                        )
+                        .expect("writing to String cannot fail");
+                    }
+                    ShapeKind::Ellipse => {
+                        let k = 0.55228475_f32;
+                        let cx = bounds.x + bounds.width / 2.0;
+                        let cy = bottom + bounds.height / 2.0;
+                        let rx = bounds.width / 2.0;
+                        let ry = bounds.height / 2.0;
+                        writeln!(
+                            output,
+                            "q {fill_command}{stroke_command}{} w {} {} m {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c {paint} Q",
+                            stroke_width,
+                            cx + rx, cy,
+                            cx + rx, cy + k * ry, cx + k * rx, cy + ry, cx, cy + ry,
+                            cx - k * rx, cy + ry, cx - rx, cy + k * ry, cx - rx, cy,
+                            cx - rx, cy - k * ry, cx - k * rx, cy - ry, cx, cy - ry,
+                            cx + k * rx, cy - ry, cx + rx, cy - k * ry, cx + rx, cy
+                        )
+                        .expect("writing to String cannot fail");
+                    }
+                    ShapeKind::Line | ShapeKind::Arrow => {
+                        let color = stroke.unwrap_or(0x000000);
+                        let x1 = bounds.x;
+                        let y1 = page_height - bounds.y;
+                        let x2 = bounds.x + bounds.width;
+                        let y2 = page_height - bounds.y - bounds.height;
+                        writeln!(
+                            output,
+                            "q {} RG {} w {} {} m {} {} l S",
+                            pdf_rgb(color), stroke_width.max(1.0), x1, y1, x2, y2
+                        )
+                        .expect("writing to String cannot fail");
+                        if *shape == ShapeKind::Arrow {
+                            let dx = x2 - x1;
+                            let dy = y2 - y1;
+                            let length = (dx * dx + dy * dy).sqrt().max(0.001);
+                            let ux = dx / length;
+                            let uy = dy / length;
+                            let head = (stroke_width.max(1.0) * 4.0).max(8.0);
+                            let half = head * 0.45;
+                            let bx = x2 - ux * head;
+                            let by = y2 - uy * head;
+                            let px = -uy * half;
+                            let py = ux * half;
+                            writeln!(
+                                output,
+                                "{} rg {} {} m {} {} l {} {} l h f Q",
+                                pdf_rgb(color), x2, y2, bx + px, by + py, bx - px, by - py
+                            )
+                            .expect("writing to String cannot fail");
+                        } else {
+                            output.push_str("Q\n");
+                        }
+                    }
+                }
+            }
+            ElementKind::Image { alt_text, .. } => {
+                // Until image decoding/embedding exists, preserve the frame and make
+                // the omission visible rather than silently dropping the element.
+                writeln!(
+                    output,
+                    "q 0.45 G 0.8 w [{}] 0 d {} {} {} {} re S Q",
+                    "4 3", bounds.x, bottom, bounds.width, bounds.height
+                )
+                .expect("writing to String cannot fail");
+                let label = if alt_text.is_empty() { "Image not embedded" } else { alt_text };
+                writeln!(
+                    output,
+                    "BT /F1 10 Tf 0.35 0.35 0.35 rg 1 0 0 1 {} {} Tm <{}> Tj ET",
+                    bounds.x + 4.0,
+                    bottom + (bounds.height / 2.0).max(10.0),
+                    pdf_hex_string(label)
+                )
+                .expect("writing to String cannot fail");
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn pdf_rgb(color: u32) -> String {
+    format!(
+        "{:.5} {:.5} {:.5}",
+        ((color >> 16) & 0xff) as f32 / 255.0,
+        ((color >> 8) & 0xff) as f32 / 255.0,
+        (color & 0xff) as f32 / 255.0
+    )
+}
+
+fn pdf_hex_string(value: &str) -> String {
+    value
+        .chars()
+        .map(pdf_win_ansi_byte)
+        .map(|byte| format!("{byte:02X}"))
+        .collect()
+}
+
+fn pdf_win_ansi_byte(character: char) -> u8 {
+    let code = character as u32;
+    if code <= 0x7f || (0xa0..=0xff).contains(&code) {
+        return code as u8;
+    }
+    match character {
+        '€' => 0x80,
+        '‚' => 0x82,
+        'ƒ' => 0x83,
+        '„' => 0x84,
+        '…' => 0x85,
+        '†' => 0x86,
+        '‡' => 0x87,
+        'ˆ' => 0x88,
+        '‰' => 0x89,
+        'Š' => 0x8a,
+        '‹' => 0x8b,
+        'Œ' => 0x8c,
+        'Ž' => 0x8e,
+        '‘' => 0x91,
+        '’' => 0x92,
+        '“' => 0x93,
+        '”' => 0x94,
+        '•' => 0x95,
+        '–' => 0x96,
+        '—' => 0x97,
+        '˜' => 0x98,
+        '™' => 0x99,
+        'š' => 0x9a,
+        '›' => 0x9b,
+        'œ' => 0x9c,
+        'ž' => 0x9e,
+        'Ÿ' => 0x9f,
+        _ => b'?',
+    }
+}
+
 fn wrap_text_for_svg(text: &str, max_width: f32, font_size: f32) -> Vec<String> {
     let max_chars = ((max_width / (font_size * 0.55)).floor() as usize).max(1);
     let mut output = Vec::new();
@@ -2524,6 +2833,64 @@ mod tests {
         }
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
+    }
+
+    #[test]
+    fn pdf_export_writes_valid_single_page_document_and_preserves_text() {
+        let mut deck = Presentation::new("PDF résumé", 800.0, 450.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let mut style = TextStyle::new("Inter", 28.0, 0x123456).unwrap();
+        style.set_emphasis(true, true, true);
+        style.set_alignment(TextAlignment::Center);
+        deck.add_text(
+            slide,
+            rect(20.0, 30.0, 300.0, 70.0),
+            "Bonjour € — été",
+            style,
+        )
+        .unwrap();
+        deck.add_shape(
+            slide,
+            rect(40.0, 120.0, 100.0, 80.0),
+            ShapeKind::Ellipse,
+            Some(0xaabbcc),
+            Some(0x010203),
+            2.0,
+        )
+        .unwrap();
+
+        let pdf = render_slide_pdf(&deck, slide).unwrap();
+        let content = String::from_utf8_lossy(&pdf);
+        assert!(content.starts_with("%PDF-1.4"));
+        assert!(content.contains("/Type /Catalog"));
+        assert!(content.contains("/Count 1"));
+        assert!(content.contains("/Helvetica-BoldOblique"));
+        assert!(content.contains("426F6E6A6F75722080209720E974E9"));
+        assert!(content.contains(" re W n"));
+        assert!(content.ends_with("%%EOF\n"));
+        assert!(render_slide_pdf(&deck, 999).is_err());
+    }
+
+    #[test]
+    fn pdf_export_preserves_slide_order_and_marks_external_images() {
+        let mut deck = Presentation::new("PDF deck", 640.0, 360.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.add_image(
+            first,
+            rect(20.0, 20.0, 160.0, 90.0),
+            "external/photo.png",
+            "Photo non intégrée",
+        )
+        .unwrap();
+        deck.add_slide("Second").unwrap();
+
+        let pdf = render_presentation_pdf(&deck).unwrap();
+        let content = String::from_utf8_lossy(&pdf);
+        assert!(content.contains("/Count 2"));
+        assert!(content.contains("/Kids [7 0 R 9 0 R]"));
+        assert!(content.contains("50686F746F206E6F6E20696E74E96772E965"));
+        assert!(content.contains("[4 3] 0 d"));
+        assert!(content.contains("/MediaBox [0 0 640 360]"));
     }
 
     #[test]
