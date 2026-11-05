@@ -1723,9 +1723,7 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
             return Err(invalid_input("PNG chunk exceeds the format size limit"));
         }
         let chunk_type = &png[offset + 4..offset + 8];
-        if !chunk_type.iter().all(u8::is_ascii_alphabetic)
-            || chunk_type[2].is_ascii_lowercase()
-        {
+        if !chunk_type.iter().all(u8::is_ascii_alphabetic) || chunk_type[2].is_ascii_lowercase() {
             return Err(invalid_input("PNG chunk type is invalid"));
         }
         let data_start = offset + 8;
@@ -1775,7 +1773,9 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
                 return Err(invalid_input("PNG dimensions must be greater than zero"));
             }
             if !valid_bit_depth || compression != 0 || filter != 0 || interlace > 1 {
-                return Err(invalid_input("PNG IHDR contains unsupported or invalid values"));
+                return Err(invalid_input(
+                    "PNG IHDR contains unsupported or invalid values",
+                ));
             }
             color_type = Some(current_color_type);
         } else if chunk_type == b"IHDR" {
@@ -3136,7 +3136,10 @@ mod tests {
         assert!(validate_png(b"not png", 320, 180).is_err());
 
         let mut invalid_ihdr = test_png(320, 180);
-        let ihdr_type = invalid_ihdr.windows(4).position(|window| window == b"IHDR").unwrap();
+        let ihdr_type = invalid_ihdr
+            .windows(4)
+            .position(|window| window == b"IHDR")
+            .unwrap();
         let bit_depth = ihdr_type + 4 + 8;
         invalid_ihdr[bit_depth] = 3;
         let ihdr_crc = ihdr_type + 4 + 13;
@@ -3145,13 +3148,21 @@ mod tests {
         assert!(validate_png(&invalid_ihdr, 320, 180).is_err());
 
         let mut non_consecutive_idat = test_png(320, 180);
-        let idat_type = non_consecutive_idat.windows(4).position(|window| window == b"IDAT").unwrap();
+        let idat_type = non_consecutive_idat
+            .windows(4)
+            .position(|window| window == b"IDAT")
+            .unwrap();
         let idat_length = u32::from_be_bytes(
-            non_consecutive_idat[idat_type - 4..idat_type].try_into().unwrap(),
+            non_consecutive_idat[idat_type - 4..idat_type]
+                .try_into()
+                .unwrap(),
         ) as usize;
         let idat_end = idat_type + 4 + idat_length + 4;
         let duplicate_idat = non_consecutive_idat[idat_type - 4..idat_end].to_vec();
-        let iend_type = non_consecutive_idat.windows(4).position(|window| window == b"IEND").unwrap();
+        let iend_type = non_consecutive_idat
+            .windows(4)
+            .position(|window| window == b"IEND")
+            .unwrap();
         let ancillary = {
             let mut chunk = Vec::new();
             chunk.extend_from_slice(&0u32.to_be_bytes());
