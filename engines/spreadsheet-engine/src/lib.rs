@@ -745,8 +745,6 @@ impl Workbook {
         }
         Ok(changed)
     }
-
-
     /// Journal a group of text edits together and rebuild formula dependencies once.
     pub fn set_texts_batch(
         &mut self,
@@ -6450,5 +6448,4 @@ mod session_tests {
             CellValue::Text("beta".into())
         );
     }
-
 }

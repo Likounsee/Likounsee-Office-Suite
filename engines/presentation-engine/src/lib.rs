@@ -1246,8 +1246,6 @@ impl Presentation {
         }
         Ok(())
     }
-
-
     /// Apply text styles to multiple text elements in one atomic revision.
     /// Duplicate IDs, missing elements, non-text elements and invalid styles reject the batch.
     pub fn set_text_styles_batch(
@@ -6251,5 +6249,4 @@ mod tests {
         );
         assert_eq!(deck.revision(), revision + 1);
     }
-
 }
