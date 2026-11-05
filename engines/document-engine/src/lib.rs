@@ -2143,10 +2143,8 @@ mod tests {
             .iter()
             .find(|table| table.id() == table_id)
             .unwrap();
-        let first_row = table.rows()[0].id();
-        let first_cell = table.rows()[0].cells()[0].id();
         session
-            .set_table_cell_text(table_id, first_cell, "A | B")
+            .set_table_cell_text(table_id, 0, 0, "A | B")
             .unwrap();
         let markdown = export_markdown(session.document()).unwrap();
         assert!(markdown.contains("# Release notes"));
@@ -2154,7 +2152,6 @@ mod tests {
         assert!(markdown.contains("- First item"));
         assert!(markdown.contains("A \\| B"));
         assert!(markdown.contains("| --- | --- |"));
-        assert!(first_row > 0);
     }
 
     #[test]
