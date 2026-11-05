@@ -773,6 +773,60 @@ impl Presentation {
         Ok(())
     }
 
+    /// Align one or more elements against the presentation canvas.
+    /// Unlike group alignment, this also supports a single selected element.
+    pub fn align_elements_to_canvas(
+        &mut self,
+        slide_id: u64,
+        element_ids: &[u64],
+        alignment: ElementAlignment,
+    ) -> io::Result<()> {
+        if element_ids.is_empty() {
+            return Err(invalid_input("at least one element is required for canvas alignment"));
+        }
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        let mut selected = std::collections::HashSet::new();
+        let mut updates = Vec::with_capacity(element_ids.len());
+        for id in element_ids {
+            if !selected.insert(*id) {
+                return Err(invalid_input("element selection contains duplicate IDs"));
+            }
+            let index = slide
+                .elements
+                .iter()
+                .position(|element| element.id == *id)
+                .ok_or_else(|| invalid_input("element does not exist"))?;
+            let mut bounds = slide.elements[index].bounds;
+            match alignment {
+                ElementAlignment::Left => bounds.x = 0.0,
+                ElementAlignment::CenterHorizontal => {
+                    bounds.x = (self.width - bounds.width) / 2.0;
+                }
+                ElementAlignment::Right => bounds.x = self.width - bounds.width,
+                ElementAlignment::Top => bounds.y = 0.0,
+                ElementAlignment::CenterVertical => {
+                    bounds.y = (self.height - bounds.height) / 2.0;
+                }
+                ElementAlignment::Bottom => bounds.y = self.height - bounds.height,
+            }
+            bounds.validate()?;
+            if bounds != slide.elements[index].bounds {
+                updates.push((index, bounds));
+            }
+        }
+        if updates.is_empty() {
+            return Ok(());
+        }
+        self.bump_revision()?;
+        let elements = &mut self.slide_mut(slide_id)?.elements;
+        for (index, bounds) in updates {
+            elements[index].bounds = bounds;
+        }
+        Ok(())
+    }
+
     /// Distribute three or more elements evenly between the first and last positions.
     /// The input order is ignored; elements are sorted by their current axis position.
     pub fn distribute_elements(
@@ -1857,6 +1911,48 @@ mod tests {
                 .collect::<Vec<_>>(),
             order
         );
+    }
+
+    #[test]
+    fn aligns_single_and_multiple_elements_to_the_canvas() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let first = deck
+            .add_shape(
+                slide,
+                rect(10.0, 20.0, 100.0, 40.0),
+                ShapeKind::Rectangle,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+        let second = deck
+            .add_shape(
+                slide,
+                rect(250.0, 80.0, 60.0, 30.0),
+                ShapeKind::Ellipse,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+
+        deck.align_elements_to_canvas(
+            slide,
+            &[first],
+            ElementAlignment::CenterHorizontal,
+        )
+        .unwrap();
+        deck.align_elements_to_canvas(slide, &[first, second], ElementAlignment::Bottom)
+            .unwrap();
+
+        let elements = deck.slide(slide).unwrap();
+        assert_eq!(elements.element(first).unwrap().bounds().x(), 430.0);
+        assert_eq!(elements.element(first).unwrap().bounds().y(), 500.0);
+        assert_eq!(elements.element(second).unwrap().bounds().y(), 510.0);
+        let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
+        assert_eq!(restored, deck);
     }
 
     #[test]
