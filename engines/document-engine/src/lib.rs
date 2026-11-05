@@ -579,9 +579,8 @@ pub fn export_plain_text(document: &Document) -> io::Result<String> {
 
 pub fn export_html(document: &Document) -> io::Result<String> {
     validate_document_size(document)?;
-    let mut output = String::from(
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n",
-    );
+    let mut output =
+        String::from("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
     output.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     output.push_str("<title>");
     output.push_str(&html_escape(&document.title));
