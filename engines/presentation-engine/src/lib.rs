@@ -7,8 +7,8 @@
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Cursor, Write};
-use zip::write::FileOptions;
 use zip::ZipWriter;
+use zip::write::FileOptions;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -2488,7 +2488,8 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
     let options = FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
-    let mut types = String::from(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    let mut types = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
@@ -2498,21 +2499,39 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
 <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
 "#);
     for i in 0..presentation.slides.len() {
-        let _ = write!(types, r#"<Override PartName="/ppt/slides/slide{}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>"#, i + 1);
+        let _ = write!(
+            types,
+            r#"<Override PartName="/ppt/slides/slide{}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>"#,
+            i + 1
+        );
     }
     types.push_str("</Types>");
 
-    let mut pres = String::from(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    let mut pres = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>"#);
-    let mut pres_rels = String::from(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>"#,
+    );
+    let mut pres_rels = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>"#);
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>"#,
+    );
     for i in 0..presentation.slides.len() {
         let _ = write!(pres, r#"<p:sldId id="{}" r:id="rId{}"/>"#, 256 + i, i + 2);
-        let _ = write!(pres_rels, r#"<Relationship Id="rId{}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide{}.xml"/>"#, i + 2, i + 1);
+        let _ = write!(
+            pres_rels,
+            r#"<Relationship Id="rId{}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide{}.xml"/>"#,
+            i + 2,
+            i + 1
+        );
     }
-    let _ = write!(pres, r#"</p:sldIdLst><p:sldSz cx="{}" cy="{}" type="custom"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>"#, points_to_emu(presentation.width), points_to_emu(presentation.height));
+    let _ = write!(
+        pres,
+        r#"</p:sldIdLst><p:sldSz cx="{}" cy="{}" type="custom"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>"#,
+        points_to_emu(presentation.width),
+        points_to_emu(presentation.height)
+    );
     pres_rels.push_str("</Relationships>");
 
     let root_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -2531,25 +2550,65 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
     write_pptx_part(&mut zip, "[Content_Types].xml", types.as_bytes(), options)?;
     write_pptx_part(&mut zip, "_rels/.rels", root_rels.as_bytes(), options)?;
     write_pptx_part(&mut zip, "ppt/presentation.xml", pres.as_bytes(), options)?;
-    write_pptx_part(&mut zip, "ppt/_rels/presentation.xml.rels", pres_rels.as_bytes(), options)?;
-    write_pptx_part(&mut zip, "ppt/slideMasters/slideMaster1.xml", master.as_bytes(), options)?;
-    write_pptx_part(&mut zip, "ppt/slideMasters/_rels/slideMaster1.xml.rels", master_rels.as_bytes(), options)?;
-    write_pptx_part(&mut zip, "ppt/slideLayouts/slideLayout1.xml", layout.as_bytes(), options)?;
-    write_pptx_part(&mut zip, "ppt/slideLayouts/_rels/slideLayout1.xml.rels", layout_rels.as_bytes(), options)?;
+    write_pptx_part(
+        &mut zip,
+        "ppt/_rels/presentation.xml.rels",
+        pres_rels.as_bytes(),
+        options,
+    )?;
+    write_pptx_part(
+        &mut zip,
+        "ppt/slideMasters/slideMaster1.xml",
+        master.as_bytes(),
+        options,
+    )?;
+    write_pptx_part(
+        &mut zip,
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+        master_rels.as_bytes(),
+        options,
+    )?;
+    write_pptx_part(
+        &mut zip,
+        "ppt/slideLayouts/slideLayout1.xml",
+        layout.as_bytes(),
+        options,
+    )?;
+    write_pptx_part(
+        &mut zip,
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+        layout_rels.as_bytes(),
+        options,
+    )?;
     write_pptx_part(&mut zip, "ppt/theme/theme1.xml", theme.as_bytes(), options)?;
     for (i, slide) in presentation.slides.iter().enumerate() {
         let xml = pptx_slide_xml(slide)?;
-        write_pptx_part(&mut zip, &format!("ppt/slides/slide{}.xml", i + 1), xml.as_bytes(), options)?;
+        write_pptx_part(
+            &mut zip,
+            &format!("ppt/slides/slide{}.xml", i + 1),
+            xml.as_bytes(),
+            options,
+        )?;
         let rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>"#;
-        write_pptx_part(&mut zip, &format!("ppt/slides/_rels/slide{}.xml.rels", i + 1), rels.as_bytes(), options)?;
+        write_pptx_part(
+            &mut zip,
+            &format!("ppt/slides/_rels/slide{}.xml.rels", i + 1),
+            rels.as_bytes(),
+            options,
+        )?;
     }
     zip.finish()
         .map(|cursor| cursor.into_inner())
         .map_err(|error| io::Error::other(format!("PPTX ZIP finalization failed: {error}")))
 }
 
-fn write_pptx_part(zip: &mut ZipWriter<Cursor<Vec<u8>>>, path: &str, bytes: &[u8], options: FileOptions) -> io::Result<()> {
+fn write_pptx_part(
+    zip: &mut ZipWriter<Cursor<Vec<u8>>>,
+    path: &str,
+    bytes: &[u8],
+    options: FileOptions,
+) -> io::Result<()> {
     zip.start_file(path, options)
         .map_err(|error| io::Error::other(format!("PPTX ZIP entry failed: {error}")))?;
     zip.write_all(bytes)
@@ -2560,22 +2619,46 @@ fn points_to_emu(points: f32) -> u64 {
 }
 
 fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
-    let mut xml = String::from(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val=""#);
+    let mut xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val=""#,
+    );
     let _ = write!(xml, "{:06X}", slide.background);
     xml.push_str(r#""/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>"#);
     for (index, element) in slide.elements.iter().enumerate() {
         let id = index + 2;
         let b = element.bounds;
-        let _ = write!(xml, r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Object {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm>"#, points_to_emu(b.x), points_to_emu(b.y), points_to_emu(b.width), points_to_emu(b.height));
+        let _ = write!(
+            xml,
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="Object {id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{}" y="{}"/><a:ext cx="{}" cy="{}"/></a:xfrm>"#,
+            points_to_emu(b.x),
+            points_to_emu(b.y),
+            points_to_emu(b.width),
+            points_to_emu(b.height)
+        );
         match &element.kind {
             ElementKind::Text { text, style } => {
                 xml.push_str(r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/><a:p><a:pPr algn=""#);
-                xml.push_str(match style.alignment { TextAlignment::Left => "l", TextAlignment::Center => "ctr", TextAlignment::Right => "r", TextAlignment::Justify => "just" });
+                xml.push_str(match style.alignment {
+                    TextAlignment::Left => "l",
+                    TextAlignment::Center => "ctr",
+                    TextAlignment::Right => "r",
+                    TextAlignment::Justify => "just",
+                });
                 let _ = write!(xml, r#""/><a:r><a:rPr lang="en-US" sz="{}" b="{}" i="{}" u="{}"><a:solidFill><a:srgbClr val="{:06X}"/></a:solidFill><a:latin typeface="{}"/></a:rPr><a:t xml:space="preserve">{}</a:t></a:r><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>"#, (style.font_size * 100.0).round() as u32, if style.bold { 1 } else { 0 }, if style.italic { 1 } else { 0 }, if style.underline { "sng" } else { "none" }, style.color, xml_escape(&style.font_family), xml_escape(text));
             }
-            ElementKind::Shape { shape, fill, stroke, stroke_width } => {
-                let geom = match shape { ShapeKind::Rectangle => "rect", ShapeKind::Ellipse => "ellipse", ShapeKind::Line => "line", ShapeKind::Arrow => "rightArrow" };
+            ElementKind::Shape {
+                shape,
+                fill,
+                stroke,
+                stroke_width,
+            } => {
+                let geom = match shape {
+                    ShapeKind::Rectangle => "rect",
+                    ShapeKind::Ellipse => "ellipse",
+                    ShapeKind::Line => "line",
+                    ShapeKind::Arrow => "rightArrow",
+                };
                 let _ = write!(xml, r#"<a:prstGeom prst="{geom}"><a:avLst/></a:prstGeom>"#);
                 if let Some(color) = fill { let _ = write!(xml, r#"<a:solidFill><a:srgbClr val="{color:06X}"/></a:solidFill>"#); } else { xml.push_str("<a:noFill/>"); }
                 if let Some(color) = stroke { let _ = write!(xml, r#"<a:ln w="{}"><a:solidFill><a:srgbClr val="{color:06X}"/></a:solidFill></a:ln>"#, (stroke_width * 12_700.0).round() as u64); } else { xml.push_str("<a:ln><a:noFill/></a:ln>"); }
