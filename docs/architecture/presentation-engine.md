@@ -15,7 +15,7 @@ application and can be used by a future presentation editor, command-line tool o
 - Multi-selection alignment against the collective bounding box or the slide canvas (left, horizontal center, right, top, vertical center and bottom).
 - Even horizontal or vertical distribution of three or more selected elements.
 - Text content/style updates, shape style updates, image source/alt-text updates.
-- Global presentation themes with title/body typography, slide backgrounds and accent colors, plus built-in Light, Dark, Business and High contrast presets. Applying a theme updates all existing slides atomically while preserving text emphasis/alignment, geometry, shape strokes, notes and image references; the resulting styles are persisted by the normal presentation serializer.
+- Global presentation themes with title/body typography, slide backgrounds and accent colors, plus built-in Light, Dark, Business and High contrast presets. Built-in slide layouts create editable text placeholders for title-only, comparison, quote and main-content/sidebar compositions. Applying a theme updates all existing slides atomically while preserving text emphasis/alignment, geometry, shape strokes, notes and image references; the resulting styles are persisted by the normal presentation serializer.
 - Model validation, stable IDs, bounded collection/string sizes.
 - Versioned binary serialization with CRC32 integrity checking.
 - Local session journal, crash recovery, autosave scheduling and checkpoint compaction.
