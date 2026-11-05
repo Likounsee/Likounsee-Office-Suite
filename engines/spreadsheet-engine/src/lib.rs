@@ -1373,8 +1373,8 @@ impl<'a> Parser<'a> {
                 "MATCH" => self.match_arguments(),
                 "NOT" => self.not_arguments(),
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
-                "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT"
-                | "POWER" | "MOD" => self.math_function_arguments(&function),
+                "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
+                | "MOD" => self.math_function_arguments(&function),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
