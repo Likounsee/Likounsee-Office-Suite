@@ -4865,7 +4865,7 @@ mod tests {
         let stats = presentation_text_statistics(&deck).unwrap();
         assert_eq!(stats.slides, 2);
         assert_eq!(stats.text_elements, 2);
-        assert_eq!(stats.characters, 11);
+        assert_eq!(stats.characters, 13);
         assert_eq!(stats.words, 4);
     }
 

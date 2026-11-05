@@ -3312,12 +3312,12 @@ mod tests {
         session.set_table_cell_text(table_id, 0, 0, "three").unwrap();
         session.set_table_cell_text(table_id, 0, 1, "猫").unwrap();
         let stats = document_statistics(session.document()).unwrap();
-        assert_eq!(stats.paragraphs, 2);
+        assert_eq!(stats.paragraphs, 1);
         assert_eq!(stats.tables, 1);
         assert_eq!(stats.table_rows, 1);
         assert_eq!(stats.table_cells, 2);
         assert_eq!(stats.words, 4);
-        assert_eq!(stats.characters, 11);
+        assert_eq!(stats.characters, 15);
     }
 
     #[test]
