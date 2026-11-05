@@ -1966,7 +1966,6 @@ mod tests {
     #[test]
     fn dependency_index_batch_update_is_atomic_on_invalid_formula() {
         let mut book = Workbook::new();
-        let a1 = CellAddress::parse_a1("A1").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let c1 = CellAddress::parse_a1("C1").unwrap();
         book.set_formula(1, b1, "=A1+1").unwrap();
