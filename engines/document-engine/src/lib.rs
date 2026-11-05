@@ -3199,7 +3199,7 @@ mod tests {
     #[test]
     fn find_text_returns_paragraph_and_table_cell_ranges() {
         let directory = TestDirectory::new();
-        let mut session = DocumentSession::open(directory.path()).unwrap();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
         session.insert_text(0, "one needle needle").unwrap();
         let table_id = session.insert_table(1, 1).unwrap();
         session
