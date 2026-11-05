@@ -1374,8 +1374,10 @@ impl<'a> Parser<'a> {
                 "NOT" => self.not_arguments(),
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
-                | "MOD" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN" | "ACOS"
-                | "ATAN" | "DEGREES" | "RADIANS" => self.math_function_arguments(&function),
+                | "MOD" | "LOG" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN" | "ACOS"
+                | "ATAN" | "DEGREES" | "RADIANS" | "SINH" | "COSH" | "TANH" | "COT" => {
+                    self.math_function_arguments(&function)
+                },
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
