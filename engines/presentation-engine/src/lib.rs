@@ -949,9 +949,14 @@ impl Presentation {
         if theme.name.is_empty()
             || theme.title_font.is_empty()
             || theme.body_font.is_empty()
-            || [theme.background, theme.title_color, theme.body_color, theme.accent_color]
-                .iter()
-                .any(|color| *color > 0x00ff_ffff)
+            || [
+                theme.background,
+                theme.title_color,
+                theme.body_color,
+                theme.accent_color,
+            ]
+            .iter()
+            .any(|color| *color > 0x00ff_ffff)
         {
             return Err(invalid_input("presentation theme is invalid"));
         }
@@ -979,7 +984,9 @@ impl Presentation {
                         };
                         slide_changed |= style.font_family != *font || style.color != color;
                     }
-                    ElementKind::Shape { fill: Some(fill), .. } => {
+                    ElementKind::Shape {
+                        fill: Some(fill), ..
+                    } => {
                         slide_changed |= *fill != theme.accent_color;
                     }
                     _ => {}
@@ -999,7 +1006,9 @@ impl Presentation {
                                 style.color = theme.body_color;
                             }
                         }
-                        ElementKind::Shape { fill: Some(fill), .. } => {
+                        ElementKind::Shape {
+                            fill: Some(fill), ..
+                        } => {
                             *fill = theme.accent_color;
                         }
                         _ => {}
@@ -6338,21 +6347,31 @@ mod tests {
         let mut deck = Presentation::new("Selected themes", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
         let second = deck.add_slide("Second").unwrap();
-        let first_text = deck.add_text(
-            first,
-            rect(0.0, 0.0, 200.0, 40.0),
-            "Title",
-            TextStyle::new("Arial", 32.0, 0x111111).unwrap(),
-        ).unwrap();
+        let first_text = deck
+            .add_text(
+                first,
+                rect(0.0, 0.0, 200.0, 40.0),
+                "Title",
+                TextStyle::new("Arial", 32.0, 0x111111).unwrap(),
+            )
+            .unwrap();
         let theme = PresentationTheme::new(
-            "Midnight", 0x101820, "Aptos Display", "Aptos", 0xffffff, 0xddeeff, 0x00aacc
-        ).unwrap();
+            "Midnight",
+            0x101820,
+            "Aptos Display",
+            "Aptos",
+            0xffffff,
+            0xddeeff,
+            0x00aacc,
+        )
+        .unwrap();
         let revision = deck.revision();
         assert_eq!(deck.apply_theme_to_slides(&[first], &theme).unwrap(), 1);
         assert_eq!(deck.revision(), revision + 1);
         assert_eq!(deck.slides()[0].background(), 0x101820);
         assert_eq!(deck.slides()[1].background(), 0xffffff);
-        let ElementKind::Text { style, .. } = deck.slides()[0].element(first_text).unwrap().kind() else {
+        let ElementKind::Text { style, .. } = deck.slides()[0].element(first_text).unwrap().kind()
+        else {
             panic!("expected text element");
         };
         assert_eq!(style.font_family(), "Aptos Display");

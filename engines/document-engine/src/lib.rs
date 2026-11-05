@@ -2592,31 +2592,51 @@ impl DocumentSession {
         if paragraph_id == before_id {
             return Ok(());
         }
-        if !self.document.paragraphs.iter().any(|paragraph| paragraph.id == paragraph_id)
-            || !self.document.paragraphs.iter().any(|paragraph| paragraph.id == before_id)
+        if !self
+            .document
+            .paragraphs
+            .iter()
+            .any(|paragraph| paragraph.id == paragraph_id)
+            || !self
+                .document
+                .paragraphs
+                .iter()
+                .any(|paragraph| paragraph.id == before_id)
         {
             return Err(invalid_input("paragraph ID does not exist"));
         }
         let mut next = self.document.clone();
-        let source = next.block_order.iter()
+        let source = next
+            .block_order
+            .iter()
             .position(|block| *block == DocumentBlock::Paragraph(paragraph_id))
             .ok_or_else(|| invalid_input("paragraph block is missing"))?;
         next.block_order.remove(source);
-        let target = next.block_order.iter()
+        let target = next
+            .block_order
+            .iter()
             .position(|block| *block == DocumentBlock::Paragraph(before_id))
             .ok_or_else(|| invalid_input("target paragraph block is missing"))?;
-        next.block_order.insert(target, DocumentBlock::Paragraph(paragraph_id));
+        next.block_order
+            .insert(target, DocumentBlock::Paragraph(paragraph_id));
         let order = next.block_order.clone();
         let mut paragraphs = Vec::with_capacity(next.paragraphs.len());
         for block in order {
             if let DocumentBlock::Paragraph(id) = block {
-                let paragraph = next.paragraphs.iter().find(|paragraph| paragraph.id == id)
-                    .ok_or_else(|| invalid_input("paragraph block references a missing paragraph"))?;
+                let paragraph = next
+                    .paragraphs
+                    .iter()
+                    .find(|paragraph| paragraph.id == id)
+                    .ok_or_else(|| {
+                        invalid_input("paragraph block references a missing paragraph")
+                    })?;
                 paragraphs.push(paragraph.clone());
             }
         }
         next.paragraphs = paragraphs;
-        next.body = next.paragraphs.iter()
+        next.body = next
+            .paragraphs
+            .iter()
             .map(|paragraph| paragraph.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
@@ -2646,7 +2666,9 @@ impl DocumentSession {
                 return Err(invalid_input("paragraph ID does not exist"));
             }
             if text.contains('\n') {
-                return Err(invalid_input("paragraph text cannot contain line-feed characters"));
+                return Err(invalid_input(
+                    "paragraph text cannot contain line-feed characters",
+                ));
             }
         }
         let mut paragraphs = self.document.paragraphs.clone();
@@ -4516,12 +4538,22 @@ mod tests {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_body("alpha\\nbeta\\ngamma").unwrap();
-        let ids = session.document().paragraphs().iter().map(Paragraph::id).collect::<Vec<_>>();
+        let ids = session
+            .document()
+            .paragraphs()
+            .iter()
+            .map(Paragraph::id)
+            .collect::<Vec<_>>();
         let revision = session.document().revision();
         session.move_paragraph_before(ids[2], ids[0]).unwrap();
         assert_eq!(session.document().revision(), revision + 1);
         assert_eq!(
-            session.document().paragraphs().iter().map(Paragraph::id).collect::<Vec<_>>(),
+            session
+                .document()
+                .paragraphs()
+                .iter()
+                .map(Paragraph::id)
+                .collect::<Vec<_>>(),
             vec![ids[2], ids[0], ids[1]]
         );
         assert_eq!(session.document().body(), "gamma\\nalpha\\nbeta");
