@@ -331,6 +331,18 @@ impl Presentation {
         self.title = title;
         Ok(())
     }
+
+    /// Change the slide canvas dimensions in points (for example 960x540 for 16:9).
+    pub fn set_dimensions(&mut self, width: f32, height: f32) -> io::Result<()> {
+        validate_dimensions(width, height)?;
+        if self.width == width && self.height == height {
+            return Ok(());
+        }
+        self.bump_revision()?;
+        self.width = width;
+        self.height = height;
+        Ok(())
+    }
     pub fn add_slide(&mut self, name: impl Into<String>) -> io::Result<u64> {
         if self.slides.len() >= MAX_SLIDES {
             return Err(invalid_input("slide limit reached"));
@@ -1258,6 +1270,21 @@ mod tests {
         assert_eq!(deck.slides().len(), 1);
         assert_eq!(deck.slides()[0].name(), "Slide 1");
         assert_eq!(deck.revision(), 0);
+    }
+
+    #[test]
+    fn changes_canvas_dimensions_and_preserves_them_in_serialization() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        deck.set_dimensions(720.0, 540.0).unwrap();
+        assert_eq!((deck.width(), deck.height()), (720.0, 540.0));
+        let revision = deck.revision();
+        deck.set_dimensions(720.0, 540.0).unwrap();
+        assert_eq!(deck.revision(), revision);
+        let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
+        assert_eq!((restored.width(), restored.height()), (720.0, 540.0));
+        assert!(deck.set_dimensions(f32::NAN, 540.0).is_err());
+        assert_eq!((deck.width(), deck.height()), (720.0, 540.0));
+        assert_eq!(deck.revision(), revision);
     }
 
     #[test]
