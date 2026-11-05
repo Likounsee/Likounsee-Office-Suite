@@ -3679,7 +3679,7 @@ mod tests {
     fn duplicate_paragraph_preserves_formatting_and_inserts_after_source() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
-        session.set_body("first\\nsecond").unwrap();
+        session.set_body("first\nsecond").unwrap();
         let source_id = session.document().paragraphs()[0].id();
         session
             .set_paragraph_style(source_id, ParagraphStyle::Heading1)
@@ -3700,7 +3700,7 @@ mod tests {
         assert_eq!(session.document().revision(), revision + 1);
         assert_eq!(
             export_text(session.document()).unwrap(),
-            "first\\nfirst\\nsecond\\n"
+            "first\\nfirst\nsecond\\n"
         );
     }
 }
