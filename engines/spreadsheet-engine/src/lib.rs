@@ -1056,6 +1056,27 @@ impl<'a> Parser<'a> {
                 self.cursor += 1;
                 Ok(-self.factor()?)
             }
+            _ => {
+                let base = self.primary()?;
+                self.whitespace();
+                if self.peek() == Some(b'^') {
+                    self.cursor += 1;
+                    let exponent = self.factor()?;
+                    let result = base.powf(exponent);
+                    if result.is_finite() {
+                        Ok(result)
+                    } else {
+                        Err(FormulaError::Number)
+                    }
+                } else {
+                    Ok(base)
+                }
+            }
+        }
+    }
+    fn primary(&mut self) -> Result<f64, FormulaError> {
+        self.whitespace();
+        match self.peek() {
             Some(b'(') => {
                 self.cursor += 1;
                 let value = self.expression()?;
@@ -2231,6 +2252,47 @@ mod tests {
         book.set_formula(sheet, b1, "=1+").unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
+    #[test]
+    fn formula_exponentiation_obeys_precedence_and_right_associativity() {
+        let mut book = Workbook::new();
+        let sheet = 1;
+        let cases = [
+            ("=2^3", 8.0),
+            ("=2^3^2", 512.0),
+            ("=-2^2", -4.0),
+            ("=(-2)^2", 4.0),
+            ("=2^-2", 0.25),
+            ("=2^3*2", 16.0),
+            ("=2+3^2*2", 20.0),
+        ];
+
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 0).unwrap();
+            book.set_formula(sheet, address, formula).unwrap();
+            assert_eq!(
+                book.value(sheet, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn formula_exponentiation_reports_non_finite_results() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        book.set_formula(1, address, "=10^1000").unwrap();
+        assert_eq!(
+            book.value(1, address),
+            CellValue::Error(FormulaError::Number)
+        );
+        book.set_formula(1, address, "=(-2)^0.5").unwrap();
+        assert_eq!(
+            book.value(1, address),
+            CellValue::Error(FormulaError::Number)
+        );
+    }
+
     #[test]
     fn renaming_sheet_rewrites_quoted_unquoted_and_range_references() {
         let mut book = Workbook::new();
