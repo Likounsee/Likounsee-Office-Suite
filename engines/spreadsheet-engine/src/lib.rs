@@ -452,10 +452,17 @@ impl Workbook {
         address: CellAddress,
     ) -> io::Result<Vec<CellKey>> {
         let graph = self.dependency_graph()?;
-        let affected: std::collections::BTreeSet<CellKey> = self
+        let mut affected: std::collections::BTreeSet<CellKey> = self
             .transitive_dependents_of(sheet_id, address)?
             .into_iter()
             .collect();
+        if self
+            .sheet(sheet_id)
+            .and_then(|sheet| sheet.cells.get(&address))
+            .is_some_and(Cell::is_formula)
+        {
+            affected.insert((sheet_id, address));
+        }
         if affected.is_empty() {
             return Ok(Vec::new());
         }
@@ -1589,7 +1596,7 @@ mod tests {
         let z1 = CellAddress::parse_a1("Z1").unwrap();
 
         book.set_number(1, a1, 1.0).unwrap();
-        book.set_formula(1, b1, "=A1+C1").unwrap();
+        book.set_formula(1, b1, "=A1+1").unwrap();
         book.set_formula(1, c1, "=B1+1").unwrap();
         book.set_formula(1, z1, "=Z1+1").unwrap();
         assert_eq!(
@@ -1597,6 +1604,7 @@ mod tests {
             vec![(1, b1), (1, c1)]
         );
 
+        book.set_formula(1, b1, "=A1+C1").unwrap();
         assert!(book.recalculation_order_after_change(1, a1).is_err());
     }
 
