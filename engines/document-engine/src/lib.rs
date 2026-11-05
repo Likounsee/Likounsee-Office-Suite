@@ -491,6 +491,52 @@ pub fn character_count(document: &Document) -> io::Result<usize> {
     Ok(count)
 }
 
+/// A literal text match in a paragraph or table cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentSearchMatch {
+    /// Paragraph ID, or table ID when cell_id is present.
+    pub block_id: u64,
+    /// Stable table-cell ID; None for paragraph matches.
+    pub cell_id: Option<u64>,
+    /// UTF-8 byte range in the matched text.
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Find literal, case-sensitive text in paragraphs and table cells.
+pub fn find_text(document: &Document, query: &str) -> io::Result<Vec<DocumentSearchMatch>> {
+    validate_document_size(document)?;
+    if query.is_empty() {
+        return Err(invalid_input("text search query cannot be empty"));
+    }
+    let mut matches = Vec::new();
+    for paragraph in &document.paragraphs {
+        for (start, _) in paragraph.text.match_indices(query) {
+            matches.push(DocumentSearchMatch {
+                block_id: paragraph.id,
+                cell_id: None,
+                start,
+                end: start + query.len(),
+            });
+        }
+    }
+    for table in &document.tables {
+        for row in &table.rows {
+            for cell in &row.cells {
+                for (start, _) in cell.text.match_indices(query) {
+                    matches.push(DocumentSearchMatch {
+                        block_id: table.id,
+                        cell_id: Some(cell.id),
+                        start,
+                        end: start + query.len(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(matches)
+}
+
 /// Export readable plain text while preserving paragraph order and table rows.
 /// Table cells are separated by tabs; rows are separated by newlines.
 pub fn export_text(document: &Document) -> io::Result<String> {
@@ -3148,6 +3194,21 @@ mod tests {
                 DocumentBlock::Table(table_id),
             ]
         );
+    }
+
+    #[test]
+    fn find_text_returns_paragraph_and_table_cell_ranges() {
+        let mut document = Document::from_plain_text("Search", "one needle needle").unwrap();
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(directory.path().join("search.doc"), document.clone()).unwrap();
+        let table_id = session.insert_table(1, 1).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "needle in cell").unwrap();
+        document = session.document().clone();
+        let matches = find_text(&document, "needle").unwrap();
+        assert_eq!(matches.len(), 3);
+        assert_eq!(matches[0].cell_id, None);
+        assert_eq!(matches[2].cell_id.is_some(), true);
+        assert!(find_text(&document, "").is_err());
     }
 
     #[test]

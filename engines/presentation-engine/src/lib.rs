@@ -2783,6 +2783,25 @@ pub fn export_slide_text(presentation: &Presentation) -> io::Result<String> {
     Ok(output)
 }
 
+/// Export the editable text of one slide in element order.
+pub fn export_single_slide_text(
+    presentation: &Presentation,
+    slide_id: u64,
+) -> io::Result<String> {
+    presentation.validate()?;
+    let slide = presentation
+        .slide(slide_id)
+        .ok_or_else(|| invalid_input("slide ID does not exist"))?;
+    let mut output = String::new();
+    for element in &slide.elements {
+        if let ElementKind::Text { text, .. } = &element.kind {
+            output.push_str(text);
+            output.push('\n');
+        }
+    }
+    Ok(output)
+}
+
 /// Export speaker notes as a portable Markdown document in slide order.
 pub fn export_speaker_notes_markdown(presentation: &Presentation) -> io::Result<String> {
     presentation.validate()?;
@@ -4739,6 +4758,29 @@ mod tests {
         assert!(html.contains("arrowhead-1"));
         assert!(html.contains(&format!("arrowhead-{second}")));
         assert_eq!(html.matches("<svg ").count(), 2);
+    }
+
+    #[test]
+    fn single_slide_text_export_is_scoped_to_requested_slide() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.add_text(
+            first,
+            rect(0.0, 0.0, 100.0, 30.0),
+            "First slide",
+            TextStyle::default(),
+        )
+        .unwrap();
+        let second = deck.add_slide("Second").unwrap();
+        deck.add_text(
+            second,
+            rect(0.0, 0.0, 100.0, 30.0),
+            "Second slide",
+            TextStyle::default(),
+        )
+        .unwrap();
+        assert_eq!(export_single_slide_text(&deck, second).unwrap(), "Second slide\n");
+        assert!(export_single_slide_text(&deck, u64::MAX).is_err());
     }
 
     #[test]

@@ -1380,6 +1380,7 @@ impl<'a> Parser<'a> {
                     self.math_function_arguments(&function)
                 }
                 "AND" | "OR" => self.logical_arguments(&function),
+                "COUNTBLANK" => self.countblank_arguments(),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
                 }
@@ -2104,6 +2105,64 @@ impl<'a> Parser<'a> {
             Err(FormulaError::Number)
         }
     }
+    fn countblank_arguments(&mut self) -> Result<f64, FormulaError> {
+        let mut count = 0usize;
+        let mut arguments = 0usize;
+        loop {
+            let (sheet_id, first) = self.aggregate_cell_reference()?;
+            self.whitespace();
+            if self.peek() == Some(b':') {
+                self.cursor += 1;
+                let last = self.cell_address()?;
+                let min_row = first.row().min(last.row());
+                let max_row = first.row().max(last.row());
+                let min_column = first.column().min(last.column());
+                let max_column = first.column().max(last.column());
+                let rows = (max_row - min_row + 1) as u64;
+                let columns = (max_column - min_column + 1) as u64;
+                if rows.saturating_mul(columns) > MAX_CELLS as u64 {
+                    return Err(FormulaError::Number);
+                }
+                for row in min_row..=max_row {
+                    for column in min_column..=max_column {
+                        let address = CellAddress::new(row, column)
+                            .map_err(|_| FormulaError::Reference)?;
+                        if self.is_blank_cell(sheet_id, address)? {
+                            count += 1;
+                        }
+                    }
+                }
+            } else if self.is_blank_cell(sheet_id, first)? {
+                count += 1;
+            }
+            arguments += 1;
+            self.whitespace();
+            match self.peek() {
+                Some(b',') => self.cursor += 1,
+                Some(b')') if arguments > 0 => {
+                    self.cursor += 1;
+                    break;
+                }
+                _ => return Err(FormulaError::Parse),
+            }
+        }
+        Ok(count as f64)
+    }
+
+    fn is_blank_cell(
+        &mut self,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> Result<bool, FormulaError> {
+        match self.workbook.evaluate(sheet_id, address, self.visiting, self.cache) {
+            CellValue::Blank => Ok(true),
+            CellValue::Text(value) if value.is_empty() => Ok(true),
+            CellValue::Number(_) | CellValue::Text(_) | CellValue::Boolean(_) | CellValue::Error(_) => {
+                Ok(false)
+            }
+        }
+    }
+
     fn collect_range_values(
         &mut self,
         sheet_id: u64,
@@ -3355,6 +3414,24 @@ mod tests {
                 "{formula}"
             );
         }
+    }
+
+    #[test]
+    fn countblank_counts_empty_cells_and_empty_text_results() {
+        let mut workbook = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let workbook_cell = CellAddress::parse_a1("C1").unwrap();
+        workbook.set_text(1, a1, "filled").unwrap();
+        workbook.set_formula(1, a2, "=IF(TRUE, \"\", 1)").unwrap();
+        workbook.set_formula(1, a3, "=COUNTBLANK(A1:A3)").unwrap();
+        workbook.set_formula(1, b1, "=COUNTBLANK(A1:C1)").unwrap();
+        workbook.set_formula(1, workbook_cell, "=COUNTBLANK(A1,A2,A3)").unwrap();
+        assert_eq!(workbook.value(1, a3), CellValue::Number(2.0));
+        assert_eq!(workbook.value(1, b1), CellValue::Number(2.0));
+        assert_eq!(workbook.value(1, workbook_cell), CellValue::Number(1.0));
     }
 
     #[test]
