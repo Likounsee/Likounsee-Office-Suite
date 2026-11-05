@@ -408,14 +408,13 @@ impl Workbook {
     }
 
     /// Return formulas that directly read the supplied cell, in stable order.
-    pub fn dependents_of(
-        &self,
-        sheet_id: u64,
-        address: CellAddress,
-    ) -> io::Result<Vec<CellKey>> {
+    pub fn dependents_of(&self, sheet_id: u64, address: CellAddress) -> io::Result<Vec<CellKey>> {
         let graph = self.dependency_graph()?;
         let reverse = reverse_dependency_graph(&graph);
-        Ok(reverse.get(&(sheet_id, address)).cloned().unwrap_or_default())
+        Ok(reverse
+            .get(&(sheet_id, address))
+            .cloned()
+            .unwrap_or_default())
     }
 
     /// Return every formula transitively affected by a cell change.
@@ -461,8 +460,7 @@ impl Workbook {
             return Ok(Vec::new());
         }
 
-        let mut indegree: BTreeMap<CellKey, usize> =
-            affected.iter().map(|key| (*key, 0)).collect();
+        let mut indegree: BTreeMap<CellKey, usize> = affected.iter().map(|key| (*key, 0)).collect();
         let mut outgoing: BTreeMap<CellKey, Vec<CellKey>> = BTreeMap::new();
         for formula in &affected {
             if let Some(dependencies) = graph.get(formula) {
@@ -499,6 +497,26 @@ impl Workbook {
             ));
         }
         Ok(ordered)
+    }
+
+    /// Evaluate only formulas affected by a preceding cell edit, in dependency-
+    /// first order. The returned values use one shared cache for the whole batch.
+    /// This is an explicit recalculation pass; ordinary value() remains lazy.
+    pub fn recalculate_after_change(
+        &self,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<Vec<(CellKey, CellValue)>> {
+        let order = self.recalculation_order_after_change(sheet_id, address)?;
+        let mut visiting = HashSet::new();
+        let mut cache = HashMap::new();
+        Ok(order
+            .into_iter()
+            .map(|key| {
+                let value = self.evaluate(key.0, key.1, &mut visiting, &mut cache);
+                (key, value)
+            })
+            .collect())
     }
 
     pub fn encode(&self) -> io::Result<Vec<u8>> {
@@ -1580,6 +1598,58 @@ mod tests {
         );
 
         assert!(book.recalculation_order_after_change(1, a1).is_err());
+    }
+
+    #[test]
+    fn targeted_recalculation_updates_transitive_formula_values() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data2026").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let d1 = CellAddress::parse_a1("D1").unwrap();
+        let unrelated = CellAddress::parse_a1("Z1").unwrap();
+
+        book.set_number(data, a1, 2.0).unwrap();
+        book.set_formula(data, b1, "=A1*3").unwrap();
+        book.set_formula(report, c1, "=Data2026!B1+1").unwrap();
+        book.set_formula(report, d1, "=C1+Data2026!A1").unwrap();
+        book.set_formula(report, unrelated, "=100+1").unwrap();
+
+        book.set_number(data, a1, 5.0).unwrap();
+        let recalculated = book.recalculate_after_change(data, a1).unwrap();
+        assert_eq!(
+            recalculated,
+            vec![
+                ((data, b1), CellValue::Number(15.0)),
+                ((report, c1), CellValue::Number(16.0)),
+                ((report, d1), CellValue::Number(21.0)),
+            ]
+        );
+        assert_eq!(book.value(report, unrelated), CellValue::Number(101.0));
+    }
+
+    #[test]
+    fn targeted_recalculation_propagates_formula_errors_and_rejects_cycles() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(1, a1, 4.0).unwrap();
+        book.set_formula(1, b1, "=A1/0").unwrap();
+        book.set_formula(1, c1, "=B1+2").unwrap();
+        assert_eq!(
+            book.recalculate_after_change(1, a1).unwrap(),
+            vec![
+                ((1, b1), CellValue::Error(FormulaError::DivisionByZero)),
+                ((1, c1), CellValue::Error(FormulaError::DivisionByZero)),
+            ]
+        );
+
+        book.set_formula(1, a1, "=C1+1").unwrap();
+        assert!(book.recalculate_after_change(1, a1).is_err());
     }
 
     #[test]
