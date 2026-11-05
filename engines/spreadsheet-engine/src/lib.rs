@@ -3384,7 +3384,10 @@ mod tests {
         assert_eq!(workbook.value(1, a1), CellValue::Number(15.0));
         assert_eq!(workbook.value(1, a2), CellValue::Number(10.0));
         assert_eq!(workbook.value(1, a3), CellValue::Number(-10.0));
-        assert_eq!(\n            workbook.value(1, a4),\n            CellValue::Error(FormulaError::DivisionByZero)\n        );
+        assert_eq!(
+            workbook.value(1, a4),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
     }
 
     #[test]
