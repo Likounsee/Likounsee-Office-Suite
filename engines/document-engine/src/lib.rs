@@ -2221,6 +2221,30 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Empty one table cell while preserving its stable ID and formatting.
+    pub fn clear_table_cell(
+        &mut self,
+        table_id: u64,
+        row_index: usize,
+        column_index: usize,
+    ) -> io::Result<u64> {
+        let table = self
+            .document
+            .tables()
+            .iter()
+            .find(|table| table.id() == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let cell = table
+            .rows()
+            .get(row_index)
+            .and_then(|row| row.cells().get(column_index))
+            .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
+        if cell.text().is_empty() {
+            return Ok(self.document.revision());
+        }
+        self.set_table_cell_text(table_id, row_index, column_index, "")
+    }
+
     /// Set horizontal alignment for one cell.
     pub fn set_table_cell_alignment(
         &mut self,
@@ -3703,6 +3727,21 @@ mod tests {
             session.replace_all_text("", "x").unwrap_err().kind(),
             io::ErrorKind::InvalidInput
         );
+    }
+
+    #[test]
+    fn clear_table_cell_preserves_cell_and_noop_revision() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(1, 1).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "value").unwrap();
+        let revision = session.document().revision();
+        session.clear_table_cell(table_id, 0, 0).unwrap();
+        assert_eq!(session.document().revision(), revision + 1);
+        let revision = session.document().revision();
+        session.clear_table_cell(table_id, 0, 0).unwrap();
+        assert_eq!(session.document().revision(), revision);
+        assert!(session.clear_table_cell(u64::MAX, 0, 0).is_err());
     }
 
     #[test]

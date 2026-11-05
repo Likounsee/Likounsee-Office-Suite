@@ -680,6 +680,50 @@ impl Workbook {
         Ok(count)
     }
 
+    /// Fill an inclusive rectangular range with one boolean value.
+    /// Validates the full range and worksheet capacity before modifying cells.
+    pub fn fill_boolean_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+        value: bool,
+    ) -> io::Result<usize> {
+        let sheet = self
+            .sheets
+            .iter()
+            .find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let min_row = start.row().min(end.row());
+        let max_row = start.row().max(end.row());
+        let min_column = start.column().min(end.column());
+        let max_column = start.column().max(end.column());
+        let rows = (max_row - min_row + 1) as usize;
+        let columns = (max_column - min_column + 1) as usize;
+        let count = rows
+            .checked_mul(columns)
+            .filter(|count| *count <= MAX_CELLS)
+            .ok_or_else(|| invalid_input("fill range exceeds the cell limit"))?;
+        let new_cells = (min_row..=max_row)
+            .flat_map(|row| (min_column..=max_column).map(move |column| (row, column)))
+            .filter(|(row, column)| {
+                !sheet.cells.contains_key(&CellAddress {
+                    row: *row,
+                    column: *column,
+                })
+            })
+            .count();
+        if sheet.cells.len().saturating_add(new_cells) > MAX_CELLS {
+            return Err(invalid_input("worksheet cell limit reached"));
+        }
+        for row in min_row..=max_row {
+            for column in min_column..=max_column {
+                self.set_boolean(sheet_id, CellAddress::new(row, column)?, value)?;
+            }
+        }
+        Ok(count)
+    }
+
     /// Copy an inclusive rectangular range to a destination top-left cell.
     /// Source cells are snapshotted before writes, so overlapping copies are safe.
     /// Formulas are copied verbatim (references are not translated); blank source cells clear destinations.
@@ -5357,6 +5401,37 @@ mod session_tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn fill_boolean_range_fills_rectangle_and_rejects_unknown_sheet() {
+        let mut workbook = Workbook::new();
+        let sheet = workbook.sheets()[0].id();
+        assert_eq!(
+            workbook
+                .fill_boolean_range(
+                    sheet,
+                    CellAddress::parse_a1("B2").unwrap(),
+                    CellAddress::parse_a1("C3").unwrap(),
+                    true,
+                )
+                .unwrap(),
+            4
+        );
+        for address in ["B2", "C2", "B3", "C3"] {
+            assert_eq!(
+                workbook.value(sheet, CellAddress::parse_a1(address).unwrap()),
+                CellValue::Boolean(true)
+            );
+        }
+        assert!(workbook
+            .fill_boolean_range(
+                u64::MAX,
+                CellAddress::parse_a1("A1").unwrap(),
+                CellAddress::parse_a1("A1").unwrap(),
+                false,
+            )
+            .is_err());
     }
 
     #[test]

@@ -1101,6 +1101,34 @@ impl Presentation {
         Ok(())
     }
 
+    /// Append speaker notes, separating non-empty entries with a newline.
+    /// Empty input is a no-op; the revision advances only when content changes.
+    pub fn append_slide_notes(
+        &mut self,
+        slide_id: u64,
+        notes: impl Into<String>,
+    ) -> io::Result<()> {
+        let notes = notes.into();
+        validate_string(&notes, "slide notes")?;
+        let current = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?
+            .notes
+            .clone();
+        if notes.is_empty() {
+            return Ok(());
+        }
+        let combined = if current.is_empty() {
+            notes
+        } else {
+            format!("{current}\\n{notes}")
+        };
+        validate_string(&combined, "slide notes")?;
+        self.bump_revision()?;
+        self.slide_mut(slide_id)?.notes = combined;
+        Ok(())
+    }
+
     /// Clear speaker notes while preserving the slide and its visual elements.
     /// Clearing already-empty notes is a no-op and does not advance the revision.
     pub fn clear_slide_notes(&mut self, slide_id: u64) -> io::Result<bool> {
@@ -5354,6 +5382,21 @@ mod tests {
                 .bring_element_to_front(u64::MAX, first)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn append_slide_notes_joins_entries_and_ignores_empty_input() {
+        let mut presentation = Presentation::new("Notes", 100.0, 80.0).unwrap();
+        let slide_id = presentation.slides()[0].id();
+        presentation.append_slide_notes(slide_id, "First cue").unwrap();
+        let revision = presentation.revision();
+        presentation.append_slide_notes(slide_id, "Second cue").unwrap();
+        assert_eq!(presentation.slide(slide_id).unwrap().notes(), "First cue\\nSecond cue");
+        assert_eq!(presentation.revision(), revision + 1);
+        let revision = presentation.revision();
+        presentation.append_slide_notes(slide_id, "").unwrap();
+        assert_eq!(presentation.revision(), revision);
+        assert!(presentation.append_slide_notes(u64::MAX, "cue").is_err());
     }
 
     #[test]
