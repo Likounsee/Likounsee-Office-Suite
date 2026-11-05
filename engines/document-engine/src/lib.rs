@@ -4012,7 +4012,9 @@ mod tests {
             .iter()
             .map(|cell| cell.id())
             .collect::<Vec<_>>();
-        let widths = session.document().tables()[0].column_widths_twips().to_vec();
+        let widths = session.document().tables()[0]
+            .column_widths_twips()
+            .to_vec();
         let revision = session.document().revision();
         let moved_id = session.move_table_column(table_id, 0, 2).unwrap();
         let table = &session.document().tables()[0];
@@ -4021,7 +4023,10 @@ mod tests {
         assert_eq!(table.rows()[0].cells()[2].text(), "A");
         assert_eq!(table.rows()[0].cells()[2].id(), original[0]);
         assert_eq!(moved_id, original[0]);
-        assert_eq!(table.column_widths_twips(), &[widths[1], widths[2], widths[0]]);
+        assert_eq!(
+            table.column_widths_twips(),
+            &[widths[1], widths[2], widths[0]]
+        );
         assert_eq!(session.document().revision(), revision + 1);
         assert!(session.move_table_column(table_id, 0, 9).is_err());
     }
