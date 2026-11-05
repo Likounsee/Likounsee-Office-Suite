@@ -143,6 +143,28 @@ pub struct Worksheet {
     cells: BTreeMap<CellAddress, Cell>,
 }
 
+/// Inclusive bounds of the cells stored in a worksheet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsedRange {
+    start: CellAddress,
+    end: CellAddress,
+}
+
+impl UsedRange {
+    pub fn start(self) -> CellAddress {
+        self.start
+    }
+    pub fn end(self) -> CellAddress {
+        self.end
+    }
+    pub fn rows(self) -> u32 {
+        self.end.row() - self.start.row() + 1
+    }
+    pub fn columns(self) -> u32 {
+        self.end.column() - self.start.column() + 1
+    }
+}
+
 impl Worksheet {
     pub fn id(&self) -> u64 {
         self.id
@@ -155,6 +177,29 @@ impl Worksheet {
     }
     pub fn populated_cells(&self) -> impl Iterator<Item = (CellAddress, &Cell)> {
         self.cells.iter().map(|(address, cell)| (*address, cell))
+    }
+
+    /// Return the smallest rectangle containing every stored cell, or None for an empty sheet.
+    pub fn used_range(&self) -> Option<UsedRange> {
+        let first = self.cells.keys().next()?;
+        let mut min_row = first.row();
+        let mut min_column = first.column();
+        let mut max_row = min_row;
+        let mut max_column = min_column;
+        for address in self.cells.keys().skip(1) {
+            min_row = min_row.min(address.row());
+            min_column = min_column.min(address.column());
+            max_row = max_row.max(address.row());
+            max_column = max_column.max(address.column());
+        }
+        Some(UsedRange {
+            start: CellAddress { row: min_row, column: min_column },
+            end: CellAddress { row: max_row, column: max_column },
+        })
+    }
+
+    pub fn stored_cell_count(&self) -> usize {
+        self.cells.len()
     }
 }
 
@@ -3476,6 +3521,25 @@ mod tests {
                 "{formula}"
             );
         }
+    }
+
+    #[test]
+    fn worksheet_used_range_tracks_sparse_cells_and_empty_sheets() {
+        let mut workbook = Workbook::new();
+        let sheet_id = workbook.sheets()[0].id();
+        let sheet = workbook.sheet(sheet_id).unwrap();
+        assert_eq!(sheet.used_range(), None);
+        let a1 = CellAddress::parse_a1("B3").unwrap();
+        let z9 = CellAddress::parse_a1("Z9").unwrap();
+        workbook.set_number(sheet_id, a1, 1.0).unwrap();
+        workbook.set_text(sheet_id, z9, "edge").unwrap();
+        let sheet = workbook.sheet(sheet_id).unwrap();
+        let range = sheet.used_range().unwrap();
+        assert_eq!(range.start().to_a1(), "B3");
+        assert_eq!(range.end().to_a1(), "Z9");
+        assert_eq!(range.rows(), 7);
+        assert_eq!(range.columns(), 25);
+        assert_eq!(sheet.stored_cell_count(), 2);
     }
 
     #[test]

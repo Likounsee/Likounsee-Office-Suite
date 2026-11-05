@@ -2818,6 +2818,43 @@ pub fn slide_text_statistics(
     })
 }
 
+/// Aggregate text metrics across every slide in a presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationTextStatistics {
+    pub slides: usize,
+    pub text_elements: usize,
+    pub characters: usize,
+    pub words: usize,
+}
+
+pub fn presentation_text_statistics(
+    presentation: &Presentation,
+) -> io::Result<PresentationTextStatistics> {
+    presentation.validate()?;
+    let mut stats = PresentationTextStatistics {
+        slides: presentation.slides.len(),
+        text_elements: 0,
+        characters: 0,
+        words: 0,
+    };
+    for slide in &presentation.slides {
+        for element in &slide.elements {
+            if let ElementKind::Text { text, .. } = &element.kind {
+                stats.text_elements = stats.text_elements
+                    .checked_add(1)
+                    .ok_or_else(|| invalid_data("presentation text element count overflow"))?;
+                stats.characters = stats.characters
+                    .checked_add(text.chars().count())
+                    .ok_or_else(|| invalid_data("presentation character count overflow"))?;
+                stats.words = stats.words
+                    .checked_add(text.split_whitespace().count())
+                    .ok_or_else(|| invalid_data("presentation word count overflow"))?;
+            }
+        }
+    }
+    Ok(stats)
+}
+
 /// Export the editable text of one slide in element order.
 pub fn export_single_slide_text(presentation: &Presentation, slide_id: u64) -> io::Result<String> {
     presentation.validate()?;
@@ -4816,6 +4853,20 @@ mod tests {
             "Second slide\n"
         );
         assert!(export_single_slide_text(&deck, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn presentation_text_statistics_aggregate_all_slides() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.add_text(first, rect(0.0, 0.0, 100.0, 30.0), "one two", TextStyle::default()).unwrap();
+        let second = deck.add_slide("Second").unwrap();
+        deck.add_text(second, rect(0.0, 0.0, 100.0, 30.0), "猫 café", TextStyle::default()).unwrap();
+        let stats = presentation_text_statistics(&deck).unwrap();
+        assert_eq!(stats.slides, 2);
+        assert_eq!(stats.text_elements, 2);
+        assert_eq!(stats.characters, 11);
+        assert_eq!(stats.words, 4);
     }
 
     #[test]

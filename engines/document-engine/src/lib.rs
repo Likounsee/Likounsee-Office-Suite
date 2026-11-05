@@ -448,6 +448,41 @@ impl Document {
     }
 }
 
+/// Aggregate content metrics for a document, including text stored in tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentStatistics {
+    pub paragraphs: usize,
+    pub tables: usize,
+    pub table_rows: usize,
+    pub table_cells: usize,
+    pub words: usize,
+    pub characters: usize,
+}
+
+pub fn document_statistics(document: &Document) -> io::Result<DocumentStatistics> {
+    validate_document_size(document)?;
+    let mut table_rows = 0usize;
+    let mut table_cells = 0usize;
+    for table in &document.tables {
+        table_rows = table_rows
+            .checked_add(table.rows.len())
+            .ok_or_else(|| invalid_data("document row count overflow"))?;
+        for row in &table.rows {
+            table_cells = table_cells
+                .checked_add(row.cells.len())
+                .ok_or_else(|| invalid_data("document cell count overflow"))?;
+        }
+    }
+    Ok(DocumentStatistics {
+        paragraphs: document.paragraphs.len(),
+        tables: document.tables.len(),
+        table_rows,
+        table_cells,
+        words: word_count(document)?,
+        characters: character_count(document)?,
+    })
+}
+
 /// Encode a document using the current versioned binary format.
 /// Count Unicode whitespace-delimited words in paragraphs and table cells.
 pub fn word_count(document: &Document) -> io::Result<usize> {
@@ -3266,6 +3301,23 @@ mod tests {
     fn character_count_counts_unicode_scalars_and_whitespace() {
         let document = Document::from_plain_text("Count", "A é\n猫").unwrap();
         assert_eq!(character_count(&document).unwrap(), 4);
+    }
+
+    #[test]
+    fn document_statistics_include_table_structure_and_text() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.insert_text(0, "two words").unwrap();
+        let table_id = session.insert_table(1, 2).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "three").unwrap();
+        session.set_table_cell_text(table_id, 0, 1, "猫").unwrap();
+        let stats = document_statistics(session.document()).unwrap();
+        assert_eq!(stats.paragraphs, 2);
+        assert_eq!(stats.tables, 1);
+        assert_eq!(stats.table_rows, 1);
+        assert_eq!(stats.table_cells, 2);
+        assert_eq!(stats.words, 4);
+        assert_eq!(stats.characters, 11);
     }
 
     #[test]
