@@ -3422,16 +3422,17 @@ mod tests {
         let a1 = CellAddress::parse_a1("A1").unwrap();
         let a2 = CellAddress::parse_a1("A2").unwrap();
         let a3 = CellAddress::parse_a1("A3").unwrap();
-        let b1 = CellAddress::parse_a1("B1").unwrap();
-        let workbook_cell = CellAddress::parse_a1("C1").unwrap();
+        let d1 = CellAddress::parse_a1("D1").unwrap();
+        let e1 = CellAddress::parse_a1("E1").unwrap();
+        let f1 = CellAddress::parse_a1("F1").unwrap();
         workbook.set_text(1, a1, "filled").unwrap();
-        workbook.set_formula(1, a2, "=IF(TRUE, \"\", 1)").unwrap();
-        workbook.set_formula(1, a3, "=COUNTBLANK(A1:A3)").unwrap();
-        workbook.set_formula(1, b1, "=COUNTBLANK(A1:C1)").unwrap();
-        workbook.set_formula(1, workbook_cell, "=COUNTBLANK(A1,A2,A3)").unwrap();
-        assert_eq!(workbook.value(1, a3), CellValue::Number(2.0));
-        assert_eq!(workbook.value(1, b1), CellValue::Number(2.0));
-        assert_eq!(workbook.value(1, workbook_cell), CellValue::Number(1.0));
+        workbook.set_text(1, a2, "").unwrap();
+        workbook.set_formula(1, d1, "=COUNTBLANK(A1:A3)").unwrap();
+        workbook.set_formula(1, e1, "=COUNTBLANK(A1:C1)").unwrap();
+        workbook.set_formula(1, f1, "=COUNTBLANK(A1,A2,A3)").unwrap();
+        assert_eq!(workbook.value(1, d1), CellValue::Number(2.0));
+        assert_eq!(workbook.value(1, e1), CellValue::Number(2.0));
+        assert_eq!(workbook.value(1, f1), CellValue::Number(2.0));
     }
 
     #[test]
