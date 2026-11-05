@@ -196,6 +196,10 @@ pub enum SlideLayout {
     TitleAndContent,
     TwoColumns,
     SectionHeader,
+    TitleOnly,
+    Comparison,
+    Quote,
+    ContentWithSidebar,
 }
 
 /// A reusable set of presentation-wide colors and typography.
@@ -502,9 +506,16 @@ impl Presentation {
         let name = name.into();
         validate_string(&name, "slide name")?;
         let placeholder_count = match layout {
-            SlideLayout::Blank => 0,
-            SlideLayout::Title | SlideLayout::TitleAndContent | SlideLayout::SectionHeader => 2,
-            SlideLayout::TwoColumns => 3,
+            SlideLayout::Blank | SlideLayout::TitleOnly => match layout {
+                SlideLayout::Blank => 0,
+                _ => 1,
+            },
+            SlideLayout::Title
+            | SlideLayout::TitleAndContent
+            | SlideLayout::SectionHeader
+            | SlideLayout::Quote => 2,
+            SlideLayout::TwoColumns | SlideLayout::ContentWithSidebar => 3,
+            SlideLayout::Comparison => 5,
         };
         if self.slides.len() >= MAX_SLIDES {
             return Err(invalid_input("slide limit reached"));
@@ -605,6 +616,77 @@ impl Presentation {
                         self.height * 0.10,
                     )?,
                     "Section subtitle",
+                    body_style,
+                )?;
+            }
+            SlideLayout::TitleOnly => {
+                self.add_text(slide_id, title_bounds, "Title", title_style)?;
+            }
+            SlideLayout::Comparison => {
+                self.add_text(slide_id, title_bounds, "Comparison", title_style)?;
+                let gap = self.width * 0.025;
+                let column_width = (content_width - gap) / 2.0;
+                let heading_height = self.height * 0.10;
+                let column_y = body_y + heading_height;
+                let column_height = (self.height - column_y - self.height * 0.07).max(0.01);
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x, body_y, column_width, heading_height)?,
+                    "Option A",
+                    body_style.clone(),
+                )?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x + column_width + gap, body_y, column_width, heading_height)?,
+                    "Option B",
+                    body_style.clone(),
+                )?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x, column_y, column_width, column_height)?,
+                    "First option details",
+                    body_style.clone(),
+                )?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x + column_width + gap, column_y, column_width, column_height)?,
+                    "Second option details",
+                    body_style,
+                )?;
+            }
+            SlideLayout::Quote => {
+                let mut quote_style = title_style;
+                quote_style.set_alignment(TextAlignment::Center);
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x, self.height * 0.25, content_width, self.height * 0.35)?,
+                    "“Your quote here”",
+                    quote_style,
+                )?;
+                let mut author_style = body_style;
+                author_style.set_alignment(TextAlignment::Right);
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x, self.height * 0.66, content_width, self.height * 0.10)?,
+                    "— Author",
+                    author_style,
+                )?;
+            }
+            SlideLayout::ContentWithSidebar => {
+                self.add_text(slide_id, title_bounds, "Title", title_style)?;
+                let gap = self.width * 0.025;
+                let main_width = content_width * 0.68;
+                let sidebar_width = content_width - main_width - gap;
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x, body_y, main_width, body_height)?,
+                    "Main content",
+                    body_style.clone(),
+                )?;
+                self.add_text(
+                    slide_id,
+                    Rect::new(margin_x + main_width + gap, body_y, sidebar_width, body_height)?,
+                    "Sidebar",
                     body_style,
                 )?;
             }
@@ -2191,6 +2273,10 @@ mod tests {
             SlideLayout::TitleAndContent,
             SlideLayout::TwoColumns,
             SlideLayout::SectionHeader,
+            SlideLayout::TitleOnly,
+            SlideLayout::Comparison,
+            SlideLayout::Quote,
+            SlideLayout::ContentWithSidebar,
         ] {
             let slide = deck.add_slide_with_layout("Small layout", layout).unwrap();
             assert!(!deck.slide(slide).unwrap().elements().is_empty());
@@ -2199,6 +2285,25 @@ mod tests {
             decode_presentation(&encode_presentation(&deck).unwrap()).unwrap(),
             deck
         );
+    }
+
+    #[test]
+    fn advanced_layouts_create_expected_editable_placeholders() {
+        let mut deck = Presentation::new("Advanced layouts", 1280.0, 720.0).unwrap();
+        let cases = [
+            (SlideLayout::TitleOnly, 1),
+            (SlideLayout::Comparison, 5),
+            (SlideLayout::Quote, 2),
+            (SlideLayout::ContentWithSidebar, 3),
+        ];
+        for (layout, expected_count) in cases {
+            let id = deck.add_slide_with_layout("Preset", layout).unwrap();
+            let slide = deck.slide(id).unwrap();
+            assert_eq!(slide.elements().len(), expected_count);
+            assert!(slide.elements().iter().all(|element| matches!(element.kind(), ElementKind::Text { .. })));
+        }
+        let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
+        assert_eq!(restored, deck);
     }
 
     #[test]
