@@ -515,7 +515,10 @@ fn markdown_paragraph_text(paragraph: &Paragraph) -> String {
     for pair in boundaries.windows(2) {
         let start = pair[0];
         let end = pair[1];
-        if start == end || !paragraph.text.is_char_boundary(start) || !paragraph.text.is_char_boundary(end) {
+        if start == end
+            || !paragraph.text.is_char_boundary(start)
+            || !paragraph.text.is_char_boundary(end)
+        {
             continue;
         }
         let segment = markdown_escape(&paragraph.text[start..end]);
@@ -543,7 +546,26 @@ fn markdown_paragraph_text(paragraph: &Paragraph) -> String {
 fn markdown_escape(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     for character in value.chars() {
-        if matches!(character, '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '<' | '>' | '(' | ')' | '#' | '+' | '-' | '.' | '!' | '|') {
+        if matches!(
+            character,
+            '\\' | '`'
+                | '*'
+                | '_'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | '<'
+                | '>'
+                | '('
+                | ')'
+                | '#'
+                | '+'
+                | '-'
+                | '.'
+                | '!'
+                | '|'
+        ) {
             output.push('\\');
         }
         output.push(character);
@@ -2100,7 +2122,9 @@ mod tests {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_title("Release notes").unwrap();
-        session.set_body("Overview\nFirst item\nSecond item").unwrap();
+        session
+            .set_body("Overview\nFirst item\nSecond item")
+            .unwrap();
         let paragraphs = session.document().paragraphs();
         session
             .set_paragraph_style(paragraphs[0].id(), ParagraphStyle::Heading1)
@@ -2109,10 +2133,17 @@ mod tests {
             .set_paragraph_list(paragraphs[1].id(), ListKind::Bullet, 0)
             .unwrap();
         let table_id = session.insert_table(2, 2).unwrap();
-        let table = session.document().tables().iter().find(|table| table.id() == table_id).unwrap();
+        let table = session
+            .document()
+            .tables()
+            .iter()
+            .find(|table| table.id() == table_id)
+            .unwrap();
         let first_row = table.rows()[0].id();
         let first_cell = table.rows()[0].cells()[0].id();
-        session.set_table_cell_text(table_id, first_cell, "A | B").unwrap();
+        session
+            .set_table_cell_text(table_id, first_cell, "A | B")
+            .unwrap();
         let markdown = export_markdown(session.document()).unwrap();
         assert!(markdown.contains("# Release notes"));
         assert!(markdown.contains("# Overview"));
