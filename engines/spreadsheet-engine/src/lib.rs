@@ -1590,7 +1590,7 @@ impl<'a> Parser<'a> {
                 if divisor == 0.0 {
                     return Err(FormulaError::DivisionByZero);
                 }
-                value % divisor
+                value - divisor * (value / divisor).floor()
             }
             "ROUND" | "ROUNDUP" | "ROUNDDOWN" => {
                 let digits = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
@@ -3255,7 +3255,7 @@ mod tests {
             ("=POWER(2,10)", 1024.0),
             ("=POWER(9,0.5)", 3.0),
             ("=MOD(17,5)", 2.0),
-            ("=MOD(-17,5)", -2.0),
+            ("=MOD(-17,5)", 3.0),
             ("=SIGN(-42)", -1.0),
             ("=SIGN(0)", 0.0),
             ("=SIGN(42)", 1.0),
