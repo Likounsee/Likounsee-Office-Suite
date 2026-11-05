@@ -2700,9 +2700,8 @@ impl<'a> Parser<'a> {
             if !source.ends_with('"') || source.len() < 2 {
                 return Err(FormulaError::Parse);
             }
-            let mut value = source[1..source.len() - 1].replace("\\"\\", "\\");
+            let value = source[1..source.len() - 1].replace("\"\"", "\"");
             // Excel escapes a quote inside a string by doubling it.
-            value = value.replace("\\"\\", "\\""); 
             let (operator, operand) = split_criteria_operator(&value);
             let operand = match operand.parse::<f64>() {
                 Ok(number) if number.is_finite() => CriteriaOperand::Number(number),
@@ -3628,11 +3627,11 @@ mod tests {
         book.set_formula(report, CellAddress::parse_a1("A1").unwrap(),
             "=COUNTIF(Data!A1:A4,\">=10\")").unwrap();
         book.set_formula(report, CellAddress::parse_a1("A2").unwrap(),
-            "=SUMIF(Data!B1:B4,\\"East\\",Data!A1:A4)").unwrap();
+            "=SUMIF(Data!B1:B4,\"East\",Data!A1:A4)").unwrap();
         book.set_formula(report, CellAddress::parse_a1("A3").unwrap(),
             "=AVERAGEIF(Data!A1:A4,\">5\")").unwrap();
         book.set_formula(report, CellAddress::parse_a1("A4").unwrap(),
-            "=COUNTIF(Data!B1:B4,\\"east\\")").unwrap();
+            "=COUNTIF(Data!B1:B4,\"east\")").unwrap();
         assert_eq!(book.value(report, CellAddress::parse_a1("A1").unwrap()), CellValue::Number(2.0));
         assert_eq!(book.value(report, CellAddress::parse_a1("A2").unwrap()), CellValue::Number(29.0));
         assert_eq!(book.value(report, CellAddress::parse_a1("A3").unwrap()), CellValue::Number(37.0 / 3.0));
