@@ -2307,6 +2307,40 @@ mod tests {
     }
 
     #[test]
+    fn comparison_formulas_track_cross_sheet_dependencies_and_recalculate() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_number(data, a1, 12.0).unwrap();
+        book.set_formula(report, a1, "=Data!A1>=10").unwrap();
+        book.set_formula(report, b1, "=Data!A1<>0").unwrap();
+        book.set_formula(report, c1, "=(Data!A1/2)<5").unwrap();
+
+        assert_eq!(book.value(report, a1), CellValue::Number(1.0));
+        assert_eq!(book.value(report, b1), CellValue::Number(1.0));
+        assert_eq!(book.value(report, c1), CellValue::Number(0.0));
+
+        let mut index = DependencyIndex::build(&book).unwrap();
+        book.set_number(data, a1, 4.0).unwrap();
+        index.update_cell(&book, data, a1).unwrap();
+        let recalculated = book
+            .recalculate_after_change_with_index(&index, data, a1)
+            .unwrap();
+        assert_eq!(
+            recalculated,
+            vec![
+                ((report, a1), CellValue::Number(0.0)),
+                ((report, b1), CellValue::Number(1.0)),
+                ((report, c1), CellValue::Number(1.0)),
+            ]
+        );
+    }
+
+    #[test]
     fn formula_comparisons_reject_chained_operators_and_bad_rhs() {
         let mut book = Workbook::new();
         let address = CellAddress::parse_a1("A1").unwrap();
