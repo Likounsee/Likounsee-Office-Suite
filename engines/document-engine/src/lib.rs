@@ -3198,12 +3198,12 @@ mod tests {
 
     #[test]
     fn find_text_returns_paragraph_and_table_cell_ranges() {
-        let mut document = Document::from_plain_text("Search", "one needle needle").unwrap();
         let directory = TestDirectory::new();
-        let mut session = DocumentSession::open(directory.path().join("search.doc"), document.clone()).unwrap();
+        let mut session = DocumentSession::open(directory.path()).unwrap();
+        session.insert_text(0, "one needle needle").unwrap();
         let table_id = session.insert_table(1, 1).unwrap();
         session.set_table_cell_text(table_id, 0, 0, "needle in cell").unwrap();
-        document = session.document().clone();
+        let document = session.document().clone();
         let matches = find_text(&document, "needle").unwrap();
         assert_eq!(matches.len(), 3);
         assert_eq!(matches[0].cell_id, None);
