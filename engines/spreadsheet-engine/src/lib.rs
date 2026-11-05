@@ -764,176 +764,176 @@ impl Workbook {
             .collect())
     }
 
-/// Import one CSV document as a workbook containing a single worksheet.
-/// Numeric and boolean fields become typed cells; fields beginning with '='
-/// are kept as formulas. All other fields remain text.
-pub fn import_csv(sheet_name: impl Into<String>, input: &str) -> io::Result<Workbook> {
-    if input.len() > MAX_STRING {
-        return Err(invalid_input("CSV input exceeds the supported size"));
-    }
-    let rows = Self::parse_csv_records(input)?;
-    if rows.len() > MAX_ROW as usize + 1 {
-        return Err(invalid_input("CSV row limit exceeded"));
-    }
-    let mut workbook = Workbook::new();
-    let sheet_id = workbook.sheets[0].id;
-    workbook.rename_sheet(sheet_id, sheet_name)?;
-    let mut cell_count = 0usize;
-    for (row_index, row) in rows.iter().enumerate() {
-        if row.len() > MAX_COLUMN as usize + 1 {
-            return Err(invalid_input("CSV column limit exceeded"));
+    /// Import one CSV document as a workbook containing a single worksheet.
+    /// Numeric and boolean fields become typed cells; fields beginning with '='
+    /// are kept as formulas. All other fields remain text.
+    pub fn import_csv(sheet_name: impl Into<String>, input: &str) -> io::Result<Workbook> {
+        if input.len() > MAX_STRING {
+            return Err(invalid_input("CSV input exceeds the supported size"));
         }
-        cell_count = cell_count.saturating_add(row.len());
-        if cell_count > MAX_CELLS {
-            return Err(invalid_input("CSV cell limit exceeded"));
-        }
-        for (column_index, value) in row.iter().enumerate() {
-            if value.is_empty() {
-                continue;
-            }
-            let address = CellAddress::new(row_index as u32, column_index as u32)?;
-            if value.starts_with('=') && value.len() > 1 {
-                workbook.set_formula(sheet_id, address, value.clone())?;
-            } else if value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false") {
-                workbook.set_boolean(sheet_id, address, value.eq_ignore_ascii_case("true"))?;
-            } else if let Ok(number) = value.parse::<f64>() {
-                if number.is_finite() {
-                    workbook.set_number(sheet_id, address, number)?;
-                } else {
-                    workbook.set_text(sheet_id, address, value.clone())?;
-                }
-            } else {
-                workbook.set_text(sheet_id, address, value.clone())?;
-            }
-        }
-    }
-    Ok(workbook)
-}
-
-/// Export a worksheet's used range as RFC 4180-style CSV.
-pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String> {
-    let sheet = workbook
-        .sheet(sheet_id)
-        .ok_or_else(|| invalid_input("unknown worksheet"))?;
-    let Some(max_row) = sheet.cells.keys().map(|address| address.row()).max() else {
-        return Ok(String::new());
-    };
-    let max_column = sheet
-        .cells
-        .keys()
-        .map(|address| address.column())
-        .max()
-        .unwrap_or(0);
-    let cell_count = (max_row as u64 + 1).saturating_mul(max_column as u64 + 1);
-    if cell_count > MAX_CELLS as u64 {
-        return Err(invalid_input("CSV export range exceeds the supported cell limit"));
-    }
-    let mut output = String::new();
-    for row in 0..=max_row {
-        for column in 0..=max_column {
-            if column > 0 {
-                output.push(',');
-            }
-            let address = CellAddress::new(row, column)?;
-            let value = match sheet.cells.get(&address).map(|cell| &cell.input) {
-                None | Some(CellInput::Value(CellValue::Blank)) => String::new(),
-                Some(CellInput::Formula(formula)) => formula.clone(),
-                Some(CellInput::Value(CellValue::Number(number))) => number.to_string(),
-                Some(CellInput::Value(CellValue::Text(text))) => text.clone(),
-                Some(CellInput::Value(CellValue::Boolean(value))) => value.to_string(),
-                Some(CellInput::Value(CellValue::Error(error))) => format!(
-                    "#{}",
-                    match error {
-                        FormulaError::Parse => "PARSE!",
-                        FormulaError::Reference => "REF!",
-                        FormulaError::DivisionByZero => "DIV/0!",
-                        FormulaError::CircularReference => "CIRCULAR!",
-                        FormulaError::Type => "VALUE!",
-                        FormulaError::Number => "NUM!",
-                        FormulaError::NotAvailable => "N/A",
-                    }
-                ),
-            };
-            output.push_str(&Self::csv_escape(&value));
-        }
-        output.push_str("\r\n");
-    }
-    Ok(output)
-}
-
-fn csv_escape(value: &str) -> String {
-    if value
-        .chars()
-        .any(|character| matches!(character, ',' | '"' | '\r' | '\n'))
-        || value.starts_with(' ')
-        || value.ends_with(' ')
-    {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_owned()
-    }
-}
-
-fn parse_csv_records(input: &str) -> io::Result<Vec<Vec<String>>> {
-    let mut rows = Vec::new();
-    let mut row = Vec::new();
-    let mut field = String::new();
-    let mut chars = input.chars().peekable();
-    let mut quoted = false;
-    let mut after_quote = false;
-    while let Some(character) = chars.next() {
-        if quoted {
-            if character == '"' {
-                if chars.peek() == Some(&'"') {
-                    chars.next();
-                    field.push('"');
-                } else {
-                    quoted = false;
-                    after_quote = true;
-                }
-            } else {
-                field.push(character);
-            }
-            continue;
-        }
-        if after_quote && !matches!(character, ',' | '\r' | '\n') {
-            return Err(invalid_input("unexpected character after quoted CSV field"));
-        }
-        match character {
-            '"' if field.is_empty() && !after_quote => quoted = true,
-            ',' => {
-                row.push(std::mem::take(&mut field));
-                after_quote = false;
-            }
-            '\r' | '\n' => {
-                if character == '\r' && chars.peek() == Some(&'\n') {
-                    chars.next();
-                }
-                row.push(std::mem::take(&mut field));
-                rows.push(std::mem::take(&mut row));
-                after_quote = false;
-            }
-            _ => field.push(character),
-        }
+        let rows = Self::parse_csv_records(input)?;
         if rows.len() > MAX_ROW as usize + 1 {
             return Err(invalid_input("CSV row limit exceeded"));
         }
+        let mut workbook = Workbook::new();
+        let sheet_id = workbook.sheets[0].id;
+        workbook.rename_sheet(sheet_id, sheet_name)?;
+        let mut cell_count = 0usize;
+        for (row_index, row) in rows.iter().enumerate() {
+            if row.len() > MAX_COLUMN as usize + 1 {
+                return Err(invalid_input("CSV column limit exceeded"));
+            }
+            cell_count = cell_count.saturating_add(row.len());
+            if cell_count > MAX_CELLS {
+                return Err(invalid_input("CSV cell limit exceeded"));
+            }
+            for (column_index, value) in row.iter().enumerate() {
+                if value.is_empty() {
+                    continue;
+                }
+                let address = CellAddress::new(row_index as u32, column_index as u32)?;
+                if value.starts_with('=') && value.len() > 1 {
+                    workbook.set_formula(sheet_id, address, value.clone())?;
+                } else if value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false") {
+                    workbook.set_boolean(sheet_id, address, value.eq_ignore_ascii_case("true"))?;
+                } else if let Ok(number) = value.parse::<f64>() {
+                    if number.is_finite() {
+                        workbook.set_number(sheet_id, address, number)?;
+                    } else {
+                        workbook.set_text(sheet_id, address, value.clone())?;
+                    }
+                } else {
+                    workbook.set_text(sheet_id, address, value.clone())?;
+                }
+            }
+        }
+        Ok(workbook)
     }
-    if quoted {
-        return Err(invalid_input("unterminated quoted CSV field"));
+    
+    /// Export a worksheet's used range as RFC 4180-style CSV.
+    pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String> {
+        let sheet = workbook
+            .sheet(sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let Some(max_row) = sheet.cells.keys().map(|address| address.row()).max() else {
+            return Ok(String::new());
+        };
+        let max_column = sheet
+            .cells
+            .keys()
+            .map(|address| address.column())
+            .max()
+            .unwrap_or(0);
+        let cell_count = (max_row as u64 + 1).saturating_mul(max_column as u64 + 1);
+        if cell_count > MAX_CELLS as u64 {
+            return Err(invalid_input("CSV export range exceeds the supported cell limit"));
+        }
+        let mut output = String::new();
+        for row in 0..=max_row {
+            for column in 0..=max_column {
+                if column > 0 {
+                    output.push(',');
+                }
+                let address = CellAddress::new(row, column)?;
+                let value = match sheet.cells.get(&address).map(|cell| &cell.input) {
+                    None | Some(CellInput::Value(CellValue::Blank)) => String::new(),
+                    Some(CellInput::Formula(formula)) => formula.clone(),
+                    Some(CellInput::Value(CellValue::Number(number))) => number.to_string(),
+                    Some(CellInput::Value(CellValue::Text(text))) => text.clone(),
+                    Some(CellInput::Value(CellValue::Boolean(value))) => value.to_string(),
+                    Some(CellInput::Value(CellValue::Error(error))) => format!(
+                        "#{}",
+                        match error {
+                            FormulaError::Parse => "PARSE!",
+                            FormulaError::Reference => "REF!",
+                            FormulaError::DivisionByZero => "DIV/0!",
+                            FormulaError::CircularReference => "CIRCULAR!",
+                            FormulaError::Type => "VALUE!",
+                            FormulaError::Number => "NUM!",
+                            FormulaError::NotAvailable => "N/A",
+                        }
+                    ),
+                };
+                output.push_str(&Self::csv_escape(&value));
+            }
+            output.push_str("\r\n");
+        }
+        Ok(output)
     }
-    if !field.is_empty()
-        || !row.is_empty()
-        || after_quote
-        || (input.ends_with(',') && !input.ends_with("\r\n"))
-    {
-        row.push(field);
-        rows.push(row);
+    
+    fn csv_escape(value: &str) -> String {
+        if value
+            .chars()
+            .any(|character| matches!(character, ',' | '"' | '\r' | '\n'))
+            || value.starts_with(' ')
+            || value.ends_with(' ')
+        {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_owned()
+        }
     }
-    Ok(rows)
-}
-
-    pub fn encode(&self) -> io::Result<Vec<u8>> {
+    
+    fn parse_csv_records(input: &str) -> io::Result<Vec<Vec<String>>> {
+        let mut rows = Vec::new();
+        let mut row = Vec::new();
+        let mut field = String::new();
+        let mut chars = input.chars().peekable();
+        let mut quoted = false;
+        let mut after_quote = false;
+        while let Some(character) = chars.next() {
+            if quoted {
+                if character == '"' {
+                    if chars.peek() == Some(&'"') {
+                        chars.next();
+                        field.push('"');
+                    } else {
+                        quoted = false;
+                        after_quote = true;
+                    }
+                } else {
+                    field.push(character);
+                }
+                continue;
+            }
+            if after_quote && !matches!(character, ',' | '\r' | '\n') {
+                return Err(invalid_input("unexpected character after quoted CSV field"));
+            }
+            match character {
+                '"' if field.is_empty() && !after_quote => quoted = true,
+                ',' => {
+                    row.push(std::mem::take(&mut field));
+                    after_quote = false;
+                }
+                '\r' | '\n' => {
+                    if character == '\r' && chars.peek() == Some(&'\n') {
+                        chars.next();
+                    }
+                    row.push(std::mem::take(&mut field));
+                    rows.push(std::mem::take(&mut row));
+                    after_quote = false;
+                }
+                _ => field.push(character),
+            }
+            if rows.len() > MAX_ROW as usize + 1 {
+                return Err(invalid_input("CSV row limit exceeded"));
+            }
+        }
+        if quoted {
+            return Err(invalid_input("unterminated quoted CSV field"));
+        }
+        if !field.is_empty()
+            || !row.is_empty()
+            || after_quote
+            || (input.ends_with(',') && !input.ends_with("\r\n"))
+        {
+            row.push(field);
+            rows.push(row);
+        }
+        Ok(rows)
+    }
+    
+        pub fn encode(&self) -> io::Result<Vec<u8>> {
         encode_workbook(self)
     }
     pub fn decode(bytes: &[u8]) -> io::Result<Self> {
