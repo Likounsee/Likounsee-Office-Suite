@@ -12,6 +12,8 @@ application and can be used by a future presentation editor, command-line tool o
 - Shape elements: rectangle, ellipse, line and arrow, with fill, stroke and width.
 - Image elements with a source reference and alternative text. Image bytes are not embedded or decoded.
 - Element geometry updates, element reordering and deletion.
+- Multi-selection alignment against the collective bounding box (left, horizontal center, right, top, vertical center and bottom).
+- Even horizontal or vertical distribution of three or more selected elements.
 - Text content/style updates, shape style updates, image source/alt-text updates.
 - Model validation, stable IDs, bounded collection/string sizes.
 - Versioned binary serialization with CRC32 integrity checking.
