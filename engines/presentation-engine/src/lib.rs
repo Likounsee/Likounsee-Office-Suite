@@ -1639,6 +1639,141 @@ pub fn render_all_slides_svg(presentation: &Presentation) -> io::Result<Vec<(u64
         .collect()
 }
 
+/// Adapter implemented by the application's graphics engine (or another PNG renderer).
+///
+/// The presentation engine deliberately does not rasterize SVG itself. Implementors
+/// receive the SVG produced by this crate and must return a PNG at the requested size.
+pub trait PngRasterizer {
+    fn rasterize_svg(&self, svg: &str, width: u32, height: u32) -> io::Result<Vec<u8>>;
+}
+
+/// Export one slide as PNG through an externally supplied rasterizer.
+///
+/// This is an integration boundary, not a built-in graphics or rasterization engine.
+pub fn render_slide_png_with<R: PngRasterizer>(
+    presentation: &Presentation,
+    slide_id: u64,
+    width: u32,
+    height: u32,
+    rasterizer: &R,
+) -> io::Result<Vec<u8>> {
+    validate_png_dimensions(width, height)?;
+    let svg = render_slide_svg(presentation, slide_id)?;
+    let png = rasterizer.rasterize_svg(&svg, width, height)?;
+    validate_png(&png, width, height)?;
+    Ok(png)
+}
+
+/// Export every slide as PNG through an externally supplied rasterizer.
+///
+/// Results preserve presentation order and include each slide's stable ID.
+pub fn render_presentation_png_with<R: PngRasterizer>(
+    presentation: &Presentation,
+    width: u32,
+    height: u32,
+    rasterizer: &R,
+) -> io::Result<Vec<(u64, Vec<u8>)>> {
+    validate_png_dimensions(width, height)?;
+    render_all_slides_svg(presentation)?
+        .into_iter()
+        .map(|(slide_id, svg)| {
+            let png = rasterizer.rasterize_svg(&svg, width, height)?;
+            validate_png(&png, width, height)?;
+            Ok((slide_id, png))
+        })
+        .collect()
+}
+
+fn validate_png_dimensions(width: u32, height: u32) -> io::Result<()> {
+    if width == 0 || height == 0 {
+        return Err(invalid_input("PNG dimensions must be greater than zero"));
+    }
+    Ok(())
+}
+
+/// Validate PNG signature, chunk framing/CRCs, IHDR dimensions, image data and IEND.
+fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Result<()> {
+    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if !png.starts_with(SIGNATURE) {
+        return Err(invalid_input("rasterizer did not return a PNG file"));
+    }
+
+    let mut offset = SIGNATURE.len();
+    let mut chunk_index = 0usize;
+    let mut has_image_data = false;
+    let mut has_end = false;
+    while offset < png.len() {
+        if png.len() - offset < 12 {
+            return Err(invalid_input("truncated PNG chunk"));
+        }
+        let length = u32::from_be_bytes(
+            png[offset..offset + 4]
+                .try_into()
+                .expect("four-byte PNG chunk length"),
+        ) as usize;
+        let chunk_end = offset
+            .checked_add(12)
+            .and_then(|value| value.checked_add(length))
+            .filter(|end| *end <= png.len())
+            .ok_or_else(|| invalid_input("PNG chunk exceeds file bounds"))?;
+        let chunk_type = &png[offset + 4..offset + 8];
+        let data_end = offset + 8 + length;
+        let expected_crc = u32::from_be_bytes(
+            png[data_end..data_end + 4]
+                .try_into()
+                .expect("four-byte PNG chunk CRC"),
+        );
+        let actual_crc = crc32fast::hash(&png[offset + 4..data_end]);
+        if expected_crc != actual_crc {
+            return Err(invalid_input("PNG chunk CRC mismatch"));
+        }
+
+        if chunk_index == 0 {
+            if chunk_type != b"IHDR" || length != 13 {
+                return Err(invalid_input("PNG must start with a 13-byte IHDR chunk"));
+            }
+            let actual_width = u32::from_be_bytes(
+                png[offset + 8..offset + 12]
+                    .try_into()
+                    .expect("four-byte PNG width"),
+            );
+            let actual_height = u32::from_be_bytes(
+                png[offset + 12..offset + 16]
+                    .try_into()
+                    .expect("four-byte PNG height"),
+            );
+            if actual_width != expected_width || actual_height != expected_height {
+                return Err(invalid_input("rasterizer returned unexpected PNG dimensions"));
+            }
+            if actual_width == 0 || actual_height == 0 {
+                return Err(invalid_input("PNG dimensions must be greater than zero"));
+            }
+        } else if chunk_type == b"IHDR" {
+            return Err(invalid_input("PNG contains more than one IHDR chunk"));
+        }
+
+        if chunk_type == b"IDAT" {
+            has_image_data = true;
+        }
+        if chunk_type == b"IEND" {
+            if length != 0 || !has_image_data || chunk_end != png.len() {
+                return Err(invalid_input("invalid PNG IEND placement or image data"));
+            }
+            has_end = true;
+            offset = chunk_end;
+            break;
+        }
+
+        chunk_index += 1;
+        offset = chunk_end;
+    }
+
+    if !has_end {
+        return Err(invalid_input("PNG is missing its IEND chunk"));
+    }
+    Ok(())
+}
+
 /// Export one slide as a standalone PDF document.
 pub fn render_slide_pdf(presentation: &Presentation, slide_id: u64) -> io::Result<Vec<u8>> {
     presentation.validate()?;
@@ -2858,6 +2993,94 @@ mod tests {
         }
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
+    }
+
+    struct TestPngRasterizer {
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl TestPngRasterizer {
+        fn new() -> Self {
+            Self {
+                calls: std::cell::Cell::new(0),
+            }
+        }
+    }
+
+    impl PngRasterizer for TestPngRasterizer {
+        fn rasterize_svg(&self, svg: &str, width: u32, height: u32) -> io::Result<Vec<u8>> {
+            assert!(svg.starts_with("<svg "));
+            self.calls.set(self.calls.get() + 1);
+            Ok(test_png(width, height))
+        }
+    }
+
+    fn test_png(width: u32, height: u32) -> Vec<u8> {
+        fn append_chunk(output: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+            output.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            output.extend_from_slice(kind);
+            output.extend_from_slice(data);
+            let mut crc_input = kind.to_vec();
+            crc_input.extend_from_slice(data);
+            output.extend_from_slice(&crc32fast::hash(&crc_input).to_be_bytes());
+        }
+
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut header = Vec::new();
+        header.extend_from_slice(&width.to_be_bytes());
+        header.extend_from_slice(&height.to_be_bytes());
+        header.extend_from_slice(&[8, 6, 0, 0, 0]);
+        append_chunk(&mut png, b"IHDR", &header);
+        // A valid zlib stream containing one transparent RGBA scanline.
+        let raw = [0, 0, 0, 0, 0];
+        let mut compressed = vec![0x78, 0x01, 0x01, 0x05, 0x00, 0xfa, 0xff];
+        compressed.extend_from_slice(&raw);
+        let adler_a = raw.iter().fold(1u32, |a, byte| (a + u32::from(*byte)) % 65521);
+        let adler_b = raw
+            .iter()
+            .fold(0u32, |b, byte| (b + adler_a) % 65521);
+        compressed.extend_from_slice(&((adler_b << 16) | adler_a).to_be_bytes());
+        append_chunk(&mut png, b"IDAT", &compressed);
+        append_chunk(&mut png, b"IEND", &[]);
+        png
+    }
+
+    #[test]
+    fn png_adapter_exports_one_slide_and_checks_renderer_output() {
+        let deck = Presentation::new("PNG adapter", 800.0, 450.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let rasterizer = TestPngRasterizer::new();
+        let png = render_slide_png_with(&deck, slide, 1600, 900, &rasterizer).unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!(rasterizer.calls.get(), 1);
+        assert!(render_slide_png_with(&deck, 999, 1600, 900, &rasterizer).is_err());
+        assert!(render_slide_png_with(&deck, slide, 0, 900, &rasterizer).is_err());
+        assert_eq!(rasterizer.calls.get(), 1);
+    }
+
+    #[test]
+    fn png_adapter_exports_all_slides_in_order_and_rejects_bad_pngs() {
+        let mut deck = Presentation::new("PNG batch", 640.0, 360.0).unwrap();
+        let first = deck.slides()[0].id();
+        let second = deck.add_slide("Second").unwrap();
+        let third = deck.add_slide("Third").unwrap();
+        let rasterizer = TestPngRasterizer::new();
+        let rendered =
+            render_presentation_png_with(&deck, 320, 180, &rasterizer).unwrap();
+        assert_eq!(
+            rendered.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![first, second, third]
+        );
+        assert_eq!(rasterizer.calls.get(), 3);
+        assert!(rendered.iter().all(|(_, png)| png.starts_with(b"\x89PNG")));
+
+        let mut corrupt = test_png(320, 180);
+        let idat = corrupt.windows(4).position(|window| window == b"IDAT").unwrap();
+        corrupt[idat + 5] ^= 0x40;
+        assert!(validate_png(&corrupt, 320, 180).is_err());
+        assert!(validate_png(&test_png(320, 180), 640, 180).is_err());
+        assert!(validate_png(&test_png(320, 180), 0, 180).is_err());
+        assert!(validate_png(b"not png", 320, 180).is_err());
     }
 
     #[test]
