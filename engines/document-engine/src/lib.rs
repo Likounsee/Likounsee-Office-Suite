@@ -4536,7 +4536,7 @@ mod tests {
     fn moving_paragraph_preserves_ids_and_persists_reading_order() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
-        session.set_body("alpha\\nbeta\\ngamma").unwrap();
+        session.set_body("alpha\nbeta\ngamma").unwrap();
         let ids = session
             .document()
             .paragraphs()
@@ -4555,13 +4555,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![ids[2], ids[0], ids[1]]
         );
-        assert_eq!(session.document().body(), "gamma\\nalpha\\nbeta");
+        assert_eq!(session.document().body(), "gamma\nalpha\nbeta");
         let before = session.document().clone();
         assert!(session.move_paragraph_before(ids[0], u64::MAX).is_err());
         assert_eq!(session.document(), &before);
         session.save_now().unwrap();
         drop(session);
         let reopened = DocumentSession::open(&directory.0).unwrap();
-        assert_eq!(reopened.document().body(), "gamma\\nalpha\\nbeta");
+        assert_eq!(reopened.document().body(), "gamma\nalpha\nbeta");
     }
 }
