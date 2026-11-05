@@ -3700,7 +3700,7 @@ mod tests {
         assert_eq!(session.document().revision(), revision + 1);
         assert_eq!(
             export_text(session.document()).unwrap(),
-            "first\\nfirst\nsecond\\n"
+            "first\nfirst\nsecond\n"
         );
     }
 }
