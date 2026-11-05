@@ -1150,6 +1150,7 @@ impl<'a> Parser<'a> {
                 "IF" => self.if_arguments(),
                 "IFERROR" => self.iferror_arguments(),
                 "NOT" => self.not_arguments(),
+                "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" => {
                     self.aggregate_arguments(&function)
@@ -1274,6 +1275,63 @@ impl<'a> Parser<'a> {
             ranges[2]
         };
         self.evaluate_argument(selected.0, selected.1)
+    }
+    fn type_test_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
+        let ranges = self.function_argument_ranges()?;
+        if ranges.len() != 1 {
+            return Err(FormulaError::Parse);
+        }
+        let (start, end) = ranges[0];
+        let source = std::str::from_utf8(&self.input[start..end])
+            .map_err(|_| FormulaError::Parse)?
+            .trim();
+        if let Some((sheet_id, address)) = self.direct_cell_reference(source)? {
+            let value = self.workbook.evaluate(sheet_id, address, self.visiting, self.cache);
+            let matches = match function {
+                "ISBLANK" => matches!(value, CellValue::Blank),
+                "ISNUMBER" => matches!(value, CellValue::Number(_)),
+                "ISTEXT" => matches!(value, CellValue::Text(_)),
+                _ => return Err(FormulaError::Parse),
+            };
+            return Ok(if matches { 1.0 } else { 0.0 });
+        }
+        if function == "ISBLANK" {
+            return Ok(0.0);
+        }
+        match self.evaluate_argument(start, end) {
+            Ok(_) if function == "ISNUMBER" => Ok(1.0),
+            Ok(_) => Ok(0.0),
+            Err(FormulaError::Type) if function == "ISTEXT" => Ok(1.0),
+            Err(error) => Err(error),
+        }
+    }
+    fn direct_cell_reference(
+        &self,
+        source: &str,
+    ) -> Result<Option<(u64, CellAddress)>, FormulaError> {
+        let (sheet_name, address_text) = if let Some((name, address)) = source.rsplit_once('!') {
+            let name = name.trim();
+            let name = name.strip_prefix('\'').and_then(|n| n.strip_suffix('\'')).unwrap_or(name);
+            (Some(name), address.trim())
+        } else {
+            (None, source)
+        };
+        if address_text.is_empty() || !address_text.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            return Ok(None);
+        }
+        let address = match CellAddress::parse_a1(address_text) {
+            Ok(address) => address,
+            Err(_) => return Ok(None),
+        };
+        let sheet_id = if let Some(name) = sheet_name {
+            self.workbook.sheets.iter()
+                .find(|sheet| sheet.name.eq_ignore_ascii_case(name))
+                .map(|sheet| sheet.id)
+                .ok_or(FormulaError::Reference)?
+        } else {
+            self.sheet_id
+        };
+        Ok(Some((sheet_id, address)))
     }
     fn not_arguments(&mut self) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
@@ -2382,6 +2440,66 @@ mod tests {
         book.set_formula(sheet, b1, "=1+").unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
+    #[test]
+    fn cell_type_predicates_classify_blank_number_text_boolean_and_formula_cells() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let d1 = CellAddress::parse_a1("D1").unwrap();
+        let e1 = CellAddress::parse_a1("E1").unwrap();
+        book.set_number(1, b1, 12.5).unwrap();
+        book.set_text(1, c1, "hello").unwrap();
+        book.set_boolean(1, d1, true).unwrap();
+        book.set_formula(1, e1, "=B1*2").unwrap();
+        let cases = [
+            ("=ISBLANK(A1)", 1.0),
+            ("=ISBLANK(B1)", 0.0),
+            ("=ISNUMBER(A1)", 0.0),
+            ("=ISNUMBER(B1)", 1.0),
+            ("=ISNUMBER(C1)", 0.0),
+            ("=ISNUMBER(D1)", 0.0),
+            ("=ISNUMBER(E1)", 1.0),
+            ("=ISTEXT(C1)", 1.0),
+            ("=ISTEXT(B1)", 0.0),
+            ("=ISTEXT(D1)", 0.0),
+            ("=ISNUMBER(1+2)", 1.0),
+            ("=ISTEXT(1+2)", 0.0),
+            ("=ISBLANK(1+2)", 0.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 2).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+        }
+    }
+
+    #[test]
+    fn cell_type_predicates_support_cross_sheet_references_and_validate_arity() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data Sheet").unwrap();
+        let text_cell = CellAddress::parse_a1("A1").unwrap();
+        let blank_cell = CellAddress::parse_a1("B1").unwrap();
+        book.set_text(data, text_cell, "sample").unwrap();
+        let formulas = [
+            ("=ISTEXT('Data Sheet'!A1)", 1.0),
+            ("=ISBLANK('Data Sheet'!B1)", 1.0),
+            ("=ISNUMBER('Data Sheet'!A1)", 0.0),
+        ];
+        for (index, (formula, expected)) in formulas.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 0).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+        }
+        let address = CellAddress::parse_a1("A5").unwrap();
+        for formula in ["=ISBLANK()", "=ISNUMBER(A1,B1)", "=ISTEXT(,A1)"] {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Parse), "{formula}");
+        }
+        book.set_formula(1, address, "=ISNUMBER('Missing'!A1)").unwrap();
+        assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Reference));
+    }
+
     #[test]
     fn not_negates_numeric_and_comparison_conditions() {
         let mut book = Workbook::new();
