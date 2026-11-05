@@ -885,16 +885,20 @@ fn formula_dependencies(
                 continue;
             };
             sheet_id = id;
-        } else if bytes[cursor].is_ascii_alphabetic() {
+        } else if bytes[cursor].is_ascii_alphabetic() || bytes[cursor] == 36 {
             let start = cursor;
-            while cursor < bytes.len()
-                && (bytes[cursor].is_ascii_alphanumeric() || bytes[cursor] == b'_')
-            {
-                cursor += 1;
-            }
-            let token = std::str::from_utf8(&bytes[start..cursor])
-                .map_err(|_| invalid_input("formula contains invalid reference"))?;
-            if bytes.get(cursor) == Some(&b'!') {
+            if bytes[cursor] == 36 {
+                address = scan_cell_address(bytes, &mut cursor)?;
+                sheet_id = current_sheet;
+            } else {
+                while cursor < bytes.len()
+                    && (bytes[cursor].is_ascii_alphanumeric() || bytes[cursor] == b'_')
+                {
+                    cursor += 1;
+                }
+                let token = std::str::from_utf8(&bytes[start..cursor])
+                    .map_err(|_| invalid_input("formula contains invalid reference"))?;
+                if bytes.get(cursor) == Some(&b'!') {
                 cursor += 1;
                 address = scan_cell_address(bytes, &mut cursor)?;
                 let Some(id) = workbook
@@ -906,11 +910,11 @@ fn formula_dependencies(
                     continue;
                 };
                 sheet_id = id;
-            } else if let Ok(parsed) = CellAddress::parse_a1(token) {
-                sheet_id = current_sheet;
-                address = parsed;
             } else {
-                continue;
+                cursor = start;
+                address = scan_cell_address(bytes, &mut cursor)?;
+                sheet_id = current_sheet;
+            }
             }
         } else {
             cursor += 1;
@@ -1152,6 +1156,10 @@ impl<'a> Parser<'a> {
         }
         let identifier = std::str::from_utf8(&self.input[start..self.cursor])
             .map_err(|_| FormulaError::Parse)?;
+        if self.peek() == Some(36) && identifier.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+            self.cursor = start;
+            return self.numeric_cell(self.cell_address()?);
+        }
         self.whitespace();
         let function = identifier.to_ascii_uppercase();
         if self.peek() == Some(b'(') {
