@@ -1562,6 +1562,22 @@ impl Presentation {
         self.move_element(slide_id, element_id, 0)
     }
 
+    /// Remove all elements from a slide while preserving its name, background and speaker notes.
+    /// An already-empty slide is a no-op and does not advance the presentation revision.
+    pub fn clear_slide_elements(&mut self, slide_id: u64) -> io::Result<usize> {
+        let count = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?
+            .elements
+            .len();
+        if count == 0 {
+            return Ok(0);
+        }
+        self.bump_revision()?;
+        self.slide_mut(slide_id)?.elements.clear();
+        Ok(count)
+    }
+
     /// Duplicate an element directly after its source, assigning a fresh stable ID.
     pub fn duplicate_element(&mut self, slide_id: u64, element_id: u64) -> io::Result<u64> {
         let slide = self
@@ -5322,5 +5338,26 @@ mod tests {
                 .bring_element_to_front(u64::MAX, first)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn clear_slide_elements_preserves_slide_metadata_and_is_noop_when_empty() {
+        let mut presentation = Presentation::new("Clear", 100.0, 80.0).unwrap();
+        let slide_id = presentation.slides()[0].id();
+        presentation.rename_slide(slide_id, "Keep me").unwrap();
+        presentation.set_slide_notes(slide_id, "Speaker notes").unwrap();
+        let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
+        presentation.add_text(slide_id, rect(1.0, 1.0, 10.0, 10.0), "Remove", style).unwrap();
+        let revision = presentation.revision();
+        assert_eq!(presentation.clear_slide_elements(slide_id).unwrap(), 1);
+        assert_eq!(presentation.revision(), revision + 1);
+        let slide = presentation.slide(slide_id).unwrap();
+        assert_eq!(slide.name(), "Keep me");
+        assert_eq!(slide.notes(), "Speaker notes");
+        assert!(slide.elements().is_empty());
+        let revision = presentation.revision();
+        assert_eq!(presentation.clear_slide_elements(slide_id).unwrap(), 0);
+        assert_eq!(presentation.revision(), revision);
+        assert!(presentation.clear_slide_elements(u64::MAX).is_err());
     }
 }

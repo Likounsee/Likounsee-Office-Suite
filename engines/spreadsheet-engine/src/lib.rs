@@ -680,6 +680,71 @@ impl Workbook {
         Ok(count)
     }
 
+    /// Copy an inclusive rectangular range to a destination top-left cell.
+    /// Source cells are snapshotted before writes, so overlapping copies are safe.
+    /// Formulas are copied verbatim (references are not translated); blank source cells clear destinations.
+    pub fn copy_range(
+        &mut self,
+        sheet_id: u64,
+        source_start: CellAddress,
+        source_end: CellAddress,
+        destination_start: CellAddress,
+    ) -> io::Result<usize> {
+        let sheet = self
+            .sheets
+            .iter()
+            .find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let min_row = source_start.row().min(source_end.row());
+        let max_row = source_start.row().max(source_end.row());
+        let min_column = source_start.column().min(source_end.column());
+        let max_column = source_start.column().max(source_end.column());
+        let rows = max_row - min_row + 1;
+        let columns = max_column - min_column + 1;
+        let area = (rows as usize)
+            .checked_mul(columns as usize)
+            .filter(|area| *area <= MAX_CELLS)
+            .ok_or_else(|| invalid_input("copy range exceeds the cell limit"))?;
+        let destination_end = CellAddress::new(
+            destination_start.row().checked_add(rows - 1)
+                .ok_or_else(|| invalid_input("destination row overflows"))?,
+            destination_start.column().checked_add(columns - 1)
+                .ok_or_else(|| invalid_input("destination column overflows"))?,
+        )?;
+        let mut snapshot = Vec::new();
+        for row_offset in 0..rows {
+            for column_offset in 0..columns {
+                let source = CellAddress::new(min_row + row_offset, min_column + column_offset)?;
+                let destination = CellAddress::new(
+                    destination_start.row() + row_offset,
+                    destination_start.column() + column_offset,
+                )?;
+                snapshot.push((destination, sheet.cells.get(&source).cloned()));
+            }
+        }
+        let mut next_cells = sheet.cells.clone();
+        next_cells.retain(|address, _| {
+            address.row() < destination_start.row()
+                || address.row() > destination_end.row()
+                || address.column() < destination_start.column()
+                || address.column() > destination_end.column()
+        });
+        for (destination, cell) in &snapshot {
+            if let Some(cell) = cell {
+                next_cells.insert(*destination, cell.clone());
+            }
+        }
+        if next_cells.len() > MAX_CELLS {
+            return Err(invalid_input("worksheet cell limit reached"));
+        }
+        self.sheets
+            .iter_mut()
+            .find(|sheet| sheet.id == sheet_id)
+            .expect("worksheet was validated above")
+            .cells = next_cells;
+        Ok(snapshot.iter().filter(|(_, cell)| cell.is_some()).count().min(area))
+    }
+
     /// Clear every stored value or formula in an inclusive rectangular range.
     /// The operation is bounded by MAX_CELLS and leaves cells outside the range untouched.
     pub fn clear_range(
@@ -5219,5 +5284,36 @@ mod session_tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn copy_range_is_overlap_safe_and_blank_cells_clear_destination() {
+        let mut workbook = Workbook::new();
+        let sheet = workbook.sheets()[0].id();
+        workbook.set_text(sheet, CellAddress::parse_a1("A1").unwrap(), "one").unwrap();
+        workbook.set_number(sheet, CellAddress::parse_a1("B1").unwrap(), 2.0).unwrap();
+        workbook.set_text(sheet, CellAddress::parse_a1("C1").unwrap(), "old").unwrap();
+        assert_eq!(
+            workbook.copy_range(
+                sheet,
+                CellAddress::parse_a1("A1").unwrap(),
+                CellAddress::parse_a1("B1").unwrap(),
+                CellAddress::parse_a1("B1").unwrap(),
+            ).unwrap(),
+            2
+        );
+        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()), CellValue::Text("one".into()));
+        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("C1").unwrap()), CellValue::Number(2.0));
+        assert_eq!(
+            workbook.copy_range(
+                sheet,
+                CellAddress::parse_a1("A1").unwrap(),
+                CellAddress::parse_a1("B1").unwrap(),
+                CellAddress::parse_a1("D1").unwrap(),
+            ).unwrap(),
+            2
+        );
+        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("D1").unwrap()), CellValue::Text("one".into()));
+        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("E1").unwrap()), CellValue::Number(2.0));
     }
 }

@@ -2542,6 +2542,37 @@ impl DocumentSession {
         Ok(id)
     }
 
+    /// Duplicate a paragraph immediately after its source, preserving formatting and list metadata.
+    /// The duplicate receives a fresh stable ID and is recorded as one document revision.
+    pub fn duplicate_paragraph_after(&mut self, paragraph_id: u64) -> io::Result<u64> {
+        let mut paragraphs = self.document.paragraphs.clone();
+        let source_index = paragraphs
+            .iter()
+            .position(|paragraph| paragraph.id == paragraph_id)
+            .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        let mut duplicate = paragraphs[source_index].clone();
+        let id = self.document.next_block_id;
+        let next_id = id
+            .checked_add(1)
+            .ok_or_else(|| invalid_input("paragraph ID space exhausted"))?;
+        duplicate.id = id;
+        paragraphs.insert(source_index + 1, duplicate);
+        let mut next = self.document.with_paragraphs(paragraphs, next_id)?;
+        let source_block = DocumentBlock::Paragraph(paragraph_id);
+        let duplicate_block = DocumentBlock::Paragraph(id);
+        let block_index = next
+            .block_order
+            .iter()
+            .position(|block| *block == source_block)
+            .map(|index| index + 1)
+            .ok_or_else(|| invalid_input("paragraph block position is missing"))?;
+        next.block_order.retain(|block| *block != duplicate_block);
+        next.block_order.insert(block_index, duplicate_block);
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(id)
+    }
+
     /// Clear paragraph style, list metadata and inline marks while retaining text and IDs.
     pub fn clear_paragraph_formatting(&mut self, paragraph_id: u64) -> io::Result<u64> {
         let mut paragraphs = self.document.paragraphs.clone();
@@ -3642,5 +3673,31 @@ mod tests {
         let revision = session.document().revision();
         session.clear_paragraph_formatting(paragraph_id).unwrap();
         assert_eq!(session.document().revision(), revision);
+    }
+
+    #[test]
+    fn duplicate_paragraph_preserves_formatting_and_inserts_after_source() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("first\\nsecond").unwrap();
+        let source_id = session.document().paragraphs()[0].id();
+        session
+            .set_paragraph_style(source_id, ParagraphStyle::Heading1)
+            .unwrap();
+        session
+            .set_inline_mark(source_id, 0..5, InlineMark::Bold, true)
+            .unwrap();
+        let revision = session.document().revision();
+        let duplicate_id = session.duplicate_paragraph_after(source_id).unwrap();
+        let paragraphs = session.document().paragraphs();
+        assert_eq!(paragraphs.len(), 3);
+        assert_eq!(paragraphs[0].id(), source_id);
+        assert_eq!(paragraphs[1].id(), duplicate_id);
+        assert_ne!(source_id, duplicate_id);
+        assert_eq!(paragraphs[1].text(), "first");
+        assert_eq!(paragraphs[1].style(), ParagraphStyle::Heading1);
+        assert_eq!(paragraphs[1].spans(), paragraphs[0].spans());
+        assert_eq!(session.document().revision(), revision + 1);
+        assert_eq!(export_text(session.document()).unwrap(), "first\\nfirst\\nsecond\\n");
     }
 }
