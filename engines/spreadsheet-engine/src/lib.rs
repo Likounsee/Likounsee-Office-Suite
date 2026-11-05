@@ -2299,11 +2299,8 @@ impl WorkbookSession {
         sheet_id: u64,
         address: CellAddress,
     ) -> io::Result<Vec<(CellKey, CellValue)>> {
-        self.workbook.recalculate_after_change_with_index(
-            &self.dependency_index,
-            sheet_id,
-            address,
-        )
+        self.workbook
+            .recalculate_after_change_with_index(&self.dependency_index, sheet_id, address)
     }
 
     pub fn recovered_records(&self) -> usize {
@@ -2568,7 +2565,10 @@ mod session_tests {
         session.set_formula(1, b1, "=A1+1").unwrap();
         session.set_formula(1, c1, "=B1+1").unwrap();
         session.set_formula(1, b1, "=A1*5").unwrap();
-        assert_eq!(session.dependency_index().dependencies_of(1, b1), &[(1, a1)]);
+        assert_eq!(
+            session.dependency_index().dependencies_of(1, b1),
+            &[(1, a1)]
+        );
         session.clear_cell(1, b1).unwrap();
         assert!(session.dependency_index().dependencies_of(1, b1).is_empty());
         assert!(session.dependency_index().dependents_of(1, a1).is_empty());
