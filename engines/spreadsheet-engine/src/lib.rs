@@ -1373,9 +1373,8 @@ impl<'a> Parser<'a> {
                 "MATCH" => self.match_arguments(),
                 "NOT" => self.not_arguments(),
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
-                "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" => {
-                    self.math_function_arguments(&function)
-                }
+                "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT"
+                | "POWER" | "MOD" => self.math_function_arguments(&function),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
@@ -1571,31 +1570,48 @@ impl<'a> Parser<'a> {
     }
     fn math_function_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
-        let expected = if function == "ABS" { 1 } else { 2 };
-        if ranges.len() != expected {
+        let unary = matches!(function, "ABS" | "SQRT" | "SIGN" | "INT");
+        if ranges.len() != if unary { 1 } else { 2 } {
             return Err(FormulaError::Parse);
         }
         let value = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
-        let result = if function == "ABS" {
-            value.abs()
-        } else {
-            let digits = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
-            if digits.fract() != 0.0 || !(-308.0..=308.0).contains(&digits) {
-                return Err(FormulaError::Number);
+        let result = match function {
+            "ABS" => value.abs(),
+            "SQRT" if value >= 0.0 => value.sqrt(),
+            "SQRT" => return Err(FormulaError::Number),
+            "SIGN" => value.signum(),
+            "INT" => value.floor(),
+            "POWER" => {
+                let exponent = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+                value.powf(exponent)
             }
-            let factor = 10_f64.powi(digits as i32);
-            let scaled = value * factor;
-            if !factor.is_finite() || !scaled.is_finite() {
-                return Err(FormulaError::Number);
+            "MOD" => {
+                let divisor = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+                if divisor == 0.0 {
+                    return Err(FormulaError::DivisionByZero);
+                }
+                value % divisor
             }
-            let rounded = match function {
-                "ROUND" => scaled.round(),
-                "ROUNDUP" if scaled >= 0.0 => scaled.ceil(),
-                "ROUNDUP" => scaled.floor(),
-                "ROUNDDOWN" => scaled.trunc(),
-                _ => return Err(FormulaError::Parse),
-            };
-            rounded / factor
+            "ROUND" | "ROUNDUP" | "ROUNDDOWN" => {
+                let digits = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+                if digits.fract() != 0.0 || !(-308.0..=308.0).contains(&digits) {
+                    return Err(FormulaError::Number);
+                }
+                let factor = 10_f64.powi(digits as i32);
+                let scaled = value * factor;
+                if !factor.is_finite() || !scaled.is_finite() {
+                    return Err(FormulaError::Number);
+                }
+                let rounded = match function {
+                    "ROUND" => scaled.round(),
+                    "ROUNDUP" if scaled >= 0.0 => scaled.ceil(),
+                    "ROUNDUP" => scaled.floor(),
+                    "ROUNDDOWN" => scaled.trunc(),
+                    _ => return Err(FormulaError::Parse),
+                };
+                rounded / factor
+            }
+            _ => return Err(FormulaError::Parse),
         };
         if result.is_finite() {
             Ok(result)
@@ -3225,6 +3241,55 @@ mod tests {
             assert_eq!(
                 book.value(1, address),
                 CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn extended_math_functions_cover_roots_powers_modulo_and_signs() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=SQRT(81)", 9.0),
+            ("=SQRT(0)", 0.0),
+            ("=POWER(2,10)", 1024.0),
+            ("=POWER(9,0.5)", 3.0),
+            ("=MOD(17,5)", 2.0),
+            ("=MOD(-17,5)", -2.0),
+            ("=SIGN(-42)", -1.0),
+            ("=SIGN(0)", 0.0),
+            ("=SIGN(42)", 1.0),
+            ("=INT(3.9)", 3.0),
+            ("=INT(-3.1)", -4.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 9).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn extended_math_functions_reject_invalid_domains_and_overflow() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        let cases = [
+            ("=SQRT(-1)", FormulaError::Number),
+            ("=MOD(1,0)", FormulaError::DivisionByZero),
+            ("=SQRT()", FormulaError::Parse),
+            ("=POWER(2)", FormulaError::Parse),
+            ("=MOD(1,2,3)", FormulaError::Parse),
+            ("=POWER(10,10000)", FormulaError::Number),
+        ];
+        for (formula, expected) in cases {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(expected),
                 "{formula}"
             );
         }
