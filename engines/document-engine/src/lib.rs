@@ -449,6 +449,25 @@ impl Document {
 }
 
 /// Encode a document using the current versioned binary format.
+/// Count Unicode whitespace-delimited words in paragraphs and table cells.
+pub fn word_count(document: &Document) -> io::Result<usize> {
+    validate_document_size(document)?;
+    let mut count = 0usize;
+    for paragraph in &document.paragraphs {
+        count = count.checked_add(paragraph.text.split_whitespace().count())
+            .ok_or_else(|| invalid_data("document word count overflow"))?;
+    }
+    for table in &document.tables {
+        for row in &table.rows {
+            for cell in &row.cells {
+                count = count.checked_add(cell.text.split_whitespace().count())
+                    .ok_or_else(|| invalid_data("document word count overflow"))?;
+            }
+        }
+    }
+    Ok(count)
+}
+
 /// Export readable plain text while preserving paragraph order and table rows.
 /// Table cells are separated by tabs; rows are separated by newlines.
 pub fn export_text(document: &Document) -> io::Result<String> {
@@ -3106,6 +3125,17 @@ mod tests {
                 DocumentBlock::Table(table_id),
             ]
         );
+    }
+
+    #[test]
+    fn word_count_includes_paragraphs_and_table_cells() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.insert_text(0, "Hello world").unwrap();
+        let table_id = session.insert_table(1, 2).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "three").unwrap();
+        session.set_table_cell_text(table_id, 0, 1, "four five").unwrap();
+        assert_eq!(word_count(session.document()).unwrap(), 5);
     }
 
     #[test]
