@@ -4134,9 +4134,9 @@ mod tests {
         let elements = deck.slide(slide).unwrap().elements();
         assert_eq!(elements.len(), 4);
         assert_eq!(elements[2].id(), copies[0]);
-        assert_eq!(elements[2].text(), Some("First"));
+        assert!(matches!(elements[2].kind(), ElementKind::Text { text, .. } if text == "First"));
         assert_eq!(elements[3].id(), copies[1]);
-        assert_eq!(elements[3].text(), Some("Second"));
+        assert!(matches!(elements[3].kind(), ElementKind::Text { text, .. } if text == "Second"));
         let revision = deck.revision();
         assert!(deck.duplicate_elements(slide, &[first, u64::MAX]).is_err());
         assert_eq!(deck.revision(), revision);

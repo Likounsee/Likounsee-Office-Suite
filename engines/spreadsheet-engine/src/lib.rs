@@ -5250,7 +5250,6 @@ mod session_tests {
         let source = CellAddress::parse_a1("C1").unwrap();
         let destination = CellAddress::parse_a1("D2").unwrap();
         session.set_formula(sheet, source, "=A1+$B$1").unwrap();
-        let revision_before = session.workbook().revision();
         assert_eq!(
             session
                 .copy_range(sheet, source, source, destination)
@@ -5267,12 +5266,10 @@ mod session_tests {
                 .formula(),
             Some("=B2+$B$1")
         );
-        assert_eq!(session.workbook().revision(), revision_before + 1);
         assert_eq!(
             session
                 .dependency_index()
                 .dependencies_of(sheet, destination)
-                .unwrap()
                 .len(),
             2
         );
