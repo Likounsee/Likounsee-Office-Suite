@@ -411,6 +411,150 @@ impl Document {
 }
 
 /// Encode a document using the current versioned binary format.
+/// Export the document's editable block order to Markdown.
+///
+/// Paragraph styles, list semantics, inline emphasis and tables are preserved
+/// where Markdown has a direct representation. Underline uses HTML markup.
+pub fn export_markdown(document: &Document) -> io::Result<String> {
+    validate_document_size(document)?;
+    let mut output = String::new();
+    if !document.title.is_empty() {
+        output.push_str("# ");
+        output.push_str(&markdown_escape(&document.title));
+        output.push_str("\n\n");
+    }
+
+    for (block_index, block) in document.block_order.iter().enumerate() {
+        match *block {
+            DocumentBlock::Paragraph(id) => {
+                let paragraph = document
+                    .paragraphs
+                    .iter()
+                    .find(|paragraph| paragraph.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing paragraph"))?;
+                let text = markdown_paragraph_text(paragraph);
+                match paragraph.style {
+                    ParagraphStyle::Normal => {
+                        if paragraph.list_kind == ListKind::Bullet {
+                            output.push_str(&"  ".repeat(paragraph.list_level as usize));
+                            output.push_str("- ");
+                            output.push_str(&text);
+                        } else if paragraph.list_kind == ListKind::Numbered {
+                            output.push_str(&"  ".repeat(paragraph.list_level as usize));
+                            output.push_str("1. ");
+                            output.push_str(&text);
+                        } else {
+                            output.push_str(&text);
+                        }
+                    }
+                    ParagraphStyle::Heading1 => {
+                        output.push_str("# ");
+                        output.push_str(&text);
+                    }
+                    ParagraphStyle::Heading2 => {
+                        output.push_str("## ");
+                        output.push_str(&text);
+                    }
+                    ParagraphStyle::Quote => {
+                        output.push_str("> ");
+                        output.push_str(&text);
+                    }
+                    ParagraphStyle::Code => {
+                        output.push_str("    ");
+                        output.push_str(&paragraph.text.replace('\n', "\n    "));
+                    }
+                }
+                output.push_str("\n");
+            }
+            DocumentBlock::Table(id) => {
+                let table = document
+                    .tables
+                    .iter()
+                    .find(|table| table.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing table"))?;
+                if table.columns == 0 {
+                    continue;
+                }
+                for (row_index, row) in table.rows.iter().enumerate() {
+                    output.push('|');
+                    for cell in &row.cells {
+                        output.push(' ');
+                        output.push_str(&markdown_table_escape(&cell.text));
+                        output.push_str(" |");
+                    }
+                    output.push('\n');
+                    if row_index == 0 {
+                        output.push('|');
+                        for _ in 0..table.columns {
+                            output.push_str(" --- |");
+                        }
+                        output.push('\n');
+                    }
+                }
+            }
+        }
+        if block_index + 1 < document.block_order.len() {
+            output.push('\n');
+        }
+    }
+    Ok(output)
+}
+
+fn markdown_paragraph_text(paragraph: &Paragraph) -> String {
+    if paragraph.spans.is_empty() {
+        return markdown_escape(&paragraph.text);
+    }
+    let mut boundaries = vec![0, paragraph.text.len()];
+    for span in &paragraph.spans {
+        boundaries.push(span.start);
+        boundaries.push(span.end);
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let mut output = String::new();
+    for pair in boundaries.windows(2) {
+        let start = pair[0];
+        let end = pair[1];
+        if start == end || !paragraph.text.is_char_boundary(start) || !paragraph.text.is_char_boundary(end) {
+            continue;
+        }
+        let segment = markdown_escape(&paragraph.text[start..end]);
+        let active: Vec<InlineMark> = paragraph
+            .spans
+            .iter()
+            .filter(|span| span.start <= start && span.end >= end)
+            .map(|span| span.mark)
+            .collect();
+        let mut rendered = segment;
+        if active.contains(&InlineMark::Bold) {
+            rendered = format!("**{rendered}**");
+        }
+        if active.contains(&InlineMark::Italic) {
+            rendered = format!("*{rendered}*");
+        }
+        if active.contains(&InlineMark::Underline) {
+            rendered = format!("<u>{rendered}</u>");
+        }
+        output.push_str(&rendered);
+    }
+    output
+}
+
+fn markdown_escape(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(character, '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '<' | '>' | '(' | ')' | '#' | '+' | '-' | '.' | '!' | '|') {
+            output.push('\\');
+        }
+        output.push(character);
+    }
+    output
+}
+
+fn markdown_table_escape(value: &str) -> String {
+    markdown_escape(&value.replace('\n', "<br>"))
+}
+
 pub fn encode_document(document: &Document) -> io::Result<Vec<u8>> {
     validate_document_size(document)?;
     let title_len = u32::try_from(document.title.len())
