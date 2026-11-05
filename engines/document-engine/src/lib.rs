@@ -2601,7 +2601,7 @@ impl DocumentSession {
                     .position(|paragraph| paragraph.id == anchor)
                     .unwrap()
                     + 1
-            },
+            }
             None => paragraphs.len(),
         };
         if target_index == source_index {
