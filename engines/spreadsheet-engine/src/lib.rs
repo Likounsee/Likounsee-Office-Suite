@@ -1593,7 +1593,9 @@ impl<'a> Parser<'a> {
                 | "TANH"
                 | "COT"
         );
-        if ranges.len() != if unary { 1 } else { 2 } {
+        if (function == "LOG" && !(1..=2).contains(&ranges.len()))
+            || (function != "LOG" && ranges.len() != if unary { 1 } else { 2 })
+        {
             return Err(FormulaError::Parse);
         }
         let value = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
@@ -1626,7 +1628,11 @@ impl<'a> Parser<'a> {
             "COT" if value.tan() != 0.0 => 1.0 / value.tan(),
             "COT" => return Err(FormulaError::DivisionByZero),
             "LOG" => {
-                let base = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+                let base = if ranges.len() == 2 {
+                    self.evaluate_argument(ranges[1].0, ranges[1].1)?
+                } else {
+                    10.0
+                };
                 if value <= 0.0 || base <= 0.0 || base == 1.0 {
                     return Err(FormulaError::Number);
                 }
