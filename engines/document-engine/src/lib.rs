@@ -500,6 +500,137 @@ pub fn export_markdown(document: &Document) -> io::Result<String> {
     Ok(output)
 }
 
+
+/// Export a document as standalone semantic HTML (without external assets).
+/// Paragraph formatting and table cell text are retained; unsupported page
+/// layout features are intentionally not synthesized.
+pub fn export_html(document: &Document) -> io::Result<String> {
+    validate_document_size(document)?;
+    let mut output = String::from(
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n",
+    );
+    output.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+    output.push_str("<title>");
+    output.push_str(&html_escape(&document.title));
+    output.push_str("</title>\n</head>\n<body>\n<article>\n");
+    if !document.title.is_empty() {
+        output.push_str("<h1>");
+        output.push_str(&html_escape(&document.title));
+        output.push_str("</h1>\n");
+    }
+    for block in &document.block_order {
+        match *block {
+            DocumentBlock::Paragraph(id) => {
+                let paragraph = document
+                    .paragraphs
+                    .iter()
+                    .find(|paragraph| paragraph.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing paragraph"))?;
+                let content = html_paragraph_text(paragraph);
+                match paragraph.list_kind {
+                    ListKind::Bullet => {
+                        output.push_str("<ul><li>");
+                        output.push_str(&content);
+                        output.push_str("</li></ul>\n");
+                    }
+                    ListKind::Numbered => {
+                        output.push_str("<ol><li>");
+                        output.push_str(&content);
+                        output.push_str("</li></ol>\n");
+                    }
+                    ListKind::None => {
+                        let (tag, close) = match paragraph.style {
+                            ParagraphStyle::Normal => ("p", "p"),
+                            ParagraphStyle::Heading1 => ("h2", "h2"),
+                            ParagraphStyle::Heading2 => ("h3", "h3"),
+                            ParagraphStyle::Quote => ("blockquote", "blockquote"),
+                            ParagraphStyle::Code => ("pre", "pre"),
+                        };
+                        output.push('<');
+                        output.push_str(tag);
+                        output.push('>');
+                        output.push_str(&content);
+                        output.push_str("</");
+                        output.push_str(close);
+                        output.push_str(">\n");
+                    }
+                }
+            }
+            DocumentBlock::Table(id) => {
+                let table = document
+                    .tables
+                    .iter()
+                    .find(|table| table.id == id)
+                    .ok_or_else(|| invalid_data("document block references a missing table"))?;
+                output.push_str("<table>\n<tbody>\n");
+                for row in &table.rows {
+                    output.push_str("<tr>");
+                    for cell in &row.cells {
+                        output.push_str("<td>");
+                        output.push_str(&html_escape(&cell.text));
+                        output.push_str("</td>");
+                    }
+                    output.push_str("</tr>\n");
+                }
+                output.push_str("</tbody>\n</table>\n");
+            }
+        }
+    }
+    output.push_str("</article>\n</body>\n</html>\n");
+    Ok(output)
+}
+
+fn html_paragraph_text(paragraph: &Paragraph) -> String {
+    if paragraph.spans.is_empty() {
+        return html_escape(&paragraph.text);
+    }
+    let mut boundaries = vec![0, paragraph.text.len()];
+    for span in &paragraph.spans {
+        boundaries.push(span.start);
+        boundaries.push(span.end);
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let mut output = String::new();
+    for pair in boundaries.windows(2) {
+        let (start, end) = (pair[0], pair[1]);
+        if start == end
+            || !paragraph.text.is_char_boundary(start)
+            || !paragraph.text.is_char_boundary(end)
+        {
+            continue;
+        }
+        let mut segment = html_escape(&paragraph.text[start..end]);
+        let active: Vec<InlineMark> = paragraph
+            .spans
+            .iter()
+            .filter(|span| span.start <= start && span.end >= end)
+            .map(|span| span.mark)
+            .collect();
+        if active.contains(&InlineMark::Bold) {
+            segment = format!("<strong>{segment}</strong>");
+        }
+        if active.contains(&InlineMark::Italic) {
+            segment = format!("<em>{segment}</em>");
+        }
+        if active.contains(&InlineMark::Underline) {
+            segment = format!("<u>{segment}</u>");
+        }
+        output.push_str(&segment);
+    }
+    output
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+
 fn markdown_paragraph_text(paragraph: &Paragraph) -> String {
     if paragraph.spans.is_empty() {
         return markdown_escape(&paragraph.text);
@@ -2854,6 +2985,29 @@ mod tests {
                 DocumentBlock::Table(table_id),
             ]
         );
+    }
+
+    #[test]
+    fn html_export_preserves_semantics_tables_and_escapes_untrusted_text() {
+        let mut document = Document::new("A < B & C").unwrap();
+        let paragraph_id = document.paragraphs()[0].id();
+        let mut session = DocumentSession::in_memory(document.clone());
+        session
+            .replace_text(paragraph_id, 0..0, "Safe <text> & \"quotes\"")
+            .unwrap();
+        session
+            .set_paragraph_style(paragraph_id, ParagraphStyle::Heading1)
+            .unwrap();
+        session
+            .set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true)
+            .unwrap();
+        let table_id = session.insert_table(1, 2).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "A & B").unwrap();
+        let html = export_html(session.document()).unwrap();
+        assert!(html.contains("<h1><strong>Safe</strong>"));
+        assert!(html.contains("&lt;text&gt; &amp; &quot;quotes&quot;"));
+        assert!(html.contains("<td>A &amp; B</td>"));
+        assert!(html.contains("<!doctype html>"));
     }
 
     #[test]
