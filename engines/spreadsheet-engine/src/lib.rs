@@ -152,6 +152,9 @@ impl Worksheet {
     }
 }
 
+/// Stable worksheet/cell identity used by dependency graph APIs.
+pub type CellKey = (u64, CellAddress);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workbook {
     next_sheet_id: u64,
@@ -372,12 +375,177 @@ impl Workbook {
         cache.insert(key, result.clone());
         result
     }
+    /// Build the direct formula dependency graph. Each formula cell maps to
+    /// the cells it reads; range references are expanded to individual cells.
+    /// The graph is rebuilt from source formulas, so it cannot become stale.
+    pub fn dependency_graph(&self) -> io::Result<BTreeMap<CellKey, Vec<CellKey>>> {
+        let mut graph = BTreeMap::new();
+        for sheet in &self.sheets {
+            for (address, cell) in &sheet.cells {
+                if let CellInput::Formula(formula) = &cell.input {
+                    let key = (sheet.id, *address);
+                    let dependencies = formula_dependencies(self, sheet.id, formula)?;
+                    graph.insert(key, dependencies);
+                }
+            }
+        }
+        Ok(graph)
+    }
+
+    /// Return the direct inputs of a formula cell. Non-formula and missing
+    /// cells have no dependencies.
+    pub fn dependencies_of(&self, sheet_id: u64, address: CellAddress) -> io::Result<Vec<CellKey>> {
+        let Some(cell) = self.sheet(sheet_id).and_then(|sheet| sheet.cells.get(&address)) else {
+            return Ok(Vec::new());
+        };
+        match &cell.input {
+            CellInput::Formula(formula) => formula_dependencies(self, sheet_id, formula),
+            CellInput::Value(_) => Ok(Vec::new()),
+        }
+    }
+
+    /// Return formulas that directly read the supplied cell, in stable order.
+    pub fn dependents_of(&self, sheet_id: u64, address: CellAddress) -> io::Result<Vec<CellKey>> {
+        let target = (sheet_id, address);
+        let mut dependents = Vec::new();
+        for (formula, dependencies) in self.dependency_graph()? {
+            if dependencies.binary_search(&target).is_ok() {
+                dependents.push(formula);
+            }
+        }
+        Ok(dependents)
+    }
+
     pub fn encode(&self) -> io::Result<Vec<u8>> {
         encode_workbook(self)
     }
     pub fn decode(bytes: &[u8]) -> io::Result<Self> {
         decode_workbook(bytes)
     }
+}
+
+fn formula_dependencies(
+    workbook: &Workbook,
+    current_sheet: u64,
+    formula: &str,
+) -> io::Result<Vec<CellKey>> {
+    let bytes = formula.as_bytes();
+    let mut cursor = usize::from(bytes.first() == Some(&b'='));
+    let mut dependencies = std::collections::BTreeSet::new();
+
+    while cursor < bytes.len() {
+        let sheet_id;
+        let address;
+        if bytes[cursor] == b'\'' {
+            cursor += 1;
+            let name_start = cursor;
+            while cursor < bytes.len() && bytes[cursor] != b'\'' {
+                cursor += 1;
+            }
+            if cursor == bytes.len() || cursor == name_start {
+                continue;
+            }
+            let name = std::str::from_utf8(&bytes[name_start..cursor])
+                .map_err(|_| invalid_input("formula contains invalid sheet name"))?;
+            cursor += 1;
+            if bytes.get(cursor) != Some(&b'!') {
+                continue;
+            }
+            cursor += 1;
+            let Some(id) = workbook
+                .sheets
+                .iter()
+                .find(|sheet| sheet.name.eq_ignore_ascii_case(name))
+                .map(|sheet| sheet.id)
+            else {
+                continue;
+            };
+            sheet_id = id;
+            address = scan_cell_address(bytes, &mut cursor)?;
+        } else if bytes[cursor].is_ascii_alphabetic() {
+            let start = cursor;
+            while cursor < bytes.len()
+                && (bytes[cursor].is_ascii_alphanumeric() || bytes[cursor] == b'_')
+            {
+                cursor += 1;
+            }
+            let token = std::str::from_utf8(&bytes[start..cursor])
+                .map_err(|_| invalid_input("formula contains invalid reference"))?;
+            if bytes.get(cursor) == Some(&b'!') {
+                cursor += 1;
+                let Some(id) = workbook
+                    .sheets
+                    .iter()
+                    .find(|sheet| sheet.name.eq_ignore_ascii_case(token))
+                    .map(|sheet| sheet.id)
+                else {
+                    continue;
+                };
+                sheet_id = id;
+                address = scan_cell_address(bytes, &mut cursor)?;
+            } else if let Ok(parsed) = CellAddress::parse_a1(token) {
+                sheet_id = current_sheet;
+                address = parsed;
+            } else {
+                continue;
+            }
+        } else {
+            cursor += 1;
+            continue;
+        }
+
+        let mut last = address;
+        if bytes.get(cursor) == Some(&b':') {
+            cursor += 1;
+            last = scan_cell_address(bytes, &mut cursor)?;
+        }
+        add_dependency_range(sheet_id, address, last, &mut dependencies)?;
+    }
+
+    Ok(dependencies.into_iter().collect())
+}
+
+fn scan_cell_address(bytes: &[u8], cursor: &mut usize) -> io::Result<CellAddress> {
+    let start = *cursor;
+    while *cursor < bytes.len() && bytes[*cursor].is_ascii_alphabetic() {
+        *cursor += 1;
+    }
+    while *cursor < bytes.len() && bytes[*cursor].is_ascii_digit() {
+        *cursor += 1;
+    }
+    if start == *cursor {
+        return Err(invalid_input("expected cell address in formula"));
+    }
+    let token = std::str::from_utf8(&bytes[start..*cursor])
+        .map_err(|_| invalid_input("formula contains invalid cell address"))?;
+    CellAddress::parse_a1(token)
+}
+
+fn add_dependency_range(
+    sheet_id: u64,
+    first: CellAddress,
+    last: CellAddress,
+    dependencies: &mut std::collections::BTreeSet<CellKey>,
+) -> io::Result<()> {
+    let min_row = first.row().min(last.row());
+    let max_row = first.row().max(last.row());
+    let min_column = first.column().min(last.column());
+    let max_column = first.column().max(last.column());
+    let rows = (max_row - min_row + 1) as u64;
+    let columns = (max_column - min_column + 1) as u64;
+    if rows.saturating_mul(columns) > MAX_CELLS as u64 {
+        return Err(invalid_input("formula dependency range exceeds cell limit"));
+    }
+    for row in min_row..=max_row {
+        for column in min_column..=max_column {
+            dependencies.insert((
+                sheet_id,
+                CellAddress::new(row, column)
+                    .map_err(|_| invalid_input("invalid dependency address"))?,
+            ));
+        }
+    }
+    Ok(())
 }
 
 impl Default for Workbook {
@@ -1203,6 +1371,71 @@ mod tests {
             book.value(report, b1),
             CellValue::Error(FormulaError::Reference)
         );
+    }
+
+    #[test]
+    fn dependency_graph_tracks_local_cross_sheet_and_range_inputs() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Sales Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let d1 = CellAddress::parse_a1("D1").unwrap();
+
+        book.set_formula(data, b1, "=A1+A2").unwrap();
+        book.set_formula(report, c1, "='Sales Data'!A1+'Sales Data'!A2").unwrap();
+        book.set_formula(report, d1, "=SUM('Sales Data'!A1:A2,C1)").unwrap();
+
+        assert_eq!(
+            book.dependencies_of(data, b1).unwrap(),
+            vec![(data, a1), (data, a2)]
+        );
+        assert_eq!(
+            book.dependencies_of(report, c1).unwrap(),
+            vec![(data, a1), (data, a2)]
+        );
+        assert_eq!(
+            book.dependencies_of(report, d1).unwrap(),
+            vec![(data, a1), (data, a2), (report, c1)]
+        );
+        assert_eq!(
+            book.dependents_of(data, a1).unwrap(),
+            vec![(data, b1), (report, c1), (report, d1)]
+        );
+        assert_eq!(book.dependents_of(data, a2).unwrap(), vec![(data, b1), (report, c1), (report, d1)]);
+    }
+
+    #[test]
+    fn dependency_graph_rebuilds_after_formula_edits_and_clears() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+
+        book.set_formula(1, c1, "=A1+B1").unwrap();
+        assert_eq!(book.dependencies_of(1, c1).unwrap(), vec![(1, a1), (1, b1)]);
+
+        book.set_formula(1, c1, "=B1*2").unwrap();
+        assert_eq!(book.dependencies_of(1, c1).unwrap(), vec![(1, b1)]);
+        assert_eq!(book.dependents_of(1, a1).unwrap(), Vec::new());
+
+        book.clear_cell(1, c1).unwrap();
+        assert_eq!(book.dependencies_of(1, c1).unwrap(), Vec::new());
+        assert_eq!(book.dependency_graph().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn dependency_graph_handles_unquoted_sheet_names_and_missing_sheets() {
+        let mut book = Workbook::new();
+        let source = book.add_sheet("Data2026").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+
+        book.set_formula(report, b1, "=Data2026!A1+Ghost!A1").unwrap();
+        assert_eq!(book.dependencies_of(report, b1).unwrap(), vec![(source, a1)]);
     }
 
     #[test]
