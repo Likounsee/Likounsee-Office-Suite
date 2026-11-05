@@ -38,6 +38,64 @@ pub enum FormulaError {
     NotAvailable,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CriteriaOperator {
+    Equal,
+    NotEqual,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CriteriaOperand {
+    Number(f64),
+    Text(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct CellCriteria {
+    operator: CriteriaOperator,
+    operand: CriteriaOperand,
+}
+
+impl CellCriteria {
+    fn matches(&self, value: &CellValue) -> Result<bool, FormulaError> {
+        if let CellValue::Error(error) = value {
+            return Err(*error);
+        }
+        let ordering = match (&self.operand, value) {
+            (CriteriaOperand::Number(expected), CellValue::Number(actual)) => {
+                actual.partial_cmp(expected)
+            }
+            (CriteriaOperand::Number(expected), CellValue::Blank) => 0.0f64.partial_cmp(expected),
+            (CriteriaOperand::Text(expected), CellValue::Text(actual)) => {
+                Some(actual.to_lowercase().cmp(&expected.to_lowercase()))
+            }
+            (CriteriaOperand::Text(expected), CellValue::Blank) => {
+                Some(String::new().cmp(&expected.to_lowercase()))
+            }
+            (CriteriaOperand::Text(expected), CellValue::Boolean(actual)) => {
+                let actual = if *actual { "TRUE" } else { "FALSE" };
+                Some(actual.cmp(&expected.to_ascii_uppercase()))
+            }
+            _ => None,
+        };
+        let Some(ordering) = ordering else {
+            return Ok(false);
+        };
+        Ok(match self.operator {
+            CriteriaOperator::Equal => ordering.is_eq(),
+            CriteriaOperator::NotEqual => !ordering.is_eq(),
+            CriteriaOperator::Less => ordering.is_lt(),
+            CriteriaOperator::LessOrEqual => !ordering.is_gt(),
+            CriteriaOperator::Greater => ordering.is_gt(),
+            CriteriaOperator::GreaterOrEqual => !ordering.is_lt(),
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum CellInput {
     Value(CellValue),
@@ -1717,6 +1775,24 @@ impl Default for Workbook {
     }
 }
 
+fn split_criteria_operator(value: &str) -> (CriteriaOperator, &str) {
+    if let Some(rest) = value.strip_prefix(">=") {
+        (CriteriaOperator::GreaterOrEqual, rest)
+    } else if let Some(rest) = value.strip_prefix("<=") {
+        (CriteriaOperator::LessOrEqual, rest)
+    } else if let Some(rest) = value.strip_prefix("<>") {
+        (CriteriaOperator::NotEqual, rest)
+    } else if let Some(rest) = value.strip_prefix('>') {
+        (CriteriaOperator::Greater, rest)
+    } else if let Some(rest) = value.strip_prefix('<') {
+        (CriteriaOperator::Less, rest)
+    } else if let Some(rest) = value.strip_prefix('=') {
+        (CriteriaOperator::Equal, rest)
+    } else {
+        (CriteriaOperator::Equal, value)
+    }
+}
+
 struct Parser<'a> {
     input: &'a [u8],
     cursor: usize,
@@ -1921,6 +1997,9 @@ impl<'a> Parser<'a> {
                 "AND" | "OR" => self.logical_arguments(&function),
                 "COUNTBLANK" => self.countblank_arguments(),
                 "COUNTA" => self.counta_arguments(),
+                "COUNTIF" | "SUMIF" | "AVERAGEIF" => {
+                    self.conditional_aggregate_arguments(&function)
+                }
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
                 }
@@ -2533,11 +2612,13 @@ impl<'a> Parser<'a> {
         let mut start = self.cursor;
         let mut depth = 0usize;
         let mut quoted = false;
+        let mut double_quoted = false;
         while let Some(byte) = self.peek() {
             match byte {
-                b'\'' => quoted = !quoted,
-                b'(' if !quoted => depth += 1,
-                b')' if !quoted && depth == 0 => {
+                b'\'' if !double_quoted => quoted = !quoted,
+                b'"' if !quoted => double_quoted = !double_quoted,
+                b'(' if !quoted && !double_quoted => depth += 1,
+                b')' if !quoted && !double_quoted && depth == 0 => {
                     if start != self.cursor {
                         ranges.push((start, self.cursor));
                     } else if !ranges.is_empty() {
@@ -2546,8 +2627,10 @@ impl<'a> Parser<'a> {
                     self.cursor += 1;
                     return Ok(ranges);
                 }
-                b')' if !quoted => depth = depth.checked_sub(1).ok_or(FormulaError::Parse)?,
-                b',' if !quoted && depth == 0 => {
+                b')' if !quoted && !double_quoted => {
+                    depth = depth.checked_sub(1).ok_or(FormulaError::Parse)?
+                }
+                b',' if !quoted && !double_quoted && depth == 0 => {
                     if start == self.cursor {
                         return Err(FormulaError::Parse);
                     }
@@ -2574,6 +2657,150 @@ impl<'a> Parser<'a> {
         )
         .parse()
     }
+    fn parse_criteria_range(
+        &mut self,
+        start: usize,
+        end: usize,
+    ) -> Result<(u64, CellAddress, CellAddress), FormulaError> {
+        let source = std::str::from_utf8(&self.input[start..end])
+            .map_err(|_| FormulaError::Parse)?;
+        let (sheet_id, first, last) = {
+            let mut parser = Parser::new(
+                source,
+                self.workbook,
+                self.sheet_id,
+                self.visiting,
+                self.cache,
+            );
+            let (sheet_id, first) = parser.aggregate_cell_reference()?;
+            parser.whitespace();
+            if parser.peek() != Some(b':') {
+                return Err(FormulaError::Parse);
+            }
+            parser.cursor += 1;
+            let last = parser.cell_address()?;
+            parser.whitespace();
+            if parser.cursor != parser.input.len() {
+                return Err(FormulaError::Parse);
+            }
+            (sheet_id, first, last)
+        };
+        Ok((sheet_id, first, last))
+    }
+
+    fn parse_cell_criteria(
+        &mut self,
+        start: usize,
+        end: usize,
+    ) -> Result<CellCriteria, FormulaError> {
+        let source = std::str::from_utf8(&self.input[start..end])
+            .map_err(|_| FormulaError::Parse)?
+            .trim();
+        if source.starts_with('"') {
+            if !source.ends_with('"') || source.len() < 2 {
+                return Err(FormulaError::Parse);
+            }
+            let mut value = source[1..source.len() - 1].replace("\\"\\", "\\");
+            // Excel escapes a quote inside a string by doubling it.
+            value = value.replace("\\"\\", "\\""); 
+            let (operator, operand) = split_criteria_operator(&value);
+            let operand = match operand.parse::<f64>() {
+                Ok(number) if number.is_finite() => CriteriaOperand::Number(number),
+                _ => CriteriaOperand::Text(operand.to_owned()),
+            };
+            return Ok(CellCriteria { operator, operand });
+        }
+        let value = self.evaluate_argument(start, end)?;
+        Ok(CellCriteria {
+            operator: CriteriaOperator::Equal,
+            operand: CriteriaOperand::Number(value),
+        })
+    }
+
+    fn conditional_aggregate_arguments(
+        &mut self,
+        function: &str,
+    ) -> Result<f64, FormulaError> {
+        let arguments = self.function_argument_ranges()?;
+        if arguments.len() < 2 || arguments.len() > 3 {
+            return Err(FormulaError::Parse);
+        }
+        let (criteria_sheet, first, last) =
+            self.parse_criteria_range(arguments[0].0, arguments[0].1)?;
+        let criteria = self.parse_cell_criteria(arguments[1].0, arguments[1].1)?;
+        let (sum_sheet, sum_first, sum_last) = if arguments.len() == 3 {
+            self.parse_criteria_range(arguments[2].0, arguments[2].1)?
+        } else {
+            (criteria_sheet, first, last)
+        };
+        if first.row().abs_diff(last.row()) != sum_first.row().abs_diff(sum_last.row())
+            || first.column().abs_diff(last.column())
+                != sum_first.column().abs_diff(sum_last.column())
+        {
+            return Err(FormulaError::Reference);
+        }
+        let min_row = first.row().min(last.row());
+        let max_row = first.row().max(last.row());
+        let min_column = first.column().min(last.column());
+        let max_column = first.column().max(last.column());
+        let rows = (max_row - min_row + 1) as u64;
+        let columns = (max_column - min_column + 1) as u64;
+        if rows.saturating_mul(columns) > MAX_CELLS as u64 {
+            return Err(FormulaError::Number);
+        }
+        let sum_min_row = sum_first.row().min(sum_last.row());
+        let sum_min_column = sum_first.column().min(sum_last.column());
+        let mut count = 0usize;
+        let mut total = 0.0f64;
+        for row_offset in 0..rows as u32 {
+            for column_offset in 0..columns as u32 {
+                let criteria_address = CellAddress::new(
+                    min_row + row_offset,
+                    min_column + column_offset,
+                )
+                .map_err(|_| FormulaError::Reference)?;
+                let criteria_value = self.workbook.evaluate(
+                    criteria_sheet,
+                    criteria_address,
+                    self.visiting,
+                    self.cache,
+                );
+                if criteria.matches(&criteria_value)? {
+                    count += 1;
+                    if function != "COUNTIF" {
+                        let sum_address = CellAddress::new(
+                            sum_min_row + row_offset,
+                            sum_min_column + column_offset,
+                        )
+                        .map_err(|_| FormulaError::Reference)?;
+                        match self.workbook.evaluate(
+                            sum_sheet,
+                            sum_address,
+                            self.visiting,
+                            self.cache,
+                        ) {
+                            CellValue::Number(value) => total += value,
+                            CellValue::Blank | CellValue::Text(_) | CellValue::Boolean(_) => {}
+                            CellValue::Error(error) => return Err(error),
+                        }
+                    }
+                }
+            }
+        }
+        let result = match function {
+            "COUNTIF" => count as f64,
+            "SUMIF" => total,
+            "AVERAGEIF" if count > 0 => total / count as f64,
+            "AVERAGEIF" => return Err(FormulaError::DivisionByZero),
+            _ => return Err(FormulaError::Parse),
+        };
+        if result.is_finite() {
+            Ok(result)
+        } else {
+            Err(FormulaError::Number)
+        }
+    }
+
     fn aggregate_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let mut values = Vec::new();
         let mut arguments = 0usize;
@@ -3383,6 +3610,50 @@ mod tests {
             CellValue::Error(FormulaError::Reference)
         );
     }
+    #[test]
+    fn conditional_aggregate_functions_support_numeric_text_and_cross_sheet_ranges() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let entries = [
+            ("A1", 4.0), ("A2", 12.0), ("A3", 18.0), ("A4", 7.0),
+        ];
+        for (address, value) in entries {
+            book.set_number(data, CellAddress::parse_a1(address).unwrap(), value).unwrap();
+        }
+        book.set_text(data, CellAddress::parse_a1("B1").unwrap(), "East").unwrap();
+        book.set_text(data, CellAddress::parse_a1("B2").unwrap(), "West").unwrap();
+        book.set_text(data, CellAddress::parse_a1("B3").unwrap(), "East").unwrap();
+        book.set_text(data, CellAddress::parse_a1("B4").unwrap(), "East").unwrap();
+        book.set_formula(report, CellAddress::parse_a1("A1").unwrap(),
+            "=COUNTIF(Data!A1:A4,\">=10\")").unwrap();
+        book.set_formula(report, CellAddress::parse_a1("A2").unwrap(),
+            "=SUMIF(Data!B1:B4,\\"East\\",Data!A1:A4)").unwrap();
+        book.set_formula(report, CellAddress::parse_a1("A3").unwrap(),
+            "=AVERAGEIF(Data!A1:A4,\">5\")").unwrap();
+        book.set_formula(report, CellAddress::parse_a1("A4").unwrap(),
+            "=COUNTIF(Data!B1:B4,\\"east\\")").unwrap();
+        assert_eq!(book.value(report, CellAddress::parse_a1("A1").unwrap()), CellValue::Number(2.0));
+        assert_eq!(book.value(report, CellAddress::parse_a1("A2").unwrap()), CellValue::Number(29.0));
+        assert_eq!(book.value(report, CellAddress::parse_a1("A3").unwrap()), CellValue::Number(37.0 / 3.0));
+        assert_eq!(book.value(report, CellAddress::parse_a1("A4").unwrap()), CellValue::Number(3.0));
+    }
+
+    #[test]
+    fn conditional_aggregate_functions_validate_ranges_and_empty_averages() {
+        let mut book = Workbook::new();
+        let sheet = book.sheets()[0].id();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        book.set_number(sheet, a1, 5.0).unwrap();
+        book.set_formula(sheet, b1, "=AVERAGEIF(A1:A1,\">10\")").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::DivisionByZero));
+        book.set_formula(sheet, b1, "=SUMIF(A1:A1,5,A1:A2)").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Reference));
+        book.set_formula(sheet, b1, "=COUNTIF(A1:A1,\">=5\")").unwrap();
+        assert_eq!(book.value(sheet, b1), CellValue::Number(1.0));
+    }
+
     #[test]
     fn aggregate_functions_average_min_max_and_count_ranges() {
         let mut book = Workbook::new();
