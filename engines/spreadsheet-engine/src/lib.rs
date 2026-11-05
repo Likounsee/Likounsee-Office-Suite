@@ -2216,6 +2216,7 @@ pub struct WorkbookSession {
     filesystem: LocalFileSystem,
     directory: PathBuf,
     workbook: Workbook,
+    dependency_index: DependencyIndex,
     journal: RecoveryJournal,
     autosave: AutosaveScheduler,
     checkpoint_generation: u64,
@@ -2269,10 +2270,12 @@ impl WorkbookSession {
             autosave.mark_dirty(Instant::now());
         }
 
+        let dependency_index = DependencyIndex::build(&workbook)?;
         Ok(Self {
             filesystem,
             directory,
             workbook,
+            dependency_index,
             journal,
             autosave,
             checkpoint_generation,
@@ -2283,6 +2286,24 @@ impl WorkbookSession {
 
     pub fn workbook(&self) -> &Workbook {
         &self.workbook
+    }
+
+    /// Read the session's incrementally maintained formula dependency index.
+    pub fn dependency_index(&self) -> &DependencyIndex {
+        &self.dependency_index
+    }
+
+    /// Recalculate formulas affected by a session edit using its current index.
+    pub fn recalculate_after_change(
+        &self,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<Vec<(CellKey, CellValue)>> {
+        self.workbook.recalculate_after_change_with_index(
+            &self.dependency_index,
+            sheet_id,
+            address,
+        )
     }
 
     pub fn recovered_records(&self) -> usize {
@@ -2300,20 +2321,23 @@ impl WorkbookSession {
     pub fn add_sheet(&mut self, name: impl Into<String>) -> io::Result<u64> {
         let mut next = self.workbook.clone();
         let id = next.add_sheet(name)?;
-        self.record_change(next)?;
+        self.record_change(next, self.dependency_index.clone())?;
         Ok(id)
     }
 
     pub fn rename_sheet(&mut self, id: u64, name: impl Into<String>) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.rename_sheet(id, name)?;
-        self.record_change(next)
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)
     }
 
     pub fn remove_sheet(&mut self, id: u64) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.remove_sheet(id)?;
-        self.record_change(next)
+        let mut dependency_index = self.dependency_index.clone();
+        dependency_index.remove_sheet(id);
+        self.record_change(next, dependency_index)
     }
 
     pub fn set_number(
@@ -2324,7 +2348,9 @@ impl WorkbookSession {
     ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_number(sheet_id, address, value)?;
-        self.record_change(next)
+        let mut dependency_index = self.dependency_index.clone();
+        dependency_index.update_cell(&next, sheet_id, address)?;
+        self.record_change(next, dependency_index)
     }
 
     pub fn set_text(
@@ -2335,7 +2361,9 @@ impl WorkbookSession {
     ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_text(sheet_id, address, value)?;
-        self.record_change(next)
+        let mut dependency_index = self.dependency_index.clone();
+        dependency_index.update_cell(&next, sheet_id, address)?;
+        self.record_change(next, dependency_index)
     }
 
     pub fn set_boolean(
@@ -2346,7 +2374,9 @@ impl WorkbookSession {
     ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_boolean(sheet_id, address, value)?;
-        self.record_change(next)
+        let mut dependency_index = self.dependency_index.clone();
+        dependency_index.update_cell(&next, sheet_id, address)?;
+        self.record_change(next, dependency_index)
     }
 
     pub fn set_formula(
@@ -2357,7 +2387,9 @@ impl WorkbookSession {
     ) -> io::Result<()> {
         let mut next = self.workbook.clone();
         next.set_formula(sheet_id, address, formula)?;
-        self.record_change(next)
+        let mut dependency_index = self.dependency_index.clone();
+        dependency_index.update_cell(&next, sheet_id, address)?;
+        self.record_change(next, dependency_index)
     }
 
     pub fn clear_cell(&mut self, sheet_id: u64, address: CellAddress) -> io::Result<()> {
@@ -2371,15 +2403,22 @@ impl WorkbookSession {
             return Ok(());
         }
         next.clear_cell(sheet_id, address)?;
-        self.record_change(next)
+        let mut dependency_index = self.dependency_index.clone();
+        dependency_index.update_cell(&next, sheet_id, address)?;
+        self.record_change(next, dependency_index)
     }
 
-    fn record_change(&mut self, next: Workbook) -> io::Result<()> {
+    fn record_change(
+        &mut self,
+        next: Workbook,
+        dependency_index: DependencyIndex,
+    ) -> io::Result<()> {
         let encoded = next.encode()?;
         // append() syncs the record before returning. Never expose an edit in
         // memory if its recovery representation could not be made durable.
         self.journal.append(&encoded)?;
         self.workbook = next;
+        self.dependency_index = dependency_index;
         self.autosave.mark_dirty(Instant::now());
         Ok(())
     }
@@ -2452,6 +2491,72 @@ mod session_tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn session_dependency_index_tracks_edits_and_recalculates_transitively() {
+        let directory = TestDirectory::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        session.set_number(1, a1, 4.0).unwrap();
+        session.set_formula(1, b1, "=A1*2").unwrap();
+        session.set_formula(1, c1, "=B1+3").unwrap();
+
+        session.set_number(1, a1, 10.0).unwrap();
+        assert_eq!(
+            session.recalculate_after_change(1, a1).unwrap(),
+            vec![
+                ((1, b1), CellValue::Number(20.0)),
+                ((1, c1), CellValue::Number(23.0)),
+            ]
+        );
+        assert_eq!(session.dependency_index().dependents_of(1, a1), &[(1, b1)]);
+    }
+
+    #[test]
+    fn session_dependency_index_survives_recovery_and_sheet_lifecycle() {
+        let directory = TestDirectory::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let (data, report);
+        {
+            let mut session = WorkbookSession::open(&directory.0).unwrap();
+            data = session.add_sheet("Data").unwrap();
+            report = session.add_sheet("Report").unwrap();
+            session.set_number(data, a1, 8.0).unwrap();
+            session.set_formula(report, b1, "=Data!A1*2").unwrap();
+        }
+        let mut recovered = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(
+            recovered.dependency_index().dependents_of(data, a1),
+            &[(report, b1)]
+        );
+        recovered.rename_sheet(data, "Source").unwrap();
+        assert_eq!(
+            recovered.dependency_index().dependencies_of(report, b1),
+            &[(data, a1)]
+        );
+        recovered.remove_sheet(data).unwrap();
+        assert!(recovered.dependency_index().dependencies_of(report, b1).is_empty());
+        assert!(recovered.dependency_index().dependents_of(data, a1).is_empty());
+    }
+
+    #[test]
+    fn session_dependency_index_updates_formula_replacements_and_clears() {
+        let directory = TestDirectory::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        session.set_formula(1, b1, "=A1+1").unwrap();
+        session.set_formula(1, c1, "=B1+1").unwrap();
+        session.set_formula(1, b1, "=A1*5").unwrap();
+        assert_eq!(session.dependency_index().dependencies_of(1, b1), &[(1, a1)]);
+        session.clear_cell(1, b1).unwrap();
+        assert!(session.dependency_index().dependencies_of(1, b1).is_empty());
+        assert!(session.dependency_index().dependents_of(1, a1).is_empty());
     }
 
     #[test]
