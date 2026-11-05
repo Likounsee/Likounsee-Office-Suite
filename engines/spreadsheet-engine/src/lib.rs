@@ -5132,7 +5132,10 @@ mod session_tests {
         assert_eq!(session.fill_boolean_range(1, a1, b1, true).unwrap(), 2);
         assert_eq!(session.workbook().value(1, a1), CellValue::Boolean(true));
         assert_eq!(session.workbook().value(1, b1), CellValue::Boolean(true));
-        assert_eq!(session.dependency_index().dependencies_of(1, c1), &[(1, a1), (1, b1)]);
+        assert_eq!(
+            session.dependency_index().dependencies_of(1, c1),
+            &[(1, a1), (1, b1)]
+        );
         assert!(session.fill_boolean_range(999, a1, b1, false).is_err());
     }
 

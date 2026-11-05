@@ -1654,11 +1654,21 @@ impl Presentation {
         if element_ids.is_empty() {
             return Ok(0);
         }
-        let requested = element_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        let requested = element_ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
         if requested.len() != element_ids.len()
-            || requested.len() != slide.elements.iter().filter(|element| requested.contains(&element.id)).count()
+            || requested.len()
+                != slide
+                    .elements
+                    .iter()
+                    .filter(|element| requested.contains(&element.id))
+                    .count()
         {
-            return Err(invalid_input("element IDs must be unique and exist on the slide"));
+            return Err(invalid_input(
+                "element IDs must be unique and exist on the slide",
+            ));
         }
         self.bump_revision()?;
         self.slide_mut(slide_id)?
@@ -3931,8 +3941,22 @@ mod tests {
     fn remove_elements_is_atomic_and_removes_multiple_items_in_one_revision() {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
-        let first = deck.add_text(slide, rect(0.0, 0.0, 100.0, 40.0), "One", TextStyle::default()).unwrap();
-        let second = deck.add_text(slide, rect(0.0, 50.0, 100.0, 40.0), "Two", TextStyle::default()).unwrap();
+        let first = deck
+            .add_text(
+                slide,
+                rect(0.0, 0.0, 100.0, 40.0),
+                "One",
+                TextStyle::default(),
+            )
+            .unwrap();
+        let second = deck
+            .add_text(
+                slide,
+                rect(0.0, 50.0, 100.0, 40.0),
+                "Two",
+                TextStyle::default(),
+            )
+            .unwrap();
         let revision = deck.revision();
         assert!(deck.remove_elements(slide, &[first, u64::MAX]).is_err());
         assert_eq!(deck.revision(), revision);

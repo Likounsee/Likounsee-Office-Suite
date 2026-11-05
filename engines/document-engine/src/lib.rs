@@ -3776,16 +3776,23 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         let table_id = session.insert_table(2, 2).unwrap();
         session.set_table_cell_text(table_id, 0, 0, "left").unwrap();
-        session.set_table_cell_text(table_id, 0, 1, "right").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 1, "right")
+            .unwrap();
         let cell_id = session.document().tables()[0].rows()[0].cells()[0].id();
         let revision = session.document().revision();
         session.clear_table_row(table_id, 0).unwrap();
         assert_eq!(session.document().revision(), revision + 1);
-        assert_eq!(session.document().tables()[0].rows()[0].cells()[0].id(), cell_id);
-        assert!(session.document().tables()[0].rows()[0]
-            .cells()
-            .iter()
-            .all(|cell| cell.text().is_empty()));
+        assert_eq!(
+            session.document().tables()[0].rows()[0].cells()[0].id(),
+            cell_id
+        );
+        assert!(
+            session.document().tables()[0].rows()[0]
+                .cells()
+                .iter()
+                .all(|cell| cell.text().is_empty())
+        );
         let revision = session.document().revision();
         session.clear_table_row(table_id, 0).unwrap();
         assert_eq!(session.document().revision(), revision);
