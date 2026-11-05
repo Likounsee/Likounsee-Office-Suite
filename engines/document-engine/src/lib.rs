@@ -533,7 +533,6 @@ pub fn export_markdown(document: &Document) -> io::Result<String> {
     Ok(output)
 }
 
-
 /// Export a document as standalone semantic HTML (without external assets).
 /// Paragraph formatting and table cell text are retained; unsupported page
 /// layout features are intentionally not synthesized.
