@@ -1284,7 +1284,9 @@ impl<'a> Parser<'a> {
             .map_err(|_| FormulaError::Parse)?
             .trim();
         if let Some((sheet_id, address)) = self.direct_cell_reference(source)? {
-            let value = self.workbook.evaluate(sheet_id, address, self.visiting, self.cache);
+            let value = self
+                .workbook
+                .evaluate(sheet_id, address, self.visiting, self.cache);
             let matches = match function {
                 "ISBLANK" => matches!(value, CellValue::Blank),
                 "ISNUMBER" => matches!(value, CellValue::Number(_)),
@@ -1317,9 +1319,7 @@ impl<'a> Parser<'a> {
         } else {
             (None, source)
         };
-        if address_text.is_empty()
-            || !address_text.bytes().all(|b| b.is_ascii_alphanumeric())
-        {
+        if address_text.is_empty() || !address_text.bytes().all(|b| b.is_ascii_alphanumeric()) {
             return Ok(None);
         }
         let address = match CellAddress::parse_a1(address_text) {
@@ -2535,7 +2535,11 @@ mod tests {
         for (index, (formula, expected)) in formulas.into_iter().enumerate() {
             let address = CellAddress::new(index as u32, 0).unwrap();
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
         }
         let address = CellAddress::parse_a1("A5").unwrap();
         for formula in ["=ISBLANK()", "=ISNUMBER(A1,B1)", "=ISTEXT(,A1)"] {
@@ -2546,8 +2550,12 @@ mod tests {
                 "{formula}"
             );
         }
-        book.set_formula(1, address, "=ISNUMBER('Missing'!A1)").unwrap();
-        assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Reference));
+        book.set_formula(1, address, "=ISNUMBER('Missing'!A1)")
+            .unwrap();
+        assert_eq!(
+            book.value(1, address),
+            CellValue::Error(FormulaError::Reference)
+        );
     }
 
     #[test]
