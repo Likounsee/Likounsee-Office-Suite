@@ -1997,10 +1997,11 @@ impl<'a> Parser<'a> {
                 b'\'' => quoted = !quoted,
                 b'(' if !quoted => depth += 1,
                 b')' if !quoted && depth == 0 => {
-                    if start == self.cursor {
+                    if start != self.cursor {
+                        ranges.push((start, self.cursor));
+                    } else if !ranges.is_empty() {
                         return Err(FormulaError::Parse);
                     }
-                    ranges.push((start, self.cursor));
                     self.cursor += 1;
                     return Ok(ranges);
                 }
@@ -3364,7 +3365,7 @@ mod tests {
         let a3 = CellAddress::parse_a1("A3").unwrap();
         let a4 = CellAddress::parse_a1("A4").unwrap();
         workbook.set_formula(1, a1, "=MROUND(13, 5)").unwrap();
-        workbook.set_formula(1, a2, "=MROUND(-13, 5)").unwrap();
+        workbook.set_formula(1, a2, "=MROUND(-13, -5)").unwrap();
         workbook.set_formula(1, a3, "=MROUND(12, 0)").unwrap();
         workbook.set_formula(1, a4, "=MROUND(-12, 5)").unwrap();
         assert_eq!(workbook.value(1, a1), CellValue::Number(15.0));
