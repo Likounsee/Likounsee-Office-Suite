@@ -2662,8 +2662,8 @@ impl<'a> Parser<'a> {
         start: usize,
         end: usize,
     ) -> Result<(u64, CellAddress, CellAddress), FormulaError> {
-        let source = std::str::from_utf8(&self.input[start..end])
-            .map_err(|_| FormulaError::Parse)?;
+        let source =
+            std::str::from_utf8(&self.input[start..end]).map_err(|_| FormulaError::Parse)?;
         let (sheet_id, first, last) = {
             let mut parser = Parser::new(
                 source,
@@ -2716,10 +2716,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn conditional_aggregate_arguments(
-        &mut self,
-        function: &str,
-    ) -> Result<f64, FormulaError> {
+    fn conditional_aggregate_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let arguments = self.function_argument_ranges()?;
         if arguments.len() < 2
             || arguments.len() > 3
@@ -2756,11 +2753,9 @@ impl<'a> Parser<'a> {
         let mut total = 0.0f64;
         for row_offset in 0..rows as u32 {
             for column_offset in 0..columns as u32 {
-                let criteria_address = CellAddress::new(
-                    min_row + row_offset,
-                    min_column + column_offset,
-                )
-                .map_err(|_| FormulaError::Reference)?;
+                let criteria_address =
+                    CellAddress::new(min_row + row_offset, min_column + column_offset)
+                        .map_err(|_| FormulaError::Reference)?;
                 let criteria_value = self.workbook.evaluate(
                     criteria_sheet,
                     criteria_address,
@@ -3623,28 +3618,28 @@ mod tests {
         let mut book = Workbook::new();
         let data = book.add_sheet("Data").unwrap();
         let report = book.add_sheet("Report").unwrap();
-        let entries = [
-            ("A1", 4.0), ("A2", 12.0), ("A3", 18.0), ("A4", 7.0),
-        ];
+        let entries = [("A1", 4.0), ("A2", 12.0), ("A3", 18.0), ("A4", 7.0)];
         for (address, value) in entries {
-            book.set_number(data, CellAddress::parse_a1(address).unwrap(), value).unwrap();
+            book.set_number(data, CellAddress::parse_a1(address).unwrap(), value)
+                .unwrap();
         }
-        book.set_text(data, CellAddress::parse_a1("B1").unwrap(), "East").unwrap();
-        book.set_text(data, CellAddress::parse_a1("B2").unwrap(), "West").unwrap();
-        book.set_text(data, CellAddress::parse_a1("B3").unwrap(), "East").unwrap();
-        book.set_text(data, CellAddress::parse_a1("B4").unwrap(), "East").unwrap();
-        book.set_formula(report, CellAddress::parse_a1("A1").unwrap(),
-            "=COUNTIF(Data!A1:A4,\">=10\")").unwrap();
-        book.set_formula(report, CellAddress::parse_a1("A2").unwrap(),
-            "=SUMIF(Data!B1:B4,\"East\",Data!A1:A4)").unwrap();
-        book.set_formula(report, CellAddress::parse_a1("A3").unwrap(),
-            "=AVERAGEIF(Data!A1:A4,\">5\")").unwrap();
-        book.set_formula(report, CellAddress::parse_a1("A4").unwrap(),
-            "=COUNTIF(Data!B1:B4,\"east\")").unwrap();
-        assert_eq!(book.value(report, CellAddress::parse_a1("A1").unwrap()), CellValue::Number(2.0));
-        assert_eq!(book.value(report, CellAddress::parse_a1("A2").unwrap()), CellValue::Number(29.0));
-        assert_eq!(book.value(report, CellAddress::parse_a1("A3").unwrap()), CellValue::Number(37.0 / 3.0));
-        assert_eq!(book.value(report, CellAddress::parse_a1("A4").unwrap()), CellValue::Number(3.0));
+        for (address, value) in [("B1", "East"), ("B2", "West"), ("B3", "East"), ("B4", "East")] {
+            book.set_text(data, CellAddress::parse_a1(address).unwrap(), value)
+                .unwrap();
+        }
+        for (address, formula, expected) in [
+            ("A1", "=COUNTIF(Data!A1:A4,\">=10\")", 2.0),
+            ("A2", "=SUMIF(Data!B1:B4,\"East\",Data!A1:A4)", 29.0),
+            ("A3", "=AVERAGEIF(Data!A1:A4,\">5\")", 37.0 / 3.0),
+            ("A4", "=COUNTIF(Data!B1:B4,\"east\")", 3.0),
+        ] {
+            book.set_formula(report, CellAddress::parse_a1(address).unwrap(), formula)
+                .unwrap();
+            assert_eq!(
+                book.value(report, CellAddress::parse_a1(address).unwrap()),
+                CellValue::Number(expected)
+            );
+        }
     }
 
     #[test]
@@ -3654,11 +3649,20 @@ mod tests {
         let a1 = CellAddress::parse_a1("A1").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
         book.set_number(sheet, a1, 5.0).unwrap();
-        book.set_formula(sheet, b1, "=AVERAGEIF(A1:A1,\">10\")").unwrap();
-        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::DivisionByZero));
-        book.set_formula(sheet, b1, "=SUMIF(A1:A1,5,A1:A2)").unwrap();
-        assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Reference));
-        book.set_formula(sheet, b1, "=COUNTIF(A1:A1,\">=5\")").unwrap();
+        book.set_formula(sheet, b1, "=AVERAGEIF(A1:A1,\">10\")")
+            .unwrap();
+        assert_eq!(
+            book.value(sheet, b1),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
+        book.set_formula(sheet, b1, "=SUMIF(A1:A1,5,A1:A2)")
+            .unwrap();
+        assert_eq!(
+            book.value(sheet, b1),
+            CellValue::Error(FormulaError::Reference)
+        );
+        book.set_formula(sheet, b1, "=COUNTIF(A1:A1,\">=5\")")
+            .unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Number(1.0));
     }
 
