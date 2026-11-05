@@ -445,8 +445,8 @@ fn translate_formula(formula: &str, row_delta: i64, column_delta: i64) -> io::Re
             cursor += 1;
             continue;
         }
-        let before_ok = cursor == 0
-            || !(bytes[cursor - 1].is_ascii_alphanumeric() || bytes[cursor - 1] == 95);
+        let before_ok =
+            cursor == 0 || !(bytes[cursor - 1].is_ascii_alphanumeric() || bytes[cursor - 1] == 95);
         if before_ok {
             let start = cursor;
             let mut scan = cursor;
@@ -487,11 +487,7 @@ fn translate_formula(formula: &str, row_delta: i64, column_delta: i64) -> io::Re
                     } else {
                         address.column() as i64 + column_delta
                     };
-                    if row < 0
-                        || column < 0
-                        || row > MAX_ROW as i64
-                        || column > MAX_COLUMN as i64
-                    {
+                    if row < 0 || column < 0 || row > MAX_ROW as i64 || column > MAX_COLUMN as i64 {
                         return Err(invalid_input(
                             "copied formula reference is outside worksheet limits",
                         ));
@@ -860,14 +856,19 @@ impl Workbook {
                     destination_start.row() + row_offset,
                     destination_start.column() + column_offset,
                 )?;
-                let copied = sheet.cells.get(&source).cloned().map(|mut cell| {
-                    if let CellInput::Formula(formula) = &mut cell.input {
-                        let row_delta = destination.row() as i64 - source.row() as i64;
-                        let column_delta = destination.column() as i64 - source.column() as i64;
-                        *formula = translate_formula(formula, row_delta, column_delta)?;
-                    }
-                    Ok(cell)
-                }).transpose()?;
+                let copied = sheet
+                    .cells
+                    .get(&source)
+                    .cloned()
+                    .map(|mut cell| {
+                        if let CellInput::Formula(formula) = &mut cell.input {
+                            let row_delta = destination.row() as i64 - source.row() as i64;
+                            let column_delta = destination.column() as i64 - source.column() as i64;
+                            *formula = translate_formula(formula, row_delta, column_delta)?;
+                        }
+                        Ok(cell)
+                    })
+                    .transpose()?;
                 snapshot.push((destination, copied));
             }
         }
@@ -5622,13 +5623,22 @@ mod session_tests {
         let sheet = workbook.add_sheet("Sheet1").unwrap();
         let source = CellAddress::parse_a1("C1").unwrap();
         let destination = CellAddress::parse_a1("D2").unwrap();
-        workbook.set_formula(sheet, source, "=A1+$B$1+A$1+$B1").unwrap();
+        workbook
+            .set_formula(sheet, source, "=A1+$B$1+A$1+$B1")
+            .unwrap();
         assert_eq!(
-            workbook.copy_range(sheet, source, source, destination).unwrap(),
+            workbook
+                .copy_range(sheet, source, source, destination)
+                .unwrap(),
             1
         );
         assert_eq!(
-            workbook.sheet(sheet).unwrap().cell(destination).unwrap().formula(),
+            workbook
+                .sheet(sheet)
+                .unwrap()
+                .cell(destination)
+                .unwrap()
+                .formula(),
             Some("=B2+$B$1+B$1+$B2")
         );
     }
