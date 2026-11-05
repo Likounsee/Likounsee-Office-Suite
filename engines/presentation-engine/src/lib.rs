@@ -929,10 +929,6 @@ impl Presentation {
         self.slides.insert(new_index, slide);
         Ok(())
     }
-    /// Apply a theme to every slide in one atomic model revision.
-    /// Text elements at 28 pt or larger are treated as titles; smaller text uses body styling.
-    /// Existing emphasis, alignment, geometry, notes and media references are preserved.
-
     /// Apply a presentation theme to a validated subset of slides in one revision.
     /// Existing text emphasis/alignment and all geometry are retained.
     pub fn apply_theme_to_slides(
@@ -1024,6 +1020,9 @@ impl Presentation {
         Ok(changed)
     }
 
+    /// Apply a theme to every slide in one atomic model revision.
+    /// Text elements at 28 pt or larger are treated as titles; smaller text uses body styling.
+    /// Existing emphasis, alignment, geometry, notes and media references are preserved.
     pub fn apply_theme(&mut self, theme: &PresentationTheme) -> io::Result<()> {
         // Revalidate so malformed values cannot enter through future deserialization paths.
         validate_string(&theme.name, "theme name")?;
@@ -6369,6 +6368,7 @@ mod tests {
         assert_eq!(deck.apply_theme_to_slides(&[first], &theme).unwrap(), 1);
         assert_eq!(deck.revision(), revision + 1);
         assert_eq!(deck.slides()[0].background(), 0x101820);
+        assert_eq!(deck.slides()[1].id(), second);
         assert_eq!(deck.slides()[1].background(), 0xffffff);
         let ElementKind::Text { style, .. } = deck.slides()[0].element(first_text).unwrap().kind()
         else {

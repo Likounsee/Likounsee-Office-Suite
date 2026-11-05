@@ -2584,8 +2584,6 @@ impl DocumentSession {
         self.record_change(next)
     }
 
-    /// Apply paragraph styles to several paragraphs as one atomic journalled edit.
-
     /// Move one paragraph immediately before another without changing either ID.
     /// Tables and all unrelated blocks retain their relative order.
     pub fn move_paragraph_before(&mut self, paragraph_id: u64, before_id: u64) -> io::Result<()> {
@@ -2695,6 +2693,7 @@ impl DocumentSession {
         Ok(changed)
     }
 
+    /// Apply paragraph styles to several paragraphs as one atomic journalled edit.
     pub fn set_paragraph_styles_batch(
         &mut self,
         requested: &[(u64, ParagraphStyle)],
