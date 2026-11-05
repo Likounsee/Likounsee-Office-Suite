@@ -1579,7 +1579,9 @@ impl<'a> Parser<'a> {
             "ABS" => value.abs(),
             "SQRT" if value >= 0.0 => value.sqrt(),
             "SQRT" => return Err(FormulaError::Number),
-            "SIGN" => value.signum(),
+            "SIGN" if value > 0.0 => 1.0,
+            "SIGN" if value < 0.0 => -1.0,
+            "SIGN" => 0.0,
             "INT" => value.floor(),
             "POWER" => {
                 let exponent = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
