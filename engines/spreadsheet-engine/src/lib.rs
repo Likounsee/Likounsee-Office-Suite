@@ -2728,7 +2728,11 @@ mod tests {
         for (index, (formula, expected)) in cases.into_iter().enumerate() {
             let address = CellAddress::new(index as u32, 0).unwrap();
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
         }
     }
 
