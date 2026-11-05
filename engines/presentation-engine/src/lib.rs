@@ -1827,7 +1827,7 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                         .expect("writing to String cannot fail");
                     }
                     ShapeKind::Ellipse => {
-                        let k = 0.55228475_f32;
+                        let k = 0.552_284_8_f32;
                         let cx = bounds.x + bounds.width / 2.0;
                         let cy = bottom + bounds.height / 2.0;
                         let rx = bounds.width / 2.0;
@@ -1896,8 +1896,8 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                 // the omission visible rather than silently dropping the element.
                 writeln!(
                     output,
-                    "q 0.45 G 0.8 w [{}] 0 d {} {} {} {} re S Q",
-                    "4 3", bounds.x, bottom, bounds.width, bounds.height
+                    "q 0.45 G 0.8 w [4 3] 0 d {} {} {} {} re S Q",
+                    bounds.x, bottom, bounds.width, bounds.height
                 )
                 .expect("writing to String cannot fail");
                 let label = if alt_text.is_empty() {
