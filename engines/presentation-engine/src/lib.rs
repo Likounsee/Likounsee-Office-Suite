@@ -1541,13 +1541,20 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
                 let italic = if style.italic { "italic" } else { "normal" };
                 writeln!(
                     svg,
-                    "<text id=\"element-{}\" x=\"{}\" y=\"{}\" fill=\"#{:06x}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\" text-anchor=\"{}\" text-decoration=\"{}\">",
-                    element.id, x, bounds.y + style.font_size, style.color,
-                    escape_xml(&style.font_family), style.font_size, weight, italic,
-                    anchor, decoration
+                    "<defs><clipPath id=\"clip-{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath></defs>",
+                    element.id, bounds.x, bounds.y, bounds.width, bounds.height
                 )
                 .expect("writing to String cannot fail");
-                for (index, line) in text.split('\n').enumerate() {
+                writeln!(
+                    svg,
+                    "<text id=\"element-{}\" x=\"{}\" y=\"{}\" fill=\"#{:06x}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\" text-anchor=\"{}\" text-decoration=\"{}\" clip-path=\"url(#clip-{})\">",
+                    element.id, x, bounds.y + style.font_size, style.color,
+                    escape_xml(&style.font_family), style.font_size, weight, italic,
+                    anchor, decoration, element.id
+                )
+                .expect("writing to String cannot fail");
+                let lines = wrap_text_for_svg(text, bounds.width, style.font_size);
+                for (index, line) in lines.iter().enumerate() {
                     if index == 0 {
                         writeln!(svg, "<tspan x=\"{}\">{}</tspan>", x, escape_xml(line))
                             .expect("writing to String cannot fail");
@@ -1615,6 +1622,37 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
     }
     svg.push_str("</svg>\n");
     Ok(svg)
+}
+
+fn wrap_text_for_svg(text: &str, max_width: f32, font_size: f32) -> Vec<String> {
+    let max_chars = ((max_width / (font_size * 0.55)).floor() as usize).max(1);
+    let mut output = Vec::new();
+    for explicit_line in text.split('\n') {
+        let mut line = String::new();
+        for word in explicit_line.split_whitespace() {
+            let word_len = word.chars().count();
+            let line_len = line.chars().count();
+            if !line.is_empty() && line_len + 1 + word_len <= max_chars {
+                line.push(' ');
+                line.push_str(word);
+            } else {
+                if !line.is_empty() {
+                    output.push(std::mem::take(&mut line));
+                }
+                let mut chars = word.chars().peekable();
+                while chars.peek().is_some() {
+                    let chunk: String = chars.by_ref().take(max_chars).collect();
+                    if chars.peek().is_some() {
+                        output.push(chunk);
+                    } else {
+                        line = chunk;
+                    }
+                }
+            }
+        }
+        output.push(line);
+    }
+    output
 }
 
 fn escape_xml(value: &str) -> String {
@@ -2533,6 +2571,26 @@ mod tests {
         assert!(svg.contains("assets/photo &amp; chart.png"));
         assert!(svg.contains("<title>A &lt;chart&gt;</title>"));
         assert!(svg.ends_with("</svg>\n"));
+    }
+
+    #[test]
+    fn svg_renderer_wraps_long_text_and_clips_to_text_bounds() {
+        let mut deck = Presentation::new("Wrapping", 300.0, 160.0).unwrap();
+        let slide = deck.slides()[0].id();
+        deck.add_text(
+            slide,
+            rect(10.0, 10.0, 90.0, 120.0),
+            "alpha beta gamma extraordinarilylongword",
+            TextStyle::default(),
+        )
+        .unwrap();
+        let svg = render_slide_svg(&deck, slide).unwrap();
+        assert!(svg.contains("clipPath id=\"clip-"));
+        assert!(svg.contains("clip-path=\"url(#clip-"));
+        assert!(svg.contains(">alpha</tspan>"));
+        assert!(svg.contains(">beta</tspan>"));
+        assert!(svg.contains(">gamma</tspan>"));
+        assert!(svg.contains("extraordina"));
     }
 
     #[test]
