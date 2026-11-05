@@ -2584,9 +2584,9 @@ fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
             }
             ElementKind::Image { source, alt_text } => {
                 xml.push_str(r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="E7E6E6"/></a:solidFill><a:ln><a:solidFill><a:srgbClr val="7F7F7F"/></a:solidFill></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US"/><a:t>"#);
-                xml.push_str(&xml_escape(alt_text));
+                let image_label = format!("{alt_text} — {source}");
+                xml.push_str(&xml_escape(&image_label));
                 xml.push_str(r#"</a:t></a:r><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>"#);
-                let _ = write!(xml, "<!-- image reference: {} -->", xml_escape(source));
             }
         }
     }
@@ -3651,6 +3651,73 @@ mod tests {
                 color_space: PdfImageColorSpace::Rgb,
             }))
         }
+    }
+
+    #[test]
+    fn pptx_export_creates_open_xml_package_with_editable_content() {
+        use std::io::Read;
+        let mut deck = Presentation::new("Quarterly & annual", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let mut title_style = TextStyle::new("Arial", 32.0, 0x123456).unwrap();
+        title_style.set_emphasis(true, false, false);
+        title_style.set_alignment(TextAlignment::Center);
+        deck.add_text(
+            slide,
+            rect(40.0, 30.0, 500.0, 80.0),
+            "Revenue < 2026 & growth",
+            title_style,
+        )
+        .unwrap();
+        deck.add_shape(
+            slide,
+            rect(50.0, 140.0, 200.0, 100.0),
+            ShapeKind::Rectangle,
+            Some(0xAABBCC),
+            Some(0x112233),
+            2.0,
+        )
+        .unwrap();
+        deck.add_image(
+            slide,
+            rect(300.0, 140.0, 100.0, 80.0),
+            "assets/chart.png",
+            "Chart preview",
+        )
+        .unwrap();
+        deck.set_slide_notes(slide, "Speaker notes stay in native format for now")
+            .unwrap();
+        deck.add_slide("Second slide").unwrap();
+
+        let bytes = export_pptx(&deck).unwrap();
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut presentation = String::new();
+        archive
+            .by_name("ppt/presentation.xml")
+            .unwrap()
+            .read_to_string(&mut presentation)
+            .unwrap();
+        assert!(presentation.contains("<p:sldId "));
+        assert!(presentation.contains("cx=\"12192000\" cy=\"6858000\""));
+
+        let mut slide_xml = String::new();
+        archive
+            .by_name("ppt/slides/slide1.xml")
+            .unwrap()
+            .read_to_string(&mut slide_xml)
+            .unwrap();
+        assert!(slide_xml.contains("Revenue &lt; 2026 &amp; growth"));
+        assert!(slide_xml.contains("typeface=\"Arial\""));
+        assert!(slide_xml.contains("prst=\"rect\""));
+        assert!(slide_xml.contains("Chart preview — assets/chart.png"));
+        assert!(archive.by_name("ppt/slides/slide2.xml").is_ok());
+        assert!(archive.by_name("[Content_Types].xml").is_ok());
+    }
+
+    #[test]
+    fn pptx_export_rejects_invalid_models_before_writing_archive() {
+        let mut deck = Presentation::new("Invalid", 960.0, 540.0).unwrap();
+        deck.width = f32::NAN;
+        assert!(export_pptx(&deck).is_err());
     }
 
     #[test]
