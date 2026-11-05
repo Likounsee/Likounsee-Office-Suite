@@ -2139,6 +2139,30 @@ impl DocumentSession {
     }
 
     /// Set horizontal alignment for one cell.
+
+    /// Replace the text in one table cell while preserving its stable cell ID and formatting.
+    pub fn set_table_cell_text(
+        &mut self,
+        table_id: u64,
+        row_index: usize,
+        column_index: usize,
+        text: impl Into<String>,
+    ) -> io::Result<u64> {
+        let text = text.into();
+        validate_string(&text, "table cell text")?;
+        let mut next = self.document.clone();
+        let table = next.tables.iter_mut()
+            .find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let cell = table.rows.get_mut(row_index)
+            .and_then(|row| row.cells.get_mut(column_index))
+            .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
+        cell.text = text;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
     pub fn set_table_cell_alignment(
         &mut self,
         table_id: u64,
@@ -3488,4 +3512,20 @@ mod tests {
         assert_eq!(document.body(), "");
         assert_eq!(document.revision(), u64::MAX);
     }
+
+    #[test]
+    fn table_cell_text_edit_preserves_cell_identity_and_survives_recovery() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(directory.path()).unwrap();
+        let table_id = session.insert_table(1, 1).unwrap();
+        let cell_id = session.document().tables().next().unwrap().rows()[0].cells()[0].id();
+        session.set_table_cell_text(table_id, 0, 0, "Quarterly result").unwrap();
+        let cell = &session.document().tables().next().unwrap().rows()[0].cells()[0];
+        assert_eq!(cell.id(), cell_id);
+        assert_eq!(cell.text(), "Quarterly result");
+        session.save_now().unwrap();
+        let reopened = DocumentSession::open(directory.path()).unwrap();
+        assert_eq!(reopened.document().tables().next().unwrap().rows()[0].cells()[0].text(), "Quarterly result");
+    }
+
 }

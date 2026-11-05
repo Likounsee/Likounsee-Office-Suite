@@ -2864,6 +2864,28 @@ pub fn slide_layout_statistics(
     Ok(stats)
 }
 
+
+/// Return IDs of slide elements that extend beyond the slide canvas.
+pub fn slide_elements_outside_canvas(
+    presentation: &Presentation,
+    slide_id: u64,
+) -> io::Result<Vec<u64>> {
+    presentation.validate()?;
+    let slide = presentation.slide(slide_id)
+        .ok_or_else(|| invalid_input("slide does not exist"))?;
+    let mut outside = Vec::new();
+    for element in &slide.elements {
+        let bounds = element.bounds;
+        if bounds.x < 0.0 || bounds.y < 0.0
+            || bounds.x + bounds.width > presentation.width
+            || bounds.y + bounds.height > presentation.height
+        {
+            outside.push(element.id);
+        }
+    }
+    Ok(outside)
+}
+
 /// Aggregate speaker-note metrics across all slides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpeakerNotesStatistics {
@@ -5163,4 +5185,16 @@ mod tests {
             "Explain the overview"
         );
     }
+
+    #[test]
+    fn slide_canvas_diagnostic_finds_only_overflowing_elements() {
+        let mut presentation = Presentation::new("Canvas", 100.0, 80.0).unwrap();
+        let slide_id = presentation.slides()[0].id();
+        let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
+        presentation.add_text(slide_id, rect(10.0, 10.0, 20.0, 10.0), "Inside", style.clone()).unwrap();
+        let outside_id = presentation.add_text(slide_id, rect(95.0, 10.0, 20.0, 10.0), "Outside", style).unwrap();
+        assert_eq!(slide_elements_outside_canvas(&presentation, slide_id).unwrap(), vec![outside_id]);
+        assert!(slide_elements_outside_canvas(&presentation, u64::MAX).is_err());
+    }
+
 }

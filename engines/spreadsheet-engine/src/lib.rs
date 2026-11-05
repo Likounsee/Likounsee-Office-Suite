@@ -583,6 +583,35 @@ impl Workbook {
         sheet.cells.remove(&address);
         Ok(())
     }
+
+    /// Clear every stored value or formula in an inclusive rectangular range.
+    /// The operation is bounded by MAX_CELLS and leaves cells outside the range untouched.
+    pub fn clear_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+    ) -> io::Result<usize> {
+        let sheet = self.sheets.iter_mut()
+            .find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let min_row = start.row().min(end.row());
+        let max_row = start.row().max(end.row());
+        let min_column = start.column().min(end.column());
+        let max_column = start.column().max(end.column());
+        let area = (max_row - min_row + 1)
+            .checked_mul(max_column - min_column + 1)
+            .ok_or_else(|| invalid_input("range dimensions overflow"))?;
+        if area > MAX_CELLS {
+            return Err(invalid_input("range exceeds supported cell limit"));
+        }
+        let before = sheet.cells.len();
+        sheet.cells.retain(|address, _| {
+            address.row() < min_row || address.row() > max_row
+                || address.column() < min_column || address.column() > max_column
+        });
+        Ok(before - sheet.cells.len())
+    }
     fn set_input(
         &mut self,
         sheet_id: u64,
@@ -4988,4 +5017,26 @@ mod session_tests {
         assert_eq!(session.journal.latest_sequence().unwrap(), before);
         assert!(session.workbook().sheet(999).is_none());
     }
+
+    #[test]
+    fn clear_range_removes_only_cells_inside_inclusive_rectangle() {
+        let mut workbook = Workbook::new();
+        let sheet = workbook.sheets()[0].id();
+        for (address, value) in [("A1", 1.0), ("B2", 2.0), ("C3", 3.0), ("D4", 4.0)] {
+            workbook.set_number(sheet, CellAddress::parse_a1(address).unwrap(), value).unwrap();
+        }
+        let removed = workbook.clear_range(
+            sheet,
+            CellAddress::parse_a1("B2").unwrap(),
+            CellAddress::parse_a1("C3").unwrap(),
+        ).unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(workbook.sheet(sheet).unwrap().stored_cell_count(), 2);
+        assert_eq!(workbook.values(&[
+            (sheet, CellAddress::parse_a1("A1").unwrap()),
+            (sheet, CellAddress::parse_a1("B2").unwrap()),
+            (sheet, CellAddress::parse_a1("D4").unwrap()),
+        ]), vec![CellValue::Number(1.0), CellValue::Blank, CellValue::Number(4.0)]);
+    }
+
 }
