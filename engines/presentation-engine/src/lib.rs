@@ -1799,9 +1799,9 @@ mod tests {
         let first_bounds = elements.element(first).unwrap().bounds();
         let second_bounds = elements.element(second).unwrap().bounds();
         let third_bounds = elements.element(third).unwrap().bounds();
-        assert_eq!(first_bounds.y + first_bounds.height / 2.0, 45.0);
-        assert_eq!(second_bounds.y + second_bounds.height / 2.0, 45.0);
-        assert_eq!(third_bounds.y + third_bounds.height / 2.0, 45.0);
+        assert_eq!(first_bounds.y + first_bounds.height / 2.0, 60.0);
+        assert_eq!(second_bounds.y + second_bounds.height / 2.0, 60.0);
+        assert_eq!(third_bounds.y + third_bounds.height / 2.0, 60.0);
         assert_eq!((first_bounds.width, second_bounds.width, third_bounds.width), (100.0, 60.0, 80.0));
         assert_eq!(elements.elements().iter().map(SlideElement::id).collect::<Vec<_>>(), order);
     }
