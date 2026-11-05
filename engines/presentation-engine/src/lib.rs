@@ -422,6 +422,102 @@ impl Presentation {
         self.slide_mut(slide_id)?.notes = notes;
         Ok(())
     }
+
+    /// Rename a slide without changing its stable identity.
+    pub fn rename_slide(&mut self, slide_id: u64, name: impl Into<String>) -> io::Result<()> {
+        let name = name.into();
+        validate_string(&name, "slide name")?;
+        if self.slide(slide_id).is_none() {
+            return Err(invalid_input("slide does not exist"));
+        }
+        self.bump_revision()?;
+        self.slide_mut(slide_id)?.name = name;
+        Ok(())
+    }
+
+    /// Replace the complete text style of an existing text element.
+    pub fn set_text_style(
+        &mut self,
+        slide_id: u64,
+        element_id: u64,
+        style: TextStyle,
+    ) -> io::Result<()> {
+        style.validate()?;
+        let slide = self.slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if !matches!(slide.element(element_id).map(|element| &element.kind), Some(ElementKind::Text { .. })) {
+            return Err(invalid_input("text element does not exist"));
+        }
+        self.bump_revision()?;
+        let element = self.slide_mut(slide_id)?.elements.iter_mut()
+            .find(|element| element.id == element_id).unwrap();
+        if let ElementKind::Text { style: current, .. } = &mut element.kind {
+            *current = style;
+        }
+        Ok(())
+    }
+
+    /// Change fill, stroke and stroke width on an existing shape.
+    pub fn set_shape_style(
+        &mut self,
+        slide_id: u64,
+        element_id: u64,
+        fill: Option<u32>,
+        stroke: Option<u32>,
+        stroke_width: f32,
+    ) -> io::Result<()> {
+        if fill.is_some_and(|color| color > 0x00ff_ffff)
+            || stroke.is_some_and(|color| color > 0x00ff_ffff)
+            || !stroke_width.is_finite()
+            || !(0.0..=1000.0).contains(&stroke_width)
+        {
+            return Err(invalid_input("shape styling is invalid"));
+        }
+        let slide = self.slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if !matches!(slide.element(element_id).map(|element| &element.kind), Some(ElementKind::Shape { .. })) {
+            return Err(invalid_input("shape element does not exist"));
+        }
+        self.bump_revision()?;
+        let element = self.slide_mut(slide_id)?.elements.iter_mut()
+            .find(|element| element.id == element_id).unwrap();
+        if let ElementKind::Shape { fill: current_fill, stroke: current_stroke, stroke_width: current_width, .. } = &mut element.kind {
+            *current_fill = fill;
+            *current_stroke = stroke;
+            *current_width = stroke_width;
+        }
+        Ok(())
+    }
+
+    /// Replace the source and alternative text of an existing image element.
+    pub fn update_image(
+        &mut self,
+        slide_id: u64,
+        element_id: u64,
+        source: impl Into<String>,
+        alt_text: impl Into<String>,
+    ) -> io::Result<()> {
+        let source = source.into();
+        let alt_text = alt_text.into();
+        validate_string(&source, "image source")?;
+        validate_string(&alt_text, "image alt text")?;
+        if source.is_empty() {
+            return Err(invalid_input("image source cannot be empty"));
+        }
+        let slide = self.slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if !matches!(slide.element(element_id).map(|element| &element.kind), Some(ElementKind::Image { .. })) {
+            return Err(invalid_input("image element does not exist"));
+        }
+        self.bump_revision()?;
+        let element = self.slide_mut(slide_id)?.elements.iter_mut()
+            .find(|element| element.id == element_id).unwrap();
+        if let ElementKind::Image { source: current_source, alt_text: current_alt } = &mut element.kind {
+            *current_source = source;
+            *current_alt = alt_text;
+        }
+        Ok(())
+    }
     pub fn add_text(
         &mut self,
         slide_id: u64,
@@ -1323,6 +1419,49 @@ mod tests {
         assert_eq!(deck.slide(slide).unwrap().elements()[0].id(), second);
         deck.remove_element(slide, first).unwrap();
         assert!(deck.slide(slide).unwrap().element(first).is_none());
+    }
+
+    #[test]
+    fn updates_slide_names_text_style_shape_style_and_image_metadata() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        deck.rename_slide(slide, "Introduction").unwrap();
+        let text = deck.add_text(slide, rect(0.0, 0.0, 100.0, 40.0), "Title", TextStyle::default()).unwrap();
+        let shape = deck.add_shape(slide, rect(0.0, 50.0, 100.0, 40.0), ShapeKind::Rectangle, None, None, 1.0).unwrap();
+        let image = deck.add_image(slide, rect(0.0, 100.0, 100.0, 80.0), "old.png", "Old").unwrap();
+
+        let mut style = TextStyle::new("Inter", 36.0, 0x123456).unwrap();
+        style.set_emphasis(true, false, true);
+        style.set_alignment(TextAlignment::Center);
+        deck.set_text_style(slide, text, style.clone()).unwrap();
+        deck.set_shape_style(slide, shape, Some(0xaabbcc), Some(0x010203), 3.5).unwrap();
+        deck.update_image(slide, image, "new.png", "Updated image").unwrap();
+
+        assert_eq!(deck.slide(slide).unwrap().name(), "Introduction");
+        assert!(matches!(deck.slide(slide).unwrap().element(text).unwrap().kind(), ElementKind::Text { style: actual, .. } if actual == &style));
+        assert!(matches!(deck.slide(slide).unwrap().element(shape).unwrap().kind(), ElementKind::Shape { fill: Some(0xaabbcc), stroke: Some(0x010203), stroke_width, .. } if *stroke_width == 3.5));
+        assert!(matches!(deck.slide(slide).unwrap().element(image).unwrap().kind(), ElementKind::Image { source, alt_text } if source == "new.png" && alt_text == "Updated image"));
+
+        let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
+        assert_eq!(restored, deck);
+    }
+
+    #[test]
+    fn invalid_element_updates_are_atomic_and_type_checked() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let text = deck.add_text(slide, rect(0.0, 0.0, 100.0, 40.0), "Title", TextStyle::default()).unwrap();
+        let shape = deck.add_shape(slide, rect(0.0, 50.0, 100.0, 40.0), ShapeKind::Rectangle, None, None, 1.0).unwrap();
+        let revision = deck.revision();
+
+        assert!(deck.rename_slide(999, "Missing").is_err());
+        assert!(deck.set_text_style(slide, shape, TextStyle::default()).is_err());
+        assert!(deck.set_shape_style(slide, text, None, None, 1.0).is_err());
+        assert!(deck.set_shape_style(slide, shape, Some(0x1000000), None, 1.0).is_err());
+        assert!(deck.update_image(slide, text, "image.png", "not an image").is_err());
+        assert!(deck.update_image(slide, shape, "", "empty").is_err());
+        assert_eq!(deck.revision(), revision);
+        assert_eq!(deck.slide(slide).unwrap().element(text).unwrap().kind(), &ElementKind::Text { text: "Title".to_owned(), style: TextStyle::default() });
     }
 
     #[test]
