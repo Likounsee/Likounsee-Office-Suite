@@ -3082,7 +3082,9 @@ mod tests {
             .set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true)
             .unwrap();
         let table_id = session.insert_table(1, 2).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "A & B").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "A & B")
+            .unwrap();
         let html = export_html(session.document()).unwrap();
         assert!(html.contains("<h1><strong>Safe</strong>"));
         assert!(html.contains("&lt;text&gt; &amp; &quot;quotes&quot;"));
