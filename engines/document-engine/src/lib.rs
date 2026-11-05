@@ -2137,12 +2137,6 @@ mod tests {
             .set_inline_mark(first_paragraph_id, 0..8, InlineMark::Bold, true)
             .unwrap();
         let table_id = session.insert_table(2, 2).unwrap();
-        let table = session
-            .document()
-            .tables()
-            .iter()
-            .find(|table| table.id() == table_id)
-            .unwrap();
         session
             .set_table_cell_text(table_id, 0, 0, "A | B")
             .unwrap();
