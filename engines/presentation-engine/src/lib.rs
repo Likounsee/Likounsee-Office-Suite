@@ -20,6 +20,7 @@ const MAX_PRESENTATION_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SLIDES: usize = 10_000;
 const MAX_ELEMENTS_PER_SLIDE: usize = 100_000;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
+const MAX_PDF_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 
 pub const fn engine_name() -> &'static str {
     "presentation-engine"
@@ -1855,7 +1856,10 @@ pub enum PdfImageColorSpace {
 impl PdfJpegImage {
     /// Validate the JPEG frame header and ensure its dimensions/color space match the metadata.
     pub fn validate(&self) -> io::Result<()> {
-        if self.width == 0 || self.height == 0 || self.bytes.len() < 4
+        if self.width == 0
+            || self.height == 0
+            || self.bytes.len() < 4
+            || self.bytes.len() > MAX_PDF_IMAGE_BYTES
             || self.bytes[0..2] != [0xff, 0xd8]
             || self.bytes[self.bytes.len() - 2..] != [0xff, 0xd9]
         {
@@ -2034,8 +2038,14 @@ fn render_pdf_document_with_images(
             PdfImageColorSpace::Rgb => "/DeviceRGB",
             PdfImageColorSpace::Cmyk => "/DeviceCMYK",
         };
+        // CMYK JPEG samples are conventionally inverted when consumed by PDF.
+        let decode = if image.color_space == PdfImageColorSpace::Cmyk {
+            " /Decode [1 0 1 0 1 0 1 0]"
+        } else {
+            ""
+        };
         let mut stream_object = format!(
-            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {color_space} /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {color_space} /BitsPerComponent 8 /Filter /DCTDecode /Length {}{decode} >>\nstream\n",
             image.width, image.height, image.bytes.len()
         ).into_bytes();
         stream_object.extend_from_slice(&image.bytes);
@@ -3522,6 +3532,32 @@ mod tests {
         assert!(content.contains("/Im1 Do"));
         assert!(content.contains("Image not embedded"));
         assert_eq!(content.matches("/Subtype /Image").count(), 1);
+    }
+
+    #[test]
+    fn pdf_slide_export_embeds_images_and_cmyk_uses_inverted_decode() {
+        struct CmykProvider;
+        impl PdfImageProvider for CmykProvider {
+            fn resolve_jpeg(&self, _source: &str) -> io::Result<Option<PdfJpegImage>> {
+                Ok(Some(PdfJpegImage {
+                    bytes: vec![
+                        0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01,
+                        0x04, 0x01, 0x11, 0x00, 0xff, 0xd9,
+                    ],
+                    width: 1,
+                    height: 1,
+                    color_space: PdfImageColorSpace::Cmyk,
+                }))
+            }
+        }
+        let mut deck = Presentation::new("CMYK slide", 320.0, 200.0).unwrap();
+        let slide = deck.slides()[0].id();
+        deck.add_image(slide, rect(0.0, 0.0, 80.0, 60.0), "cmyk.jpg", "CMYK").unwrap();
+        let pdf = render_slide_pdf_with_images(&deck, slide, &CmykProvider).unwrap();
+        let content = String::from_utf8_lossy(&pdf);
+        assert!(content.contains("/ColorSpace /DeviceCMYK"));
+        assert!(content.contains("/Decode [1 0 1 0 1 0 1 0]"));
+        assert!(content.contains("/Im1 Do"));
     }
 
     #[test]
