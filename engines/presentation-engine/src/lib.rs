@@ -1639,7 +1639,6 @@ pub fn render_all_slides_svg(presentation: &Presentation) -> io::Result<Vec<(u64
         .collect()
 }
 
-
 /// Export one slide as a standalone PDF document.
 pub fn render_slide_pdf(presentation: &Presentation, slide_id: u64) -> io::Result<Vec<u8>> {
     presentation.validate()?;
@@ -1766,11 +1765,15 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                     let estimated_width = line.chars().count() as f32 * style.font_size * 0.5;
                     let x = match style.alignment {
                         TextAlignment::Left | TextAlignment::Justify => bounds.x,
-                        TextAlignment::Center => bounds.x + ((bounds.width - estimated_width) / 2.0).max(0.0),
-                        TextAlignment::Right => bounds.x + (bounds.width - estimated_width).max(0.0),
+                        TextAlignment::Center => {
+                            bounds.x + ((bounds.width - estimated_width) / 2.0).max(0.0)
+                        },
+                        TextAlignment::Right => {
+                            bounds.x + (bounds.width - estimated_width).max(0.0)
+                        },
                     };
-                    let baseline = page_height - bounds.y - style.font_size
-                        - line_index as f32 * line_height;
+                    let baseline =
+                        page_height - bounds.y - style.font_size - line_index as f32 * line_height;
                     writeln!(
                         output,
                         "BT /{font} {} Tf {color} rg 1 0 0 1 {} {} Tm <{}> Tj ET",
@@ -1786,7 +1789,10 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                         writeln!(
                             output,
                             "q {color} RG 0.6 w {} {} m {} {} l S Q",
-                            x, underline_y, x + underline_width, underline_y
+                            x,
+                            underline_y,
+                            x + underline_width,
+                            underline_y
                         )
                         .expect("writing to String cannot fail");
                     }
@@ -1799,8 +1805,12 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                 stroke,
                 stroke_width,
             } => {
-                let fill_command = fill.map(|color| format!("{} rg ", pdf_rgb(color))).unwrap_or_default();
-                let stroke_command = stroke.map(|color| format!("{} RG ", pdf_rgb(color))).unwrap_or_default();
+                let fill_command = fill
+                    .map(|color| format!("{} rg ", pdf_rgb(color)))
+                    .unwrap_or_default();
+                let stroke_command = stroke
+                    .map(|color| format!("{} RG ", pdf_rgb(color)))
+                    .unwrap_or_default();
                 let paint = match (fill.is_some(), stroke.is_some()) {
                     (true, true) => "B",
                     (true, false) => "f",
@@ -1843,7 +1853,12 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                         writeln!(
                             output,
                             "q {} RG {} w {} {} m {} {} l S",
-                            pdf_rgb(color), stroke_width.max(1.0), x1, y1, x2, y2
+                            pdf_rgb(color),
+                            stroke_width.max(1.0),
+                            x1,
+                            y1,
+                            x2,
+                            y2
                         )
                         .expect("writing to String cannot fail");
                         if *shape == ShapeKind::Arrow {
@@ -1861,7 +1876,13 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                             writeln!(
                                 output,
                                 "{} rg {} {} m {} {} l {} {} l h f Q",
-                                pdf_rgb(color), x2, y2, bx + px, by + py, bx - px, by - py
+                                pdf_rgb(color),
+                                x2,
+                                y2,
+                                bx + px,
+                                by + py,
+                                bx - px,
+                                by - py
                             )
                             .expect("writing to String cannot fail");
                         } else {
@@ -1879,7 +1900,11 @@ fn render_pdf_page_content(presentation: &Presentation, slide: &Slide) -> io::Re
                     "4 3", bounds.x, bottom, bounds.width, bounds.height
                 )
                 .expect("writing to String cannot fail");
-                let label = if alt_text.is_empty() { "Image not embedded" } else { alt_text };
+                let label = if alt_text.is_empty() {
+                    "Image not embedded"
+                } else {
+                    alt_text
+                };
                 writeln!(
                     output,
                     "BT /F1 10 Tf 0.35 0.35 0.35 rg 1 0 0 1 {} {} Tm <{}> Tj ET",
