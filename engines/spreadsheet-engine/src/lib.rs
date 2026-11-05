@@ -1000,12 +1000,40 @@ impl<'a> Parser<'a> {
         }
     }
     fn parse(mut self) -> Result<f64, FormulaError> {
-        let value = self.expression()?;
+        let value = self.comparison()?;
         self.whitespace();
         if self.cursor != self.input.len() {
             return Err(FormulaError::Parse);
         }
         Ok(value)
+    }
+    fn comparison(&mut self) -> Result<f64, FormulaError> {
+        let left = self.expression()?;
+        self.whitespace();
+        let operator = match (self.peek(), self.input.get(self.cursor + 1).copied()) {
+            (Some(b'<'), Some(b'=')) => Some((2, 2)),
+            (Some(b'>'), Some(b'=')) => Some((2, 4)),
+            (Some(b'<'), Some(b'>')) => Some((2, 5)),
+            (Some(b'<'), _) => Some((1, 0)),
+            (Some(b'>'), _) => Some((1, 1)),
+            (Some(b'='), _) => Some((1, 3)),
+            _ => None,
+        };
+        let Some((width, kind)) = operator else {
+            return Ok(left);
+        };
+        self.cursor += width;
+        let right = self.expression()?;
+        let result = match kind {
+            0 => left < right,
+            1 => left > right,
+            2 => left <= right,
+            3 => left == right,
+            4 => left >= right,
+            5 => left != right,
+            _ => unreachable!(),
+        };
+        Ok(if result { 1.0 } else { 0.0 })
     }
     fn expression(&mut self) -> Result<f64, FormulaError> {
         let mut value = self.term()?;
@@ -1079,7 +1107,7 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some(b'(') => {
                 self.cursor += 1;
-                let value = self.expression()?;
+                let value = self.comparison()?;
                 self.whitespace();
                 if self.peek() != Some(b')') {
                     return Err(FormulaError::Parse);
@@ -2252,6 +2280,46 @@ mod tests {
         book.set_formula(sheet, b1, "=1+").unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
+    #[test]
+    fn formula_comparisons_support_all_operators_and_parentheses() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=2=2", 1.0),
+            ("=2=3", 0.0),
+            ("=2<>3", 1.0),
+            ("=3<2", 0.0),
+            ("=2<=2", 1.0),
+            ("=3>2", 1.0),
+            ("=3>=4", 0.0),
+            ("=(2+3)>=5", 1.0),
+            ("=2+3>4*2", 0.0),
+            ("=2^3=8", 1.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 0).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+    }
+
+    #[test]
+    fn formula_comparisons_reject_chained_operators_and_bad_rhs() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        for formula in ["=1<2<3", "=1<=", "=1<>", "=1==1"] {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(FormulaError::Parse),
+                "{formula}"
+            );
+        }
+    }
+
     #[test]
     fn formula_exponentiation_obeys_precedence_and_right_associativity() {
         let mut book = Workbook::new();
