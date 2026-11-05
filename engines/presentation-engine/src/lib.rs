@@ -422,18 +422,42 @@ impl Presentation {
         self.slide_mut(slide_id)?.notes = notes;
         Ok(())
     }
-    pub fn add_text(&mut self, slide_id: u64, bounds: Rect, text: impl Into<String>, style: TextStyle) -> io::Result<u64> {
-        bounds.validate()?; style.validate()?;
-        let text = text.into(); validate_string(&text, "text content")?;
+    pub fn add_text(
+        &mut self,
+        slide_id: u64,
+        bounds: Rect,
+        text: impl Into<String>,
+        style: TextStyle,
+    ) -> io::Result<u64> {
+        bounds.validate()?;
+        style.validate()?;
+        let text = text.into();
+        validate_string(&text, "text content")?;
         self.ensure_element_capacity(slide_id)?;
-        self.bump_revision()?; let id = self.take_id()?;
-        self.slide_mut(slide_id)?.elements.push(SlideElement { id, bounds, kind: ElementKind::Text { text, style } });
+        self.bump_revision()?;
+        let id = self.take_id()?;
+        self.slide_mut(slide_id)?.elements.push(SlideElement {
+            id,
+            bounds,
+            kind: ElementKind::Text { text, style },
+        });
         Ok(id)
     }
-    pub fn add_shape(&mut self, slide_id: u64, bounds: Rect, shape: ShapeKind, fill: Option<u32>, stroke: Option<u32>, stroke_width: f32) -> io::Result<u64> {
+    pub fn add_shape(
+        &mut self,
+        slide_id: u64,
+        bounds: Rect,
+        shape: ShapeKind,
+        fill: Option<u32>,
+        stroke: Option<u32>,
+        stroke_width: f32,
+    ) -> io::Result<u64> {
         bounds.validate()?;
-        if fill.is_some_and(|c| c > 0x00ff_ffff) || stroke.is_some_and(|c| c > 0x00ff_ffff)
-            || !stroke_width.is_finite() || !(0.0..=1000.0).contains(&stroke_width) {
+        if fill.is_some_and(|c| c > 0x00ff_ffff)
+            || stroke.is_some_and(|c| c > 0x00ff_ffff)
+            || !stroke_width.is_finite()
+            || !(0.0..=1000.0).contains(&stroke_width)
+        {
             return Err(invalid_input("shape styling is invalid"));
         }
         self.ensure_element_capacity(slide_id)?;
@@ -1303,12 +1327,26 @@ mod tests {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
         let revision = deck.revision();
-        let invalid_style = TextStyle { font_size: f32::NAN, ..TextStyle::default() };
-        assert!(deck
-            .add_text(slide, rect(0.0, 0.0, 10.0, 10.0), "bad", invalid_style)
-            .is_err());
+        let invalid_style = TextStyle {
+            font_size: f32::NAN,
+            ..TextStyle::default()
+        };
+        assert!(
+            deck.add_text(slide, rect(0.0, 0.0, 10.0, 10.0), "bad", invalid_style)
+                .is_err()
+        );
         assert_eq!(deck.revision(), revision);
-        assert!(deck.add_shape(slide, rect(0.0, 0.0, 10.0, 10.0), ShapeKind::Rectangle, None, None, f32::NAN).is_err());
+        assert!(
+            deck.add_shape(
+                slide,
+                rect(0.0, 0.0, 10.0, 10.0),
+                ShapeKind::Rectangle,
+                None,
+                None,
+                f32::NAN
+            )
+            .is_err()
+        );
         assert_eq!(deck.revision(), revision);
         assert!(deck.remove_slide(slide).is_err());
         assert_eq!(deck.slides().len(), 1);
@@ -1391,9 +1429,10 @@ mod tests {
             1.0,
         )
         .unwrap_err();
-        assert!(deck
-            .add_image(slide, rect(0.0, 0.0, 10.0, 10.0), "", "missing")
-            .is_err());
+        assert!(
+            deck.add_image(slide, rect(0.0, 0.0, 10.0, 10.0), "", "missing")
+                .is_err()
+        );
         assert!(TextStyle::new("", 10.0, 0).is_err());
     }
 
