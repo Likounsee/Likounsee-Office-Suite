@@ -2645,7 +2645,17 @@ fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
                     TextAlignment::Right => "r",
                     TextAlignment::Justify => "just",
                 });
-                let _ = write!(xml, r#""/><a:r><a:rPr lang="en-US" sz="{}" b="{}" i="{}" u="{}"><a:solidFill><a:srgbClr val="{:06X}"/></a:solidFill><a:latin typeface="{}"/></a:rPr><a:t xml:space="preserve">{}</a:t></a:r><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>"#, (style.font_size * 100.0).round() as u32, if style.bold { 1 } else { 0 }, if style.italic { 1 } else { 0 }, if style.underline { "sng" } else { "none" }, style.color, xml_escape(&style.font_family), xml_escape(text));
+                let _ = write!(
+                    xml,
+                    r#""/><a:r><a:rPr lang="en-US" sz="{}" b="{}" i="{}" u="{}"><a:solidFill><a:srgbClr val="{:06X}"/></a:solidFill><a:latin typeface="{}"/></a:rPr><a:t xml:space="preserve">{}</a:t></a:r><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>"#,
+                    (style.font_size * 100.0).round() as u32,
+                    if style.bold { 1 } else { 0 },
+                    if style.italic { 1 } else { 0 },
+                    if style.underline { "sng" } else { "none" },
+                    style.color,
+                    xml_escape(&style.font_family),
+                    xml_escape(text)
+                );
             }
             ElementKind::Shape {
                 shape,
@@ -2660,8 +2670,23 @@ fn pptx_slide_xml(slide: &Slide) -> io::Result<String> {
                     ShapeKind::Arrow => "rightArrow",
                 };
                 let _ = write!(xml, r#"<a:prstGeom prst="{geom}"><a:avLst/></a:prstGeom>"#);
-                if let Some(color) = fill { let _ = write!(xml, r#"<a:solidFill><a:srgbClr val="{color:06X}"/></a:solidFill>"#); } else { xml.push_str("<a:noFill/>"); }
-                if let Some(color) = stroke { let _ = write!(xml, r#"<a:ln w="{}"><a:solidFill><a:srgbClr val="{color:06X}"/></a:solidFill></a:ln>"#, (stroke_width * 12_700.0).round() as u64); } else { xml.push_str("<a:ln><a:noFill/></a:ln>"); }
+                if let Some(color) = fill {
+                    let _ = write!(
+                        xml,
+                        r#"<a:solidFill><a:srgbClr val="{color:06X}"/></a:solidFill>"#
+                    );
+                } else {
+                    xml.push_str("<a:noFill/>");
+                }
+                if let Some(color) = stroke {
+                    let _ = write!(
+                        xml,
+                        r#"<a:ln w="{}"><a:solidFill><a:srgbClr val="{color:06X}"/></a:solidFill></a:ln>"#,
+                        (stroke_width * 12_700.0).round() as u64
+                    );
+                } else {
+                    xml.push_str("<a:ln><a:noFill/></a:ln>");
+                }
                 xml.push_str(r#"</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>"#);
             }
             ElementKind::Image { source, alt_text } => {
@@ -2685,7 +2710,12 @@ fn xml_escape(value: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
-            '\u{9}' | '\u{A}' | '\u{D}' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..='\u{10FFFF}' => out.push(character),
+            '\u{9}'
+            | '\u{A}'
+            | '\u{D}'
+            | '\u{20}'..='\u{D7FF}'
+            | '\u{E000}'..='\u{FFFD}'
+            | '\u{10000}'..='\u{10FFFF}' => out.push(character),
             _ => out.push('\u{FFFD}'),
         }
     }
