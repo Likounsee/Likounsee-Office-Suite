@@ -437,11 +437,7 @@ impl Presentation {
         let text = text.into();
         validate_string(&text, "text element")?;
         style.validate()?;
-        self.add_element(
-            slide_id,
-            bounds,
-            ElementKind::Text { text, style },
-        )
+        self.add_element(slide_id, bounds, ElementKind::Text { text, style })
     }
 
     /// Add a geometric shape to a slide and return its stable element ID.
@@ -490,19 +486,10 @@ impl Presentation {
         if source.is_empty() {
             return Err(invalid_input("image source cannot be empty"));
         }
-        self.add_element(
-            slide_id,
-            bounds,
-            ElementKind::Image { source, alt_text },
-        )
+        self.add_element(slide_id, bounds, ElementKind::Image { source, alt_text })
     }
 
-    fn add_element(
-        &mut self,
-        slide_id: u64,
-        bounds: Rect,
-        kind: ElementKind,
-    ) -> io::Result<u64> {
+    fn add_element(&mut self, slide_id: u64, bounds: Rect, kind: ElementKind) -> io::Result<u64> {
         let slide = self
             .slide(slide_id)
             .ok_or_else(|| invalid_input("slide does not exist"))?;
