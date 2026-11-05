@@ -2143,13 +2143,11 @@ impl DocumentSession {
     /// Replace the text in one table cell while preserving its stable cell ID and formatting.
 
     /// Replace every literal occurrence in paragraphs and table cells in one journaled edit.
-    /// Returns the number of replacements; an empty search term is rejected.
+    /// Inline formatting ranges are adjusted along with paragraph text.
     pub fn replace_all_text(&mut self, search: &str, replacement: &str) -> io::Result<usize> {
         if search.is_empty() {
             return Err(invalid_input("search text cannot be empty"));
         }
-        validate_string(search, "search text")?;
-        validate_string(replacement, "replacement text")?;
         if replacement.contains('\n') {
             return Err(invalid_input(
                 "paragraph replacement cannot contain line-feed characters",
@@ -2158,12 +2156,22 @@ impl DocumentSession {
         let mut next = self.document.clone();
         let mut replacements = 0usize;
         for paragraph in &mut next.paragraphs {
-            let count = paragraph.text.matches(search).count();
-            if count > 0 {
-                paragraph.text = paragraph.text.replace(search, replacement);
-                replacements = replacements
-                    .checked_add(count)
-                    .ok_or_else(|| invalid_input("replacement count overflow"))?;
+            let offsets: Vec<usize> = paragraph
+                .text
+                .match_indices(search)
+                .map(|(offset, _)| offset)
+                .collect();
+            replacements = replacements
+                .checked_add(offsets.len())
+                .ok_or_else(|| invalid_input("replacement count overflow"))?;
+            for offset in offsets.into_iter().rev() {
+                let end = offset + search.len();
+                paragraph.spans = adjust_inline_spans_for_edit(
+                    &paragraph.spans,
+                    offset..end,
+                    replacement.len(),
+                );
+                paragraph.text.replace_range(offset..end, replacement);
             }
         }
         for table in &mut next.tables {
@@ -2182,6 +2190,12 @@ impl DocumentSession {
         if replacements == 0 {
             return Ok(0);
         }
+        next.body = next
+            .paragraphs
+            .iter()
+            .map(|paragraph| paragraph.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
         self.document.increment_revision(&mut next)?;
         validate_document_size(&next)?;
         self.record_change(next)?;
@@ -2196,7 +2210,6 @@ impl DocumentSession {
         text: impl Into<String>,
     ) -> io::Result<u64> {
         let text = text.into();
-        validate_string(&text, "table cell text")?;
         let mut next = self.document.clone();
         let table = next
             .tables
@@ -2291,31 +2304,6 @@ impl DocumentSession {
             .and_then(|row| row.cells.get_mut(column_index))
             .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
         cell.borders = borders;
-        self.document.increment_revision(&mut next)?;
-        validate_document_size(&next)?;
-        self.record_change(next)
-    }
-
-    /// Set text in a table cell using zero-based row and column indices.
-    pub fn set_table_cell_text(
-        &mut self,
-        table_id: u64,
-        row_index: usize,
-        column_index: usize,
-        text: impl Into<String>,
-    ) -> io::Result<u64> {
-        let mut next = self.document.clone();
-        let table = next
-            .tables
-            .iter_mut()
-            .find(|table| table.id == table_id)
-            .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let cell = table
-            .rows
-            .get_mut(row_index)
-            .and_then(|row| row.cells.get_mut(column_index))
-            .ok_or_else(|| invalid_input("table cell coordinates are out of range"))?;
-        cell.text = text.into();
         self.document.increment_revision(&mut next)?;
         validate_document_size(&next)?;
         self.record_change(next)

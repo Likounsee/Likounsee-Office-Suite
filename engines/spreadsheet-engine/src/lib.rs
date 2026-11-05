@@ -612,6 +612,23 @@ impl Workbook {
             .checked_mul(columns)
             .filter(|count| *count <= MAX_CELLS)
             .ok_or_else(|| invalid_input("fill range exceeds the cell limit"))?;
+        let sheet = self
+            .sheets
+            .iter()
+            .find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let new_cells = (min_row..=max_row)
+            .flat_map(|row| (min_column..=max_column).map(move |column| (row, column)))
+            .filter(|(row, column)| {
+                !sheet.cells.contains_key(&CellAddress {
+                    row: *row,
+                    column: *column,
+                })
+            })
+            .count();
+        if sheet.cells.len().saturating_add(new_cells) > MAX_CELLS {
+            return Err(invalid_input("worksheet cell limit reached"));
+        }
         for row in min_row..=max_row {
             for column in min_column..=max_column {
                 self.set_number(sheet_id, CellAddress::new(row, column)?, value)?;
@@ -638,7 +655,7 @@ impl Workbook {
         let area = (max_row - min_row + 1)
             .checked_mul(max_column - min_column + 1)
             .ok_or_else(|| invalid_input("range dimensions overflow"))?;
-        if area > MAX_CELLS {
+        if area as usize > MAX_CELLS {
             return Err(invalid_input("range exceeds supported cell limit"));
         }
         let before = sheet.cells.len();
