@@ -2586,6 +2586,46 @@ impl DocumentSession {
 
     /// Apply paragraph styles to several paragraphs as one atomic journalled edit.
     /// Duplicate or missing IDs reject the complete batch; unchanged styles are skipped.
+
+    /// Replace text in several paragraphs as one atomic, durable edit.
+    /// Duplicate or missing IDs reject the entire batch; unchanged text is ignored.
+    pub fn set_paragraph_texts_batch(
+        &mut self,
+        requested: &[(u64, String)],
+    ) -> io::Result<usize> {
+        if requested.is_empty() {
+            return Ok(0);
+        }
+        let mut seen = std::collections::HashSet::with_capacity(requested.len());
+        for (id, text) in requested {
+            if !seen.insert(*id) {
+                return Err(invalid_input("duplicate paragraph ID in text batch"));
+            }
+            if !self.document.paragraphs.iter().any(|paragraph| paragraph.id == *id) {
+                return Err(invalid_input("paragraph ID does not exist"));
+            }
+            validate_string(text, "paragraph text")?;
+        }
+        let mut paragraphs = self.document.paragraphs.clone();
+        let mut changed = 0usize;
+        for (id, text) in requested {
+            let paragraph = paragraphs.iter_mut().find(|paragraph| paragraph.id == *id)
+                .expect("paragraph IDs were validated");
+            if paragraph.text != *text {
+                paragraph.text = text.clone();
+                paragraph.spans.clear();
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            return Ok(0);
+        }
+        let next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(changed)
+    }
+
     pub fn set_paragraph_styles_batch(
         &mut self,
         requested: &[(u64, ParagraphStyle)],
@@ -4377,4 +4417,33 @@ mod tests {
         );
         assert_eq!(session.document().revision(), revision);
     }
+
+    #[test]
+    fn paragraph_text_batch_is_atomic_and_persists_as_one_revision() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("first\\nsecond").unwrap();
+        let ids = session.document().paragraphs().iter().map(Paragraph::id).collect::<Vec<_>>();
+        let revision = session.document().revision();
+        assert_eq!(session.set_paragraph_texts_batch(&[
+            (ids[0], "updated first".to_owned()),
+            (ids[1], "updated second".to_owned()),
+        ]).unwrap(), 2);
+        assert_eq!(session.document().revision(), revision + 1);
+        assert_eq!(session.document().paragraphs()[0].text(), "updated first");
+        assert_eq!(session.document().paragraphs()[1].text(), "updated second");
+        let before = session.document().clone();
+        assert!(session.set_paragraph_texts_batch(&[
+            (ids[0], "bad".to_owned()), (ids[0], "duplicate".to_owned())
+        ]).is_err());
+        assert_eq!(session.document(), &before);
+        assert_eq!(session.set_paragraph_texts_batch(&[
+            (ids[0], "updated first".to_owned())
+        ]).unwrap(), 0);
+        session.save_now().unwrap();
+        drop(session);
+        let reopened = DocumentSession::open(&directory.0).unwrap();
+        assert_eq!(reopened.document().paragraphs()[1].text(), "updated second");
+    }
+
 }

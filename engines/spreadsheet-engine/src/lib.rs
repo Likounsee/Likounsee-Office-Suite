@@ -694,6 +694,53 @@ impl Workbook {
         validate_string(&value)?;
         self.set_input(sheet_id, address, CellInput::Value(CellValue::Text(value)))
     }
+
+    /// Set multiple text cells atomically; every address is validated before mutation.
+    pub fn set_texts_batch(
+        &mut self,
+        sheet_id: u64,
+        requested: &[(CellAddress, String)],
+    ) -> io::Result<usize> {
+        let sheet = self.sheets.iter().find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let mut seen = HashSet::with_capacity(requested.len());
+        for (address, value) in requested {
+            if !seen.insert(*address) {
+                return Err(invalid_input("duplicate cell address in text batch"));
+            }
+            validate_string(value)?;
+            if address.row() > MAX_ROW || address.column() > MAX_COLUMN {
+                return Err(invalid_input("cell address is outside supported worksheet limits"));
+            }
+        }
+        let changed = requested.iter().filter(|(address, value)| {
+            !matches!(sheet.cells.get(address).map(|cell| &cell.input),
+                Some(CellInput::Value(CellValue::Text(current))) if current == value)
+        }).count();
+        if changed == 0 { return Ok(0); }
+        let sheet = self.sheets.iter_mut().find(|sheet| sheet.id == sheet_id)
+            .expect("worksheet was validated");
+        for (address, value) in requested {
+            sheet.cells.insert(*address, Cell { input: CellInput::Value(CellValue::Text(value.clone())) });
+        }
+        Ok(changed)
+    }
+
+
+    /// Journal a group of text edits together and rebuild formula dependencies once.
+    pub fn set_texts_batch(
+        &mut self,
+        sheet_id: u64,
+        requested: &[(CellAddress, String)],
+    ) -> io::Result<usize> {
+        let mut next = self.workbook.clone();
+        let changed = next.set_texts_batch(sheet_id, requested)?;
+        if changed == 0 { return Ok(0); }
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(changed)
+    }
+
     pub fn set_boolean(
         &mut self,
         sheet_id: u64,
@@ -6328,4 +6375,33 @@ mod session_tests {
                 .is_err()
         );
     }
+
+    #[test]
+    fn text_cell_batch_is_atomic_and_refreshes_formula_dependencies() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let sheet = session.workbook().sheets()[0].id();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        session.set_formula(sheet, c1, "=A1+B1").unwrap();
+        let revision = session.workbook().encode().unwrap();
+        assert_eq!(session.set_texts_batch(sheet, &[
+            (a1, "alpha".to_owned()), (b1, "beta".to_owned())
+        ]).unwrap(), 2);
+        assert_eq!(session.workbook().value(sheet, a1), CellValue::Text("alpha".into()));
+        assert_eq!(session.workbook().value(sheet, b1), CellValue::Text("beta".into()));
+        assert_eq!(session.workbook().value(sheet, c1), CellValue::Error(FormulaError::Type));
+        let before = session.workbook().encode().unwrap();
+        assert!(session.set_texts_batch(sheet, &[
+            (a1, "changed".to_owned()), (a1, "duplicate".to_owned())
+        ]).is_err());
+        assert_eq!(session.workbook().encode().unwrap(), before);
+        assert_eq!(session.set_texts_batch(sheet, &[(a1, "alpha".to_owned())]).unwrap(), 0);
+        assert_ne!(revision, before);
+        session.save_now().unwrap();
+        let reopened = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(reopened.workbook().value(sheet, b1), CellValue::Text("beta".into()));
+    }
+
 }
