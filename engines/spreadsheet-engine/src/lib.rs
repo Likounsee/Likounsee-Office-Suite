@@ -1374,7 +1374,8 @@ impl<'a> Parser<'a> {
                 "NOT" => self.not_arguments(),
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
-                | "MOD" => self.math_function_arguments(&function),
+                | "MOD" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN"
+                | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" => self.math_function_arguments(&function),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
@@ -1570,7 +1571,11 @@ impl<'a> Parser<'a> {
     }
     fn math_function_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
-        let unary = matches!(function, "ABS" | "SQRT" | "SIGN" | "INT");
+        let unary = matches!(
+            function,
+            "ABS" | "SQRT" | "SIGN" | "INT" | "EXP" | "LN" | "LOG10" | "SIN" | "COS"
+                | "TAN" | "ASIN" | "ACOS" | "ATAN" | "DEGREES" | "RADIANS"
+        );
         if ranges.len() != if unary { 1 } else { 2 } {
             return Err(FormulaError::Parse);
         }
@@ -1583,6 +1588,21 @@ impl<'a> Parser<'a> {
             "SIGN" if value < 0.0 => -1.0,
             "SIGN" => 0.0,
             "INT" => value.floor(),
+            "EXP" => value.exp(),
+            "LN" if value > 0.0 => value.ln(),
+            "LN" => return Err(FormulaError::Number),
+            "LOG10" if value > 0.0 => value.log10(),
+            "LOG10" => return Err(FormulaError::Number),
+            "SIN" => value.sin(),
+            "COS" => value.cos(),
+            "TAN" => value.tan(),
+            "ASIN" if (-1.0..=1.0).contains(&value) => value.asin(),
+            "ASIN" => return Err(FormulaError::Number),
+            "ACOS" if (-1.0..=1.0).contains(&value) => value.acos(),
+            "ACOS" => return Err(FormulaError::Number),
+            "ATAN" => value.atan(),
+            "DEGREES" => value.to_degrees(),
+            "RADIANS" => value.to_radians(),
             "POWER" => {
                 let exponent = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
                 value.powf(exponent)
@@ -3272,6 +3292,42 @@ mod tests {
                 CellValue::Number(expected),
                 "{formula}"
             );
+        }
+    }
+
+    #[test]
+    fn trigonometric_and_logarithmic_functions_cover_domains_and_conversions() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=EXP(1)", std::f64::consts::E),
+            ("=LN(EXP(2))", 2.0),
+            ("=LOG10(1000)", 3.0),
+            ("=SIN(0)", 0.0),
+            ("=COS(0)", 1.0),
+            ("=TAN(0)", 0.0),
+            ("=ASIN(1)", std::f64::consts::FRAC_PI_2),
+            ("=ACOS(1)", 0.0),
+            ("=ATAN(1)", std::f64::consts::FRAC_PI_4),
+            ("=DEGREES(PI()/2)", 90.0),
+            ("=RADIANS(180)", std::f64::consts::PI),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 10).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            match book.value(1, address) {
+                CellValue::Number(actual) => assert!((actual - expected).abs() < 1e-10, "{formula}: {actual} != {expected}"),
+                other => panic!("{formula}: unexpected result {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn logarithms_and_inverse_trigonometry_reject_invalid_domains() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        for formula in ["=LN(0)", "=LOG10(-1)", "=ASIN(2)", "=ACOS(-2)"] {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Number), "{formula}");
         }
     }
 
