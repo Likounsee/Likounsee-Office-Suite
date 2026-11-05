@@ -1693,14 +1693,16 @@ fn validate_png_dimensions(width: u32, height: u32) -> io::Result<()> {
 
 /// Validate PNG signature, chunk framing/CRCs, IHDR dimensions, image data and IEND.
 fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Result<()> {
-    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    const SIGNATURE: &[u8; 8] = b"\\x89PNG\\r\\n\\x1a\\n";
     if !png.starts_with(SIGNATURE) {
         return Err(invalid_input("rasterizer did not return a PNG file"));
     }
 
     let mut offset = SIGNATURE.len();
     let mut chunk_index = 0usize;
+    let mut has_palette = false;
     let mut has_image_data = false;
+    let mut image_data_ended = false;
     let mut has_end = false;
     while offset < png.len() {
         if png.len() - offset < 12 {
@@ -1717,7 +1719,13 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
             .filter(|end| *end <= png.len())
             .ok_or_else(|| invalid_input("PNG chunk exceeds file bounds"))?;
         let chunk_type = &png[offset + 4..offset + 8];
-        let data_end = offset + 8 + length;
+        if !chunk_type.iter().all(u8::is_ascii_alphabetic)
+            || chunk_type[2].is_ascii_lowercase()
+        {
+            return Err(invalid_input("PNG chunk type is invalid"));
+        }
+        let data_start = offset + 8;
+        let data_end = data_start + length;
         let expected_crc = u32::from_be_bytes(
             png[data_end..data_end + 4]
                 .try_into()
@@ -1733,15 +1741,27 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
                 return Err(invalid_input("PNG must start with a 13-byte IHDR chunk"));
             }
             let actual_width = u32::from_be_bytes(
-                png[offset + 8..offset + 12]
+                png[data_start..data_start + 4]
                     .try_into()
                     .expect("four-byte PNG width"),
             );
             let actual_height = u32::from_be_bytes(
-                png[offset + 12..offset + 16]
+                png[data_start + 4..data_start + 8]
                     .try_into()
                     .expect("four-byte PNG height"),
             );
+            let bit_depth = png[data_start + 8];
+            let color_type = png[data_start + 9];
+            let compression = png[data_start + 10];
+            let filter = png[data_start + 11];
+            let interlace = png[data_start + 12];
+            let valid_bit_depth = match color_type {
+                0 => matches!(bit_depth, 1 | 2 | 4 | 8 | 16),
+                2 => matches!(bit_depth, 8 | 16),
+                3 => matches!(bit_depth, 1 | 2 | 4 | 8),
+                4 | 6 => matches!(bit_depth, 8 | 16),
+                _ => false,
+            };
             if actual_width != expected_width || actual_height != expected_height {
                 return Err(invalid_input(
                     "rasterizer returned unexpected PNG dimensions",
@@ -1750,19 +1770,35 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
             if actual_width == 0 || actual_height == 0 {
                 return Err(invalid_input("PNG dimensions must be greater than zero"));
             }
+            if !valid_bit_depth || compression != 0 || filter != 0 || interlace > 1 {
+                return Err(invalid_input("PNG IHDR contains unsupported or invalid values"));
+            }
         } else if chunk_type == b"IHDR" {
             return Err(invalid_input("PNG contains more than one IHDR chunk"));
         }
 
-        if chunk_type == b"IDAT" {
-            has_image_data = true;
-        }
-        if chunk_type == b"IEND" {
-            if length != 0 || !has_image_data || chunk_end != png.len() {
-                return Err(invalid_input("invalid PNG IEND placement or image data"));
+        match chunk_type {
+            b"PLTE" => {
+                if has_palette || has_image_data || length == 0 || length > 768 || length % 3 != 0 {
+                    return Err(invalid_input("PNG palette chunk is invalid or misplaced"));
+                }
+                has_palette = true;
             }
-            has_end = true;
-            break;
+            b"IDAT" => {
+                if image_data_ended {
+                    return Err(invalid_input("PNG IDAT chunks must be consecutive"));
+                }
+                has_image_data = true;
+            }
+            b"IEND" => {
+                if length != 0 || !has_image_data || chunk_end != png.len() {
+                    return Err(invalid_input("invalid PNG IEND placement or image data"));
+                }
+                has_end = true;
+                break;
+            }
+            _ if has_image_data => image_data_ended = true,
+            _ => {}
         }
 
         chunk_index += 1;
@@ -3084,6 +3120,29 @@ mod tests {
         assert!(validate_png(&test_png(320, 180), 640, 180).is_err());
         assert!(validate_png(&test_png(320, 180), 0, 180).is_err());
         assert!(validate_png(b"not png", 320, 180).is_err());
+
+        let mut invalid_ihdr = test_png(320, 180);
+        let bit_depth = invalid_ihdr.windows(4).position(|window| window == b"IHDR").unwrap() + 12;
+        invalid_ihdr[bit_depth] = 3;
+        let ihdr_crc = bit_depth + 1 + 4;
+        let ihdr_start = bit_depth - 8;
+        let crc = crc32fast::hash(&invalid_ihdr[ihdr_start..ihdr_crc - 4]);
+        invalid_ihdr[ihdr_crc - 4..ihdr_crc].copy_from_slice(&crc.to_be_bytes());
+        assert!(validate_png(&invalid_ihdr, 320, 180).is_err());
+
+        let mut non_consecutive_idat = test_png(320, 180);
+        let idat = non_consecutive_idat.windows(4).position(|window| window == b"IDAT").unwrap();
+        let iend = non_consecutive_idat.windows(4).position(|window| window == b"IEND").unwrap();
+        let ancillary = {
+            let mut chunk = Vec::new();
+            chunk.extend_from_slice(&0u32.to_be_bytes());
+            chunk.extend_from_slice(b"tEXt");
+            chunk.extend_from_slice(&crc32fast::hash(b"tEXt").to_be_bytes());
+            chunk
+        };
+        non_consecutive_idat.splice(iend - 4..iend - 4, ancillary);
+        let _ = idat;
+        assert!(validate_png(&non_consecutive_idat, 320, 180).is_err());
     }
 
     #[test]
