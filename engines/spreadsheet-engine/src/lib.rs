@@ -2295,6 +2295,9 @@ mod tests {
     fn csv_parser_rejects_malformed_quotes_and_accepts_empty_fields() {
         assert!(Workbook::import_csv("Bad", "\"unterminated").is_err());
         assert!(Workbook::import_csv("Bad", "\"closed\"x,1").is_err());
+        assert!(Workbook::import_csv("Bad", "ab\"cd,1").is_err());
+        let too_many_columns = "x,".repeat(MAX_COLUMN as usize + 1);
+        assert!(Workbook::import_csv("Wide", &too_many_columns).is_err());
         let workbook = Workbook::import_csv("Empty", "a,,c\r\n,2,").unwrap();
         let sheet = workbook.sheets()[0].id();
         assert_eq!(
