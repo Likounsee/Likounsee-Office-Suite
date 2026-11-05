@@ -2556,6 +2556,24 @@ mod session_tests {
     }
 
     #[test]
+    fn session_rejects_invalid_dependency_update_without_committing_edit() {
+        let directory = TestDirectory::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        session.set_formula(1, b1, "=A1+1").unwrap();
+        let before = session.dependency_index().clone();
+        let previous_value = session.workbook().value(1, b1);
+        let previous_dirty = session.is_dirty();
+
+        assert!(session.set_formula(1, b1, "=''!A1").is_err());
+        assert_eq!(session.dependency_index(), &before);
+        assert_eq!(session.workbook().value(1, b1), previous_value);
+        assert_eq!(session.workbook().value(1, a1), CellValue::Empty);
+        assert_eq!(session.is_dirty(), previous_dirty);
+    }
+
+    #[test]
     fn session_dependency_index_updates_formula_replacements_and_clears() {
         let directory = TestDirectory::new();
         let a1 = CellAddress::parse_a1("A1").unwrap();
