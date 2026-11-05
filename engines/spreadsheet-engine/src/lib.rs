@@ -2631,14 +2631,22 @@ mod tests {
         let sheet = workbook.sheets()[0].id();
         let a1 = CellAddress::parse_a1("A1").unwrap();
         workbook.set_number(sheet, a1, 4.0).unwrap();
-        workbook.set_text(sheet, CellAddress::parse_a1("A2").unwrap(), "label").unwrap();
-        workbook.set_formula(sheet, CellAddress::parse_a1("A3").unwrap(), "=A1*3").unwrap();
-        workbook.set_boolean(sheet, CellAddress::parse_a1("A4").unwrap(), true).unwrap();
-        let stats = workbook.range_statistics(
-            sheet,
-            CellAddress::parse_a1("A1").unwrap(),
-            CellAddress::parse_a1("B4").unwrap(),
-        ).unwrap();
+        workbook
+            .set_text(sheet, CellAddress::parse_a1("A2").unwrap(), "label")
+            .unwrap();
+        workbook
+            .set_formula(sheet, CellAddress::parse_a1("A3").unwrap(), "=A1*3")
+            .unwrap();
+        workbook
+            .set_boolean(sheet, CellAddress::parse_a1("A4").unwrap(), true)
+            .unwrap();
+        let stats = workbook
+            .range_statistics(
+                sheet,
+                CellAddress::parse_a1("A1").unwrap(),
+                CellAddress::parse_a1("B4").unwrap(),
+            )
+            .unwrap();
         assert_eq!(stats.cells, 8);
         assert_eq!(stats.numbers, 2);
         assert_eq!(stats.text, 1);

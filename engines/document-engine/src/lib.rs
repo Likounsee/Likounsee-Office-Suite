@@ -3350,10 +3350,14 @@ mod tests {
     fn paragraph_replacement_preserves_identity_and_updates_text() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
-        session.insert_text(0, "First paragraph\nSecond paragraph").unwrap();
+        session
+            .insert_text(0, "First paragraph\nSecond paragraph")
+            .unwrap();
         let first_id = session.document().paragraphs()[0].id();
         let second_id = session.document().paragraphs()[1].id();
-        session.replace_paragraph_text(second_id, "猫 updated").unwrap();
+        session
+            .replace_paragraph_text(second_id, "猫 updated")
+            .unwrap();
         assert_eq!(session.document().paragraphs()[0].id(), first_id);
         assert_eq!(session.document().paragraphs()[1].id(), second_id);
         assert_eq!(session.document().paragraphs()[1].text(), "猫 updated");

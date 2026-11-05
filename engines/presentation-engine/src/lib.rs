@@ -2827,9 +2827,7 @@ pub struct SpeakerNotesStatistics {
     pub words: usize,
 }
 
-pub fn speaker_notes_statistics(
-    presentation: &Presentation,
-) -> io::Result<SpeakerNotesStatistics> {
+pub fn speaker_notes_statistics(presentation: &Presentation) -> io::Result<SpeakerNotesStatistics> {
     presentation.validate()?;
     let mut stats = SpeakerNotesStatistics {
         slides: presentation.slides.len(),
