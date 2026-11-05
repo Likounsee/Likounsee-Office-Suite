@@ -3133,8 +3133,12 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.insert_text(0, "Hello world").unwrap();
         let table_id = session.insert_table(1, 2).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "three").unwrap();
-        session.set_table_cell_text(table_id, 0, 1, "four five").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "three")
+            .unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 1, "four five")
+            .unwrap();
         assert_eq!(word_count(session.document()).unwrap(), 5);
     }
 
