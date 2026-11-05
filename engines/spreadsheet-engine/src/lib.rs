@@ -1588,6 +1588,10 @@ impl<'a> Parser<'a> {
                 | "ATAN"
                 | "DEGREES"
                 | "RADIANS"
+                | "SINH"
+                | "COSH"
+                | "TANH"
+                | "COT"
         );
         if ranges.len() != if unary { 1 } else { 2 } {
             return Err(FormulaError::Parse);
@@ -1616,6 +1620,18 @@ impl<'a> Parser<'a> {
             "ATAN" => value.atan(),
             "DEGREES" => value.to_degrees(),
             "RADIANS" => value.to_radians(),
+            "SINH" => value.sinh(),
+            "COSH" => value.cosh(),
+            "TANH" => value.tanh(),
+            "COT" if value.tan() != 0.0 => 1.0 / value.tan(),
+            "COT" => return Err(FormulaError::DivisionByZero),
+            "LOG" => {
+                let base = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+                if value <= 0.0 || base <= 0.0 || base == 1.0 {
+                    return Err(FormulaError::Number);
+                }
+                value.log(base)
+            }
             "POWER" => {
                 let exponent = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
                 value.powf(exponent)
@@ -3338,6 +3354,49 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn additional_logarithmic_and_hyperbolic_functions_are_evaluated() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=LOG(8,2)", 3.0),
+            ("=LOG(100)", 2.0),
+            ("=SINH(0)", 0.0),
+            ("=COSH(0)", 1.0),
+            ("=TANH(0)", 0.0),
+            ("=COT(0.7853981633974483)", 1.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 11).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            match book.value(1, address) {
+                CellValue::Number(actual) => assert!(
+                    (actual - expected).abs() < 1e-10,
+                    "{formula}: {actual} != {expected}"
+                ),
+                other => panic!("{formula}: unexpected result {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn logarithm_and_cotangent_reject_invalid_inputs() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        for formula in ["=LOG(10,1)", "=LOG(-2,10)"] {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(FormulaError::Number),
+                "{formula}"
+            );
+        }
+        book.set_formula(1, address, "=COT(0)").unwrap();
+        assert_eq!(
+            book.value(1, address),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
+    }
+
     fn logarithms_and_inverse_trigonometry_reject_invalid_domains() {
         let mut book = Workbook::new();
         let address = CellAddress::parse_a1("A1").unwrap();
