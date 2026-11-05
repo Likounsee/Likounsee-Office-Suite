@@ -1636,9 +1636,8 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
 /// Export a self-contained HTML presentation with editable vector SVG slides.
 pub fn export_presentation_html(presentation: &Presentation) -> io::Result<String> {
     presentation.validate()?;
-    let mut output = String::from(
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n",
-    );
+    let mut output =
+        String::from("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
     output.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     output.push_str("<title>");
     output.push_str(&escape_xml(presentation.title()));
