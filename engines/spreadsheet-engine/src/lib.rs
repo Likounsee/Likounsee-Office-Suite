@@ -2180,6 +2180,43 @@ mod tests {
     }
 
     #[test]
+    fn lookup_functions_support_cross_sheet_ranges_and_recalculate_after_edits() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Lookup Data").unwrap();
+        let key = CellAddress::parse_a1("A1").unwrap();
+        let result = CellAddress::parse_a1("B1").unwrap();
+        book.set_number(data, key, 7.0).unwrap();
+        book.set_number(data, result, 70.0).unwrap();
+        let formula_cell = CellAddress::parse_a1("D1").unwrap();
+        book.set_formula(
+            1,
+            formula_cell,
+            "=VLOOKUP(7,'Lookup Data'!A1:B1,2,0)",
+        )
+        .unwrap();
+        assert_eq!(book.value(1, formula_cell), CellValue::Number(70.0));
+        book.set_number(data, result, 77.0).unwrap();
+        assert_eq!(book.value(1, formula_cell), CellValue::Number(77.0));
+
+        let fallback = CellAddress::parse_a1("D2").unwrap();
+        book.set_formula(
+            1,
+            fallback,
+            "=IFNA(INDEX('Lookup Data'!A1:B1,1,3),123)",
+        )
+        .unwrap();
+        assert_eq!(book.value(1, fallback), CellValue::Number(123.0));
+
+        let invalid_mode = CellAddress::parse_a1("D3").unwrap();
+        book.set_formula(1, invalid_mode, "=VLOOKUP(7,'Lookup Data'!A1:B1,2,2)")
+            .unwrap();
+        assert_eq!(
+            book.value(1, invalid_mode),
+            CellValue::Error(FormulaError::Number)
+        );
+    }
+
+    #[test]
     fn a1_addresses_round_trip_and_validate_limits() {
         for address in ["A1", "Z99", "AA1", "XFD1048576"] {
             let parsed = CellAddress::parse_a1(address).unwrap();
