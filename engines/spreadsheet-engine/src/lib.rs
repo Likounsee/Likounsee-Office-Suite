@@ -2698,7 +2698,13 @@ mod session_tests {
             &[(data, a1)]
         );
         assert_eq!(
-            recovered.workbook().sheet(report).unwrap().cell(b1).unwrap().formula(),
+            recovered
+                .workbook()
+                .sheet(report)
+                .unwrap()
+                .cell(b1)
+                .unwrap()
+                .formula(),
             Some("='Source'!A1*2")
         );
         let replacement_data = recovered.add_sheet("Data").unwrap();
