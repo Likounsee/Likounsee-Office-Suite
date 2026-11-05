@@ -2004,21 +2004,29 @@ impl DocumentSession {
     pub fn duplicate_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
         let mut next_id = next.next_block_id;
-        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
             .ok_or_else(|| invalid_input("table ID does not exist"))?;
-        let source = table.rows.get(row_index).cloned()
+        let source = table
+            .rows
+            .get(row_index)
+            .cloned()
             .ok_or_else(|| invalid_input("table row index is out of range"))?;
         if table.rows.len() >= 1024 {
             return Err(invalid_input("table row limit reached"));
         }
         let row_id = next_id;
-        next_id = next_id.checked_add(1)
+        next_id = next_id
+            .checked_add(1)
             .ok_or_else(|| invalid_input("block ID space exhausted"))?;
         let mut duplicate = source;
         duplicate.id = row_id;
         for cell in &mut duplicate.cells {
             cell.id = next_id;
-            next_id = next_id.checked_add(1)
+            next_id = next_id
+                .checked_add(1)
                 .ok_or_else(|| invalid_input("block ID space exhausted"))?;
         }
         table.rows.insert(row_index + 1, duplicate);
@@ -3804,8 +3812,12 @@ mod tests {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         let table_id = session.insert_table(2, 2).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "copied").unwrap();
-        session.set_table_cell_alignment(table_id, 0, 0, CellAlignment::Center).unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "copied")
+            .unwrap();
+        session
+            .set_table_cell_alignment(table_id, 0, 0, CellAlignment::Center)
+            .unwrap();
         let original = session.document().tables()[0].rows()[0].clone();
         let revision = session.document().revision();
         let duplicate_id = session.duplicate_table_row(table_id, 0).unwrap();

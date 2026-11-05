@@ -1552,13 +1552,27 @@ impl Presentation {
         if !delta_x.is_finite() || !delta_y.is_finite() {
             return Err(invalid_input("element translation must be finite"));
         }
-        let slide = self.slide(slide_id).ok_or_else(|| invalid_input("slide does not exist"))?;
-        if element_ids.is_empty() { return Ok(0); }
-        let requested = element_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if element_ids.is_empty() {
+            return Ok(0);
+        }
+        let requested = element_ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
         if requested.len() != element_ids.len()
-            || requested.len() != slide.elements.iter().filter(|element| requested.contains(&element.id)).count()
+            || requested.len()
+                != slide
+                    .elements
+                    .iter()
+                    .filter(|element| requested.contains(&element.id))
+                    .count()
         {
-            return Err(invalid_input("element IDs must be unique and exist on the slide"));
+            return Err(invalid_input(
+                "element IDs must be unique and exist on the slide",
+            ));
         }
         let mut updates = Vec::with_capacity(requested.len());
         for (index, element) in slide.elements.iter().enumerate() {
@@ -1567,13 +1581,19 @@ impl Presentation {
                 bounds.x += delta_x;
                 bounds.y += delta_y;
                 bounds.validate()?;
-                if bounds != element.bounds { updates.push((index, bounds)); }
+                if bounds != element.bounds {
+                    updates.push((index, bounds));
+                }
             }
         }
-        if updates.is_empty() { return Ok(0); }
+        if updates.is_empty() {
+            return Ok(0);
+        }
         self.bump_revision()?;
         let elements = &mut self.slide_mut(slide_id)?.elements;
-        for (index, bounds) in updates { elements[index].bounds = bounds; }
+        for (index, bounds) in updates {
+            elements[index].bounds = bounds;
+        }
         Ok(requested.len())
     }
 
@@ -3978,15 +3998,52 @@ mod tests {
     fn move_elements_by_translates_selection_atomically() {
         let mut deck = Presentation::new("Move", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
-        let first = deck.add_text(slide, rect(10.0, 20.0, 100.0, 40.0), "One", TextStyle::default()).unwrap();
-        let second = deck.add_text(slide, rect(30.0, 50.0, 100.0, 40.0), "Two", TextStyle::default()).unwrap();
+        let first = deck
+            .add_text(
+                slide,
+                rect(10.0, 20.0, 100.0, 40.0),
+                "One",
+                TextStyle::default(),
+            )
+            .unwrap();
+        let second = deck
+            .add_text(
+                slide,
+                rect(30.0, 50.0, 100.0, 40.0),
+                "Two",
+                TextStyle::default(),
+            )
+            .unwrap();
         let revision = deck.revision();
-        assert_eq!(deck.move_elements_by(slide, &[first, second], 5.0, -3.0).unwrap(), 2);
+        assert_eq!(
+            deck.move_elements_by(slide, &[first, second], 5.0, -3.0)
+                .unwrap(),
+            2
+        );
         assert_eq!(deck.revision(), revision + 1);
-        assert_eq!(deck.slide(slide).unwrap().element(first).unwrap().bounds().x(), 15.0);
-        assert_eq!(deck.slide(slide).unwrap().element(second).unwrap().bounds().y(), 47.0);
+        assert_eq!(
+            deck.slide(slide)
+                .unwrap()
+                .element(first)
+                .unwrap()
+                .bounds()
+                .x(),
+            15.0
+        );
+        assert_eq!(
+            deck.slide(slide)
+                .unwrap()
+                .element(second)
+                .unwrap()
+                .bounds()
+                .y(),
+            47.0
+        );
         let revision = deck.revision();
-        assert!(deck.move_elements_by(slide, &[first, u64::MAX], 1.0, 1.0).is_err());
+        assert!(
+            deck.move_elements_by(slide, &[first, u64::MAX], 1.0, 1.0)
+                .is_err()
+        );
         assert_eq!(deck.revision(), revision);
     }
 

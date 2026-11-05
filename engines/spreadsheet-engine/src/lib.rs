@@ -452,31 +452,63 @@ fn translate_formula(formula: &str, row_delta: i64, column_delta: i64) -> io::Re
             let start = cursor;
             let mut scan = cursor;
             let absolute_column = bytes.get(scan) == Some(&36);
-            if absolute_column { scan += 1; }
+            if absolute_column {
+                scan += 1;
+            }
             let column_start = scan;
-            while scan < bytes.len() && bytes[scan].is_ascii_alphabetic() { scan += 1; }
+            while scan < bytes.len() && bytes[scan].is_ascii_alphabetic() {
+                scan += 1;
+            }
             if scan > column_start {
                 let absolute_row = bytes.get(scan) == Some(&36);
-                if absolute_row { scan += 1; }
+                if absolute_row {
+                    scan += 1;
+                }
                 let row_start = scan;
-                while scan < bytes.len() && bytes[scan].is_ascii_digit() { scan += 1; }
+                while scan < bytes.len() && bytes[scan].is_ascii_digit() {
+                    scan += 1;
+                }
                 let after_ok = scan == bytes.len()
                     || !(bytes[scan].is_ascii_alphanumeric() || bytes[scan] == 95);
-                if scan > row_start && after_ok
-                    && bytes.get(scan) != Some(&33) && bytes.get(scan) != Some(&40) {
+                if scan > row_start
+                    && after_ok
+                    && bytes.get(scan) != Some(&33)
+                    && bytes.get(scan) != Some(&40)
+                {
                     let token = std::str::from_utf8(&bytes[start..scan])
                         .map_err(|_| invalid_input("formula reference is not ASCII"))?;
                     let address = CellAddress::parse_a1(token)?;
-                    let row = if absolute_row { address.row() as i64 } else { address.row() as i64 + row_delta };
-                    let column = if absolute_column { address.column() as i64 } else { address.column() as i64 + column_delta };
-                    if row < 0 || column < 0 || row > MAX_ROW as i64 || column > MAX_COLUMN as i64 {
-                        return Err(invalid_input("copied formula reference is outside worksheet limits"));
+                    let row = if absolute_row {
+                        address.row() as i64
+                    } else {
+                        address.row() as i64 + row_delta
+                    };
+                    let column = if absolute_column {
+                        address.column() as i64
+                    } else {
+                        address.column() as i64 + column_delta
+                    };
+                    if row < 0
+                        || column < 0
+                        || row > MAX_ROW as i64
+                        || column > MAX_COLUMN as i64
+                    {
+                        return Err(invalid_input(
+                            "copied formula reference is outside worksheet limits",
+                        ));
                     }
                     let translated = CellAddress::new(row as u32, column as u32)?.to_a1();
-                    let split = translated.bytes().position(|byte| byte.is_ascii_digit()).unwrap();
-                    if absolute_column { output.push(36); }
+                    let split = translated
+                        .bytes()
+                        .position(|byte| byte.is_ascii_digit())
+                        .unwrap();
+                    if absolute_column {
+                        output.push(36);
+                    }
                     output.extend_from_slice(&translated.as_bytes()[..split]);
-                    if absolute_row { output.push(36); }
+                    if absolute_row {
+                        output.push(36);
+                    }
                     output.extend_from_slice(&translated.as_bytes()[split..]);
                     cursor = scan;
                     continue;
