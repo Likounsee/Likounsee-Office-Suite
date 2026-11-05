@@ -1149,6 +1149,7 @@ impl<'a> Parser<'a> {
             return match function.as_str() {
                 "IF" => self.if_arguments(),
                 "IFERROR" => self.iferror_arguments(),
+                "NOT" => self.not_arguments(),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" => {
                     self.aggregate_arguments(&function)
@@ -1273,6 +1274,14 @@ impl<'a> Parser<'a> {
             ranges[2]
         };
         self.evaluate_argument(selected.0, selected.1)
+    }
+    fn not_arguments(&mut self) -> Result<f64, FormulaError> {
+        let ranges = self.function_argument_ranges()?;
+        if ranges.len() != 1 {
+            return Err(FormulaError::Parse);
+        }
+        let value = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
+        Ok(if value == 0.0 { 1.0 } else { 0.0 })
     }
     fn iferror_arguments(&mut self) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
@@ -2373,6 +2382,23 @@ mod tests {
         book.set_formula(sheet, b1, "=1+").unwrap();
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
+    #[test]
+    fn not_negates_numeric_and_comparison_conditions() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=NOT(0)", 1.0),
+            ("=NOT(1)", 0.0),
+            ("=NOT(2<1)", 1.0),
+            ("=NOT(2>1)", 0.0),
+            ("=IF(NOT(FALSE),7,9)", 7.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 0).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+        }
+    }
+
     #[test]
     fn iferror_recovers_from_formula_errors_without_eager_fallback() {
         let mut book = Workbook::new();
