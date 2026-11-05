@@ -262,11 +262,22 @@ impl Presentation {
     }
     pub fn set_slide_background(&mut self, slide_id: u64, color: u32) -> io::Result<()> {
         validate_color(color)?;
-        self.bump_revision()?; self.slide_mut(slide_id)?.background = color; Ok(())
+        if self.slide(slide_id).is_none() {
+            return Err(invalid_input("slide does not exist"));
+        }
+        self.bump_revision()?;
+        self.slide_mut(slide_id)?.background = color;
+        Ok(())
     }
     pub fn set_slide_notes(&mut self, slide_id: u64, notes: impl Into<String>) -> io::Result<()> {
-        let notes = notes.into(); validate_string(&notes, "slide notes")?;
-        self.bump_revision()?; self.slide_mut(slide_id)?.notes = notes; Ok(())
+        let notes = notes.into();
+        validate_string(&notes, "slide notes")?;
+        if self.slide(slide_id).is_none() {
+            return Err(invalid_input("slide does not exist"));
+        }
+        self.bump_revision()?;
+        self.slide_mut(slide_id)?.notes = notes;
+        Ok(())
     }
     pub fn add_text(&mut self, slide_id: u64, bounds: Rect, text: impl Into<String>, style: TextStyle) -> io::Result<u64> {
         bounds.validate()?; style.validate()?;
@@ -799,14 +810,14 @@ mod tests {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
         let revision = deck.revision();
-        assert!(deck.add_text(slide, rect(0.0, 0.0, 10.0, 10.0), "bad", TextStyle::new("Arial", f32::NAN, 0).unwrap_or_default()).is_ok());
-        let revision = deck.revision();
+        let invalid_style = TextStyle { font_size: f32::NAN, ..TextStyle::default() };
+        assert!(deck.add_text(slide, rect(0.0, 0.0, 10.0, 10.0), "bad", invalid_style).is_err());
+        assert_eq!(deck.revision(), revision);
         assert!(deck.add_shape(slide, rect(0.0, 0.0, 10.0, 10.0), ShapeKind::Rectangle, None, None, f32::NAN).is_err());
         assert_eq!(deck.revision(), revision);
         assert!(deck.remove_slide(slide).is_err());
         assert_eq!(deck.slides().len(), 1);
-        assert!(deck.revision() >= revision);
-        let _ = revision;
+        assert_eq!(deck.revision(), revision);
     }
 
     #[test]
@@ -855,7 +866,7 @@ mod tests {
         let slide = deck.slides()[0].id();
         deck.add_shape(slide, rect(0.0, 0.0, 10.0, 10.0), ShapeKind::Rectangle, Some(0x1000000), None, 1.0).unwrap_err();
         assert!(deck.add_image(slide, rect(0.0, 0.0, 10.0, 10.0), "", "missing").is_err());
-        assert!(deck.add_text(slide, rect(0.0, 0.0, 10.0, 10.0), "x", TextStyle::new("", 10.0, 0).unwrap_or_default()).is_ok());
+        assert!(TextStyle::new("", 10.0, 0).is_err());
     }
 
     #[test]
