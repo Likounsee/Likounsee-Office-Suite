@@ -706,9 +706,13 @@ impl Workbook {
             .filter(|area| *area <= MAX_CELLS)
             .ok_or_else(|| invalid_input("copy range exceeds the cell limit"))?;
         let destination_end = CellAddress::new(
-            destination_start.row().checked_add(rows - 1)
+            destination_start
+                .row()
+                .checked_add(rows - 1)
                 .ok_or_else(|| invalid_input("destination row overflows"))?,
-            destination_start.column().checked_add(columns - 1)
+            destination_start
+                .column()
+                .checked_add(columns - 1)
                 .ok_or_else(|| invalid_input("destination column overflows"))?,
         )?;
         let mut snapshot = Vec::new();
@@ -742,7 +746,11 @@ impl Workbook {
             .find(|sheet| sheet.id == sheet_id)
             .expect("worksheet was validated above")
             .cells = next_cells;
-        Ok(snapshot.iter().filter(|(_, cell)| cell.is_some()).count().min(area))
+        Ok(snapshot
+            .iter()
+            .filter(|(_, cell)| cell.is_some())
+            .count()
+            .min(area))
     }
 
     /// Clear every stored value or formula in an inclusive rectangular range.
@@ -5290,30 +5298,52 @@ mod session_tests {
     fn copy_range_is_overlap_safe_and_blank_cells_clear_destination() {
         let mut workbook = Workbook::new();
         let sheet = workbook.sheets()[0].id();
-        workbook.set_text(sheet, CellAddress::parse_a1("A1").unwrap(), "one").unwrap();
-        workbook.set_number(sheet, CellAddress::parse_a1("B1").unwrap(), 2.0).unwrap();
-        workbook.set_text(sheet, CellAddress::parse_a1("C1").unwrap(), "old").unwrap();
+        workbook
+            .set_text(sheet, CellAddress::parse_a1("A1").unwrap(), "one")
+            .unwrap();
+        workbook
+            .set_number(sheet, CellAddress::parse_a1("B1").unwrap(), 2.0)
+            .unwrap();
+        workbook
+            .set_text(sheet, CellAddress::parse_a1("C1").unwrap(), "old")
+            .unwrap();
         assert_eq!(
-            workbook.copy_range(
-                sheet,
-                CellAddress::parse_a1("A1").unwrap(),
-                CellAddress::parse_a1("B1").unwrap(),
-                CellAddress::parse_a1("B1").unwrap(),
-            ).unwrap(),
+            workbook
+                .copy_range(
+                    sheet,
+                    CellAddress::parse_a1("A1").unwrap(),
+                    CellAddress::parse_a1("B1").unwrap(),
+                    CellAddress::parse_a1("B1").unwrap(),
+                )
+                .unwrap(),
             2
         );
-        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()), CellValue::Text("one".into()));
-        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("C1").unwrap()), CellValue::Number(2.0));
         assert_eq!(
-            workbook.copy_range(
-                sheet,
-                CellAddress::parse_a1("A1").unwrap(),
-                CellAddress::parse_a1("B1").unwrap(),
-                CellAddress::parse_a1("D1").unwrap(),
-            ).unwrap(),
+            workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()),
+            CellValue::Text("one".into())
+        );
+        assert_eq!(
+            workbook.value(sheet, CellAddress::parse_a1("C1").unwrap()),
+            CellValue::Number(2.0)
+        );
+        assert_eq!(
+            workbook
+                .copy_range(
+                    sheet,
+                    CellAddress::parse_a1("A1").unwrap(),
+                    CellAddress::parse_a1("B1").unwrap(),
+                    CellAddress::parse_a1("D1").unwrap(),
+                )
+                .unwrap(),
             2
         );
-        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("D1").unwrap()), CellValue::Text("one".into()));
-        assert_eq!(workbook.value(sheet, CellAddress::parse_a1("E1").unwrap()), CellValue::Number(2.0));
+        assert_eq!(
+            workbook.value(sheet, CellAddress::parse_a1("D1").unwrap()),
+            CellValue::Text("one".into())
+        );
+        assert_eq!(
+            workbook.value(sheet, CellAddress::parse_a1("E1").unwrap()),
+            CellValue::Number(2.0)
+        );
     }
 }

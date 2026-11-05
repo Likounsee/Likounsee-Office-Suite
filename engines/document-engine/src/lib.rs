@@ -3698,6 +3698,9 @@ mod tests {
         assert_eq!(paragraphs[1].style(), ParagraphStyle::Heading1);
         assert_eq!(paragraphs[1].spans(), paragraphs[0].spans());
         assert_eq!(session.document().revision(), revision + 1);
-        assert_eq!(export_text(session.document()).unwrap(), "first\\nfirst\\nsecond\\n");
+        assert_eq!(
+            export_text(session.document()).unwrap(),
+            "first\\nfirst\\nsecond\\n"
+        );
     }
 }

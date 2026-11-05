@@ -5345,9 +5345,13 @@ mod tests {
         let mut presentation = Presentation::new("Clear", 100.0, 80.0).unwrap();
         let slide_id = presentation.slides()[0].id();
         presentation.rename_slide(slide_id, "Keep me").unwrap();
-        presentation.set_slide_notes(slide_id, "Speaker notes").unwrap();
+        presentation
+            .set_slide_notes(slide_id, "Speaker notes")
+            .unwrap();
         let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
-        presentation.add_text(slide_id, rect(1.0, 1.0, 10.0, 10.0), "Remove", style).unwrap();
+        presentation
+            .add_text(slide_id, rect(1.0, 1.0, 10.0, 10.0), "Remove", style)
+            .unwrap();
         let revision = presentation.revision();
         assert_eq!(presentation.clear_slide_elements(slide_id).unwrap(), 1);
         assert_eq!(presentation.revision(), revision + 1);
