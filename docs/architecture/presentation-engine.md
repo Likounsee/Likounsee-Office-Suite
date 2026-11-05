@@ -15,7 +15,7 @@ application and can be used by a future presentation editor, command-line tool o
 - Multi-selection alignment against the collective bounding box or the slide canvas (left, horizontal center, right, top, vertical center and bottom).
 - Even horizontal or vertical distribution of three or more selected elements.
 - Text content/style updates, shape style updates, image source/alt-text updates.
-- Global presentation themes with title/body typography, slide backgrounds and accent colors, plus built-in Light, Dark, Business and High contrast presets. Built-in slide layouts create editable text placeholders for title-only, comparison, quote and main-content/sidebar compositions. Native SVG rendering is available per slide (`render_slide_svg`) and for an entire deck (`render_all_slides_svg`). It exports slide backgrounds, text styling, word-wrapped and clipped text blocks, rectangle/ellipse/line/arrow shapes and externally referenced images; image bytes are not embedded. Text wrapping currently uses a deterministic character-width estimate rather than font shaping, so it is a portable first-pass layout, not a typography engine. Applying a theme updates all existing slides atomically while preserving text emphasis/alignment, geometry, shape strokes, notes and image references; the resulting styles are persisted by the normal presentation serializer.
+- Global presentation themes with title/body typography, slide backgrounds and accent colors, plus built-in Light, Dark, Business and High contrast presets. Built-in slide layouts create editable text placeholders for title-only, comparison, quote and main-content/sidebar compositions. Native SVG rendering is available per slide (`render_slide_svg`) and for an entire deck (`render_all_slides_svg`). It exports slide backgrounds, text styling, word-wrapped and clipped text blocks, rectangle/ellipse/line/arrow shapes and externally referenced images; image bytes are not embedded. PDF export is available per slide (`render_slide_pdf`) and for the full presentation (`render_presentation_pdf`), using vector text and shapes without introducing a shared graphics engine or external rendering dependency. PDF currently uses the standard Helvetica family with WinAnsi text encoding; unsupported Unicode glyphs are replaced with `?`. Image elements are represented by a visible dashed placeholder with their alternative text because image decoding and embedding are not implemented. SVG/PDF wrapping uses a deterministic character-width estimate rather than font shaping, so it is a portable first-pass layout, not a typography engine. Applying a theme updates all existing slides atomically while preserving text emphasis/alignment, geometry, shape strokes, notes and image references; the resulting styles are persisted by the normal presentation serializer.
 - Model validation, stable IDs, bounded collection/string sizes.
 - Versioned binary serialization with CRC32 integrity checking.
 - Local session journal, crash recovery, autosave scheduling and checkpoint compaction.
@@ -29,11 +29,11 @@ by the host application; save writes and verifies a checkpoint before compacting
 
 ## Current limitations
 
-- No presentation GUI, canvas renderer or slideshow playback yet.
+- No presentation GUI, interactive canvas or slideshow playback yet. SVG and PDF are export formats, not a general-purpose graphics engine.
 - No PPTX import/export; the current binary format is internal.
 - Image sources are references only; decoding, embedding and media packaging are not implemented.
 - Animations, transitions, master slides, charts, audio/video, comments and collaboration are not implemented. Themes currently apply directly to existing model styles; named theme metadata is not retained as a separately editable theme object.
-- Text layout, font fallback, wrapping and rendering belong to a future layout/rendering layer.
+- Accurate font shaping, font embedding, advanced text layout and Unicode font fallback are not implemented; current SVG/PDF exports use approximate wrapping.
 - No clipboard integration, undo/redo history or accessibility tree yet.
 
 ## Relationship to the document engine
