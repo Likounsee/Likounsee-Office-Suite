@@ -3860,7 +3860,7 @@ mod tests {
             second,
             rect(10.0, 10.0, 50.0, 50.0),
             "missing.jpg",
-            "Missing",
+            "",
         )
         .unwrap();
 
@@ -3870,7 +3870,7 @@ mod tests {
         assert!(content.contains("/ColorSpace /DeviceRGB"));
         assert!(content.contains("/Filter /DCTDecode"));
         assert!(content.contains("/Im1 Do"));
-        assert!(content.contains("Image not embedded"));
+        assert!(content.contains("496D616765206E6F7420656D626564646564"));
         assert_eq!(content.matches("/Subtype /Image").count(), 1);
     }
 
