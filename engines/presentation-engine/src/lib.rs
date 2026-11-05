@@ -4746,8 +4746,8 @@ mod tests {
     fn text_replacement_updates_all_matching_elements_once() {
         let mut deck = Presentation::new("Replace", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
-        deck.add_text(slide, rect(0.0, 0.0, 300.0, 40.0), "Office office", TextStyle::default()).unwrap();
-        deck.add_text(slide, rect(0.0, 50.0, 300.0, 40.0), "Another OFFICE", TextStyle::default()).unwrap();
+        deck.add_text(\n            slide,\n            rect(0.0, 0.0, 300.0, 40.0),\n            "Office office",\n            TextStyle::default(),\n        )\n        .unwrap();
+        deck.add_text(\n            slide,\n            rect(0.0, 50.0, 300.0, 40.0),\n            "Another OFFICE",\n            TextStyle::default(),\n        )\n        .unwrap();
         let revision = deck.revision();
         assert_eq!(deck.replace_text("office", "suite", false).unwrap(), 3);
         assert_eq!(deck.revision(), revision + 1);
