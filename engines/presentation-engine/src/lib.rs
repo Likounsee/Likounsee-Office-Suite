@@ -524,6 +524,75 @@ impl Presentation {
         Ok(matches)
     }
 
+    /// Replace all literal matches in text elements and record one revision.
+    pub fn replace_text(
+        &mut self,
+        query: &str,
+        replacement: &str,
+        case_sensitive: bool,
+    ) -> io::Result<usize> {
+        validate_string(query, "text replacement query")?;
+        validate_string(replacement, "text replacement")?;
+        if query.is_empty() {
+            return Err(invalid_input("text replacement query cannot be empty"));
+        }
+        let query_chars = query.chars().count();
+        let mut changes = Vec::new();
+        for slide in &self.slides {
+            for element in &slide.elements {
+                let ElementKind::Text { text, .. } = &element.kind else {
+                    continue;
+                };
+                let mut output = String::with_capacity(text.len());
+                let mut cursor = 0usize;
+                let mut count = 0usize;
+                while cursor < text.len() {
+                    let remainder = &text[cursor..];
+                    let mut matched = None;
+                    for (offset, _) in remainder.char_indices() {
+                        let start = cursor + offset;
+                        let candidate = text[start..].chars().take(query_chars).collect::<String>();
+                        let equal = if case_sensitive {
+                            candidate == query
+                        } else {
+                            candidate.eq_ignore_ascii_case(query)
+                        };
+                        if equal && candidate.chars().count() == query_chars {
+                            matched = Some((start, start + candidate.len()));
+                            break;
+                        }
+                    }
+                    let Some((start, end)) = matched else {
+                        output.push_str(remainder);
+                        break;
+                    };
+                    output.push_str(&text[cursor..start]);
+                    output.push_str(replacement);
+                    cursor = end;
+                    count += 1;
+                }
+                if count > 0 {
+                    validate_string(&output, "replaced text")?;
+                    changes.push((slide.id, element.id, output, count));
+                }
+            }
+        }
+        let total: usize = changes.iter().map(|change| change.3).sum();
+        if total == 0 {
+            return Ok(0);
+        }
+        self.bump_revision()?;
+        for (slide_id, element_id, replacement_text, _) in changes {
+            let slide = self.slide_mut(slide_id)?;
+            let element = slide.elements.iter_mut().find(|element| element.id == element_id)
+                .ok_or_else(|| invalid_data("text element disappeared during replacement"))?;
+            if let ElementKind::Text { text, .. } = &mut element.kind {
+                *text = replacement_text;
+            }
+        }
+        Ok(total)
+    }
+
     fn bump_revision(&mut self) -> io::Result<()> {
         self.revision = self
             .revision
@@ -4668,6 +4737,19 @@ mod tests {
         assert!(markdown.contains("_No speaker notes._"));
         assert!(markdown.contains("# Training — Speaker notes"));
         assert!(deck.slide(second).is_some());
+    }
+
+    #[test]
+    fn text_replacement_updates_all_matching_elements_once() {
+        let mut deck = Presentation::new("Replace", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        deck.add_text(slide, rect(0.0, 0.0, 300.0, 40.0), "Office office", TextStyle::default()).unwrap();
+        deck.add_text(slide, rect(0.0, 50.0, 300.0, 40.0), "Another OFFICE", TextStyle::default()).unwrap();
+        let revision = deck.revision();
+        assert_eq!(deck.replace_text("office", "suite", false).unwrap(), 3);
+        assert_eq!(deck.revision(), revision + 1);
+        assert_eq!(deck.find_text("suite", true).unwrap().len(), 3);
+        assert!(deck.replace_text("", "x", false).is_err());
     }
 
     #[test]
