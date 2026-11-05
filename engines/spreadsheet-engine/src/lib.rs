@@ -913,10 +913,16 @@ fn formula_dependencies(
                         continue;
                     };
                     sheet_id = id;
-                } else {
+                } else if token.bytes().any(|byte| byte.is_ascii_digit())
+                    && bytes.get(cursor) != Some(&b'(')
+                {
                     cursor = start;
                     address = scan_cell_address(bytes, &mut cursor)?;
                     sheet_id = current_sheet;
+                } else {
+                    // Function names (including names such as LOG10) and
+                    // boolean literals are identifiers, not cell references.
+                    continue;
                 }
             }
         } else {
@@ -3045,7 +3051,7 @@ mod tests {
             ("=ISBLANK(1+2)", 0.0),
         ];
         for (index, (formula, expected)) in cases.into_iter().enumerate() {
-            let address = CellAddress::new(index as u32, 2).unwrap();
+            let address = CellAddress::new(index as u32, 5).unwrap();
             book.set_formula(1, address, formula).unwrap();
             assert_eq!(
                 book.value(1, address),
