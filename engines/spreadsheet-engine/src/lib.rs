@@ -1573,8 +1573,21 @@ impl<'a> Parser<'a> {
         let ranges = self.function_argument_ranges()?;
         let unary = matches!(
             function,
-            "ABS" | "SQRT" | "SIGN" | "INT" | "EXP" | "LN" | "LOG10" | "SIN" | "COS"
-                | "TAN" | "ASIN" | "ACOS" | "ATAN" | "DEGREES" | "RADIANS"
+            "ABS"
+                | "SQRT"
+                | "SIGN"
+                | "INT"
+                | "EXP"
+                | "LN"
+                | "LOG10"
+                | "SIN"
+                | "COS"
+                | "TAN"
+                | "ASIN"
+                | "ACOS"
+                | "ATAN"
+                | "DEGREES"
+                | "RADIANS"
         );
         if ranges.len() != if unary { 1 } else { 2 } {
             return Err(FormulaError::Parse);
@@ -3315,7 +3328,10 @@ mod tests {
             let address = CellAddress::new(index as u32, 10).unwrap();
             book.set_formula(1, address, formula).unwrap();
             match book.value(1, address) {
-                CellValue::Number(actual) => assert!((actual - expected).abs() < 1e-10, "{formula}: {actual} != {expected}"),
+                CellValue::Number(actual) => assert!(
+                    (actual - expected).abs() < 1e-10,
+                    "{formula}: {actual} != {expected}"
+                ),
                 other => panic!("{formula}: unexpected result {other:?}"),
             }
         }
@@ -3327,7 +3343,11 @@ mod tests {
         let address = CellAddress::parse_a1("A1").unwrap();
         for formula in ["=LN(0)", "=LOG10(-1)", "=ASIN(2)", "=ACOS(-2)"] {
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Number), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(FormulaError::Number),
+                "{formula}"
+            );
         }
     }
 
