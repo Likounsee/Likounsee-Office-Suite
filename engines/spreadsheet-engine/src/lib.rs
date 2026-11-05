@@ -2321,7 +2321,9 @@ impl WorkbookSession {
     pub fn add_sheet(&mut self, name: impl Into<String>) -> io::Result<u64> {
         let mut next = self.workbook.clone();
         let id = next.add_sheet(name)?;
-        self.record_change(next, self.dependency_index.clone())?;
+        // A newly added sheet can resolve previously missing sheet-name references.
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
         Ok(id)
     }
 
@@ -2534,13 +2536,26 @@ mod session_tests {
             &[(report, b1)]
         );
         recovered.rename_sheet(data, "Source").unwrap();
+        assert!(recovered
+            .dependency_index()
+            .dependencies_of(report, b1)
+            .is_empty());
+        let replacement_data = recovered.add_sheet("Data").unwrap();
         assert_eq!(
-            recovered.dependency_index().dependencies_of(report, b1),
-            &[(data, a1)]
+            recovered
+                .dependency_index()
+                .dependencies_of(report, b1),
+            &[(replacement_data, a1)]
         );
-        recovered.remove_sheet(data).unwrap();
-        assert!(recovered.dependency_index().dependencies_of(report, b1).is_empty());
-        assert!(recovered.dependency_index().dependents_of(data, a1).is_empty());
+        recovered.remove_sheet(replacement_data).unwrap();
+        assert!(recovered
+            .dependency_index()
+            .dependencies_of(report, b1)
+            .is_empty());
+        assert!(recovered
+            .dependency_index()
+            .dependents_of(replacement_data, a1)
+            .is_empty());
     }
 
     #[test]
