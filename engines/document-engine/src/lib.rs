@@ -2585,8 +2585,6 @@ impl DocumentSession {
     }
 
     /// Apply paragraph styles to several paragraphs as one atomic journalled edit.
-    /// Duplicate or missing IDs reject the complete batch; unchanged styles are skipped.
-
     /// Replace text in several paragraphs as one atomic, durable edit.
     /// Duplicate or missing IDs reject the entire batch; unchanged text is ignored.
     pub fn set_paragraph_texts_batch(&mut self, requested: &[(u64, String)]) -> io::Result<usize> {
@@ -2606,7 +2604,9 @@ impl DocumentSession {
             {
                 return Err(invalid_input("paragraph ID does not exist"));
             }
-            validate_string(text, "paragraph text")?;
+            if text.contains('\n') {
+                return Err(invalid_input("paragraph text cannot contain line-feed characters"));
+            }
         }
         let mut paragraphs = self.document.paragraphs.clone();
         let mut changed = 0usize;
