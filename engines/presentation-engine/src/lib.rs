@@ -4112,10 +4112,20 @@ mod tests {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
         let first = deck
-            .add_text(slide, rect(0.0, 0.0, 100.0, 40.0), "First", TextStyle::default())
+            .add_text(
+                slide,
+                rect(0.0, 0.0, 100.0, 40.0),
+                "First",
+                TextStyle::default(),
+            )
             .unwrap();
         let second = deck
-            .add_text(slide, rect(0.0, 50.0, 100.0, 40.0), "Second", TextStyle::default())
+            .add_text(
+                slide,
+                rect(0.0, 50.0, 100.0, 40.0),
+                "Second",
+                TextStyle::default(),
+            )
             .unwrap();
         let revision = deck.revision();
         let copies = deck.duplicate_elements(slide, &[second, first]).unwrap();
@@ -4131,7 +4141,10 @@ mod tests {
         assert!(deck.duplicate_elements(slide, &[first, u64::MAX]).is_err());
         assert_eq!(deck.revision(), revision);
         assert!(deck.duplicate_elements(slide, &[first, first]).is_err());
-        assert_eq!(deck.duplicate_elements(slide, &[]).unwrap(), Vec::<u64>::new());
+        assert_eq!(
+            deck.duplicate_elements(slide, &[]).unwrap(),
+            Vec::<u64>::new()
+        );
     }
 
     #[test]

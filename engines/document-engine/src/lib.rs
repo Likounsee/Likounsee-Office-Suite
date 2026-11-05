@@ -3868,7 +3868,9 @@ mod tests {
         let mut session = DocumentSession::open(&directory.0).unwrap();
         let table_id = session.insert_table(3, 1).unwrap();
         for (index, value) in ["first", "second", "third"].iter().enumerate() {
-            session.set_table_cell_text(table_id, index, 0, value).unwrap();
+            session
+                .set_table_cell_text(table_id, index, 0, value)
+                .unwrap();
         }
         let before = session.document().tables()[0].rows().to_vec();
         let revision = session.document().revision();
