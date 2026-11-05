@@ -5326,12 +5326,25 @@ mod session_tests {
             workbook.value(sheet, CellAddress::parse_a1("C1").unwrap()),
             CellValue::Number(2.0)
         );
+        workbook
+            .set_text(sheet, CellAddress::parse_a1("D1").unwrap(), "old destination")
+            .unwrap();
+        workbook
+            .set_text(sheet, CellAddress::parse_a1("E1").unwrap(), "old destination")
+            .unwrap();
+        workbook
+            .clear_range(
+                sheet,
+                CellAddress::parse_a1("B1").unwrap(),
+                CellAddress::parse_a1("B1").unwrap(),
+            )
+            .unwrap();
         assert_eq!(
             workbook
                 .copy_range(
                     sheet,
                     CellAddress::parse_a1("A1").unwrap(),
-                    CellAddress::parse_a1("B1").unwrap(),
+                    CellAddress::parse_a1("C1").unwrap(),
                     CellAddress::parse_a1("D1").unwrap(),
                 )
                 .unwrap(),
@@ -5343,6 +5356,10 @@ mod session_tests {
         );
         assert_eq!(
             workbook.value(sheet, CellAddress::parse_a1("E1").unwrap()),
+            CellValue::Blank
+        );
+        assert_eq!(
+            workbook.value(sheet, CellAddress::parse_a1("F1").unwrap()),
             CellValue::Number(2.0)
         );
     }
