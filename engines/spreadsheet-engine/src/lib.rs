@@ -1378,7 +1378,7 @@ impl<'a> Parser<'a> {
                 | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "PI" | "SINH" | "COSH" | "TANH"
                 | "COT" | "FACT" | "TRUNC" | "CEILING" | "FLOOR" | "MROUND" => {
                     self.math_function_arguments(&function)
-                },
+                }
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
@@ -1669,7 +1669,10 @@ impl<'a> Parser<'a> {
             }
             "MROUND" => {
                 let multiple = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
-                if value != 0.0 && multiple != 0.0 && value.is_sign_negative() != multiple.is_sign_negative() {
+                if value != 0.0
+                    && multiple != 0.0
+                    && value.is_sign_negative() != multiple.is_sign_negative()
+                {
                     return Err(FormulaError::Number);
                 }
                 if multiple == 0.0 {
@@ -3367,7 +3370,10 @@ mod tests {
         assert_eq!(workbook.value(1, a1), CellValue::Number(15.0));
         assert_eq!(workbook.value(1, a2), CellValue::Number(-15.0));
         assert_eq!(workbook.value(1, a3), CellValue::Number(0.0));
-        assert_eq!(workbook.value(1, a4), CellValue::Error(FormulaError::Number));
+        assert_eq!(
+            workbook.value(1, a4),
+            CellValue::Error(FormulaError::Number)
+        );
     }
 
     #[test]
