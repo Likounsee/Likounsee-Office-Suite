@@ -4745,10 +4745,28 @@ mod tests {
     fn slide_text_export_preserves_slide_and_element_order() {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
-        deck.add_text(first, rect(0.0, 0.0, 100.0, 30.0), "First", TextStyle::default()).unwrap();
-        deck.add_text(first, rect(0.0, 40.0, 100.0, 30.0), "Second", TextStyle::default()).unwrap();
+        deck.add_text(
+            first,
+            rect(0.0, 0.0, 100.0, 30.0),
+            "First",
+            TextStyle::default(),
+        )
+        .unwrap();
+        deck.add_text(
+            first,
+            rect(0.0, 40.0, 100.0, 30.0),
+            "Second",
+            TextStyle::default(),
+        )
+        .unwrap();
         let second = deck.add_slide("Next").unwrap();
-        deck.add_text(second, rect(0.0, 0.0, 100.0, 30.0), "Third", TextStyle::default()).unwrap();
+        deck.add_text(
+            second,
+            rect(0.0, 0.0, 100.0, 30.0),
+            "Third",
+            TextStyle::default(),
+        )
+        .unwrap();
         let exported = export_slide_text(&deck).unwrap();
         assert!(exported.find("First").unwrap() < exported.find("Second").unwrap());
         assert!(exported.find("Second").unwrap() < exported.find("Third").unwrap());
