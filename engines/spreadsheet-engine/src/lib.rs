@@ -2882,7 +2882,7 @@ impl<'a> Parser<'a> {
         let start = if ranges.len() == 3 {
             let value = self.evaluate_argument(ranges[2].0, ranges[2].1)?;
             if value.fract() != 0.0 || value < 1.0 || value > haystack.chars().count() as f64 + 1.0 {
-                return Err(FormulaError::Value);
+                return Err(FormulaError::Type);
             }
             value as usize - 1
         } else {
@@ -2893,8 +2893,8 @@ impl<'a> Parser<'a> {
             tail.find(&needle_or_text)
         } else {
             tail.to_lowercase().find(&needle_or_text.to_lowercase())
-        }.ok_or(FormulaError::Value)?;
-        let prefix = tail.get(..found).ok_or(FormulaError::Value)?;
+        }.ok_or(FormulaError::Type)?;
+        let prefix = tail.get(..found).ok_or(FormulaError::Type)?;
         Ok((start + prefix.chars().count() + 1) as f64)
     }
 
@@ -2906,7 +2906,7 @@ impl<'a> Parser<'a> {
             if !source.ends_with('"') || source.len() < 2 {
                 return Err(FormulaError::Parse);
             }
-            return Ok(source[1..source.len() - 1].replace("\\""", "\""));
+            return Ok(source[1..source.len() - 1].replace("\"\"", "\""));
         }
         let (sheet_id, reference) = if let Some((sheet, cell)) = source.split_once('!') {
             let sheet_name = sheet.trim_matches('\'');
@@ -6540,7 +6540,7 @@ mod session_tests {
         assert_eq!(workbook.value(sheet, d1), CellValue::Number(9.0));
         let e1 = CellAddress::parse_a1("E1").unwrap();
         workbook.set_formula(sheet, e1, "=FIND(\"monde\",A1)").unwrap();
-        assert_eq!(workbook.value(sheet, e1), CellValue::Error(FormulaError::Value));
+        assert_eq!(workbook.value(sheet, e1), CellValue::Error(FormulaError::Type));
         let f1 = CellAddress::parse_a1("F1").unwrap();
         workbook.set_formula(sheet, f1, "=LEN(\"A😀é\")").unwrap();
         assert_eq!(workbook.value(sheet, f1), CellValue::Number(3.0));
