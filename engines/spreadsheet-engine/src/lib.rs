@@ -408,7 +408,11 @@ impl Workbook {
     }
 
     /// Return formulas that directly read the supplied cell, in stable order.
-    pub fn dependents_of(&self, sheet_id: u64, address: CellAddress) -> io::Result<Vec<CellKey>> {
+    pub fn dependents_of(
+        &self,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<Vec<CellKey>> {
         let graph = self.dependency_graph()?;
         let reverse = reverse_dependency_graph(&graph);
         Ok(reverse.get(&(sheet_id, address)).cloned().unwrap_or_default())
@@ -438,6 +442,61 @@ impl Workbook {
 
         visited.remove(&(sheet_id, address));
         Ok(visited.into_iter().collect())
+    }
+
+    /// Return affected formulas in deterministic dependency-first order.
+    /// Cycles in the affected subgraph are reported instead of returning a
+    /// misleading partial order. The changed cell itself is never included.
+    pub fn recalculation_order_after_change(
+        &self,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<Vec<CellKey>> {
+        let graph = self.dependency_graph()?;
+        let affected: std::collections::BTreeSet<CellKey> = self
+            .transitive_dependents_of(sheet_id, address)?
+            .into_iter()
+            .collect();
+        if affected.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut indegree: BTreeMap<CellKey, usize> =
+            affected.iter().map(|key| (*key, 0)).collect();
+        let mut outgoing: BTreeMap<CellKey, Vec<CellKey>> = BTreeMap::new();
+        for formula in &affected {
+            if let Some(dependencies) = graph.get(formula) {
+                for dependency in dependencies {
+                    if affected.contains(dependency) {
+                        *indegree.get_mut(formula).expect("affected formula exists") += 1;
+                        outgoing.entry(*dependency).or_default().push(*formula);
+                    }
+                }
+            }
+        }
+
+        let mut ready: std::collections::BTreeSet<CellKey> = indegree
+            .iter()
+            .filter_map(|(key, degree)| (*degree == 0).then_some(*key))
+            .collect();
+        let mut ordered = Vec::with_capacity(affected.len());
+        while let Some(next) = ready.pop_first() {
+            ordered.push(next);
+            if let Some(dependents) = outgoing.get(&next) {
+                for dependent in dependents {
+                    let degree = indegree.get_mut(dependent).expect("dependent is affected");
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.insert(*dependent);
+                    }
+                }
+            }
+        }
+
+        if ordered.len() != affected.len() {
+            return Err(invalid_input("formula dependency cycle prevents recalculation order"));
+        }
+        Ok(ordered)
     }
 
     pub fn encode(&self) -> io::Result<Vec<u8>> {
@@ -1474,6 +1533,57 @@ mod tests {
             book.transitive_dependents_of(1, a1).unwrap(),
             vec![(1, b1), (1, c1), (1, d1)]
         );
+    }
+
+    #[test]
+    fn recalculation_order_is_dependency_first_for_diamond_and_range_graphs() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data2026").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let d1 = CellAddress::parse_a1("D1").unwrap();
+        let e1 = CellAddress::parse_a1("E1").unwrap();
+
+        book.set_number(data, a1, 3.0).unwrap();
+        book.set_formula(data, b1, "=A1+1").unwrap();
+        book.set_formula(data, c1, "=A1*2").unwrap();
+        book.set_formula(report, d1, "=Data2026!B1+Data2026!C1").unwrap();
+        book.set_formula(report, e1, "=SUM(Data2026!A1:B1,D1)").unwrap();
+
+        assert_eq!(
+            book.recalculation_order_after_change(data, a1).unwrap(),
+            vec![(data, b1), (data, c1), (report, d1), (report, e1)]
+        );
+    }
+
+    #[test]
+    fn recalculation_order_reports_cycles_and_ignores_unaffected_formulas() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let z1 = CellAddress::parse_a1("Z1").unwrap();
+
+        book.set_number(1, a1, 1.0).unwrap();
+        book.set_formula(1, b1, "=A1+1").unwrap();
+        book.set_formula(1, c1, "=B1+1").unwrap();
+        book.set_formula(1, z1, "=Z1+1").unwrap();
+        assert_eq!(
+            book.recalculation_order_after_change(1, a1).unwrap(),
+            vec![(1, b1), (1, c1)]
+        );
+
+        book.set_formula(1, a1, "=C1+1").unwrap();
+        assert!(book.recalculation_order_after_change(1, a1).is_err());
+    }
+
+    #[test]
+    fn recalculation_order_is_empty_for_cells_without_dependents() {
+        let book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        assert!(book.recalculation_order_after_change(1, a1).unwrap().is_empty());
     }
 
     #[test]
