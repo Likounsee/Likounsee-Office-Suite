@@ -1152,9 +1152,7 @@ impl<'a> Parser<'a> {
                 "NOT" => self.not_arguments(),
                 "ISBLANK" | "ISNUMBER" | "ISTEXT" => self.type_test_arguments(&function),
                 "AND" | "OR" => self.logical_arguments(&function),
-                "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" => {
-                    self.aggregate_arguments(&function)
-                }
+                "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" => self.aggregate_arguments(&function),
                 _ => Err(FormulaError::Parse),
             };
         }
@@ -1311,12 +1309,17 @@ impl<'a> Parser<'a> {
     ) -> Result<Option<(u64, CellAddress)>, FormulaError> {
         let (sheet_name, address_text) = if let Some((name, address)) = source.rsplit_once('!') {
             let name = name.trim();
-            let name = name.strip_prefix('\'').and_then(|n| n.strip_suffix('\'')).unwrap_or(name);
+            let name = name
+                .strip_prefix('\'')
+                .and_then(|n| n.strip_suffix('\''))
+                .unwrap_or(name);
             (Some(name), address.trim())
         } else {
             (None, source)
         };
-        if address_text.is_empty() || !address_text.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        if address_text.is_empty()
+            || !address_text.bytes().all(|b| b.is_ascii_alphanumeric())
+        {
             return Ok(None);
         }
         let address = match CellAddress::parse_a1(address_text) {
@@ -1324,7 +1327,9 @@ impl<'a> Parser<'a> {
             Err(_) => return Ok(None),
         };
         let sheet_id = if let Some(name) = sheet_name {
-            self.workbook.sheets.iter()
+            self.workbook
+                .sheets
+                .iter()
                 .find(|sheet| sheet.name.eq_ignore_ascii_case(name))
                 .map(|sheet| sheet.id)
                 .ok_or(FormulaError::Reference)?
@@ -2441,6 +2446,43 @@ mod tests {
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
     #[test]
+    fn aggregate_functions_ignore_blank_text_and_boolean_cells_but_propagate_errors() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        let a4 = CellAddress::parse_a1("A4").unwrap();
+        let a5 = CellAddress::parse_a1("A5").unwrap();
+        book.set_number(1, a1, 10.0).unwrap();
+        book.set_text(1, a2, "ignored").unwrap();
+        book.set_boolean(1, a3, true).unwrap();
+        book.set_number(1, a4, 20.0).unwrap();
+        let cases = [
+            ("=SUM(A1:A5)", 30.0),
+            ("=AVERAGE(A1:A5)", 15.0),
+            ("=MIN(A1:A5)", 10.0),
+            ("=MAX(A1:A5)", 20.0),
+            ("=COUNT(A1:A5)", 2.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 6).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
+        }
+        book.set_formula(1, a5, "=1/0").unwrap();
+        let result = CellAddress::parse_a1("G6").unwrap();
+        book.set_formula(1, result, "=SUM(A1:A5)").unwrap();
+        assert_eq!(
+            book.value(1, result),
+            CellValue::Error(FormulaError::DivisionByZero)
+        );
+    }
+
+    #[test]
     fn cell_type_predicates_classify_blank_number_text_boolean_and_formula_cells() {
         let mut book = Workbook::new();
         let a1 = CellAddress::parse_a1("A1").unwrap();
@@ -2470,7 +2512,11 @@ mod tests {
         for (index, (formula, expected)) in cases.into_iter().enumerate() {
             let address = CellAddress::new(index as u32, 2).unwrap();
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Number(expected),
+                "{formula}"
+            );
         }
     }
 
@@ -2494,7 +2540,11 @@ mod tests {
         let address = CellAddress::parse_a1("A5").unwrap();
         for formula in ["=ISBLANK()", "=ISNUMBER(A1,B1)", "=ISTEXT(,A1)"] {
             book.set_formula(1, address, formula).unwrap();
-            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Parse), "{formula}");
+            assert_eq!(
+                book.value(1, address),
+                CellValue::Error(FormulaError::Parse),
+                "{formula}"
+            );
         }
         book.set_formula(1, address, "=ISNUMBER('Missing'!A1)").unwrap();
         assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Reference));
