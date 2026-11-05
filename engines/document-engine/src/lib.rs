@@ -2131,7 +2131,11 @@ impl DocumentSession {
     }
 
     /// Duplicate a column immediately after its source, retaining cell formatting and assigning fresh IDs.
-    pub fn duplicate_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
+    pub fn duplicate_table_column(
+        &mut self,
+        table_id: u64,
+        column_index: usize,
+    ) -> io::Result<u64> {
         let mut next = self.document.clone();
         let mut next_id = next.next_block_id;
         let table = next
@@ -3967,7 +3971,9 @@ mod tests {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         let table_id = session.insert_table(2, 2).unwrap();
-        session.set_table_cell_text(table_id, 0, 0, "copied").unwrap();
+        session
+            .set_table_cell_text(table_id, 0, 0, "copied")
+            .unwrap();
         let original = session.document().tables()[0].rows()[0].cells()[0].clone();
         let width = session.document().tables()[0].column_widths_twips()[0];
         let revision = session.document().revision();

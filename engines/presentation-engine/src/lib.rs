@@ -1014,10 +1014,7 @@ impl Presentation {
 
     /// Update multiple slide backgrounds as one atomic presentation edit.
     /// Duplicate IDs, missing slides, and invalid colors are rejected before mutation.
-    pub fn set_slide_backgrounds_batch(
-        &mut self,
-        backgrounds: &[(u64, u32)],
-    ) -> io::Result<usize> {
+    pub fn set_slide_backgrounds_batch(&mut self, backgrounds: &[(u64, u32)]) -> io::Result<usize> {
         if backgrounds.is_empty() {
             return Ok(0);
         }
@@ -4994,18 +4991,29 @@ mod tests {
         let second = deck.add_slide("Second").unwrap();
         let revision = deck.revision();
         assert_eq!(
-            deck.set_slide_backgrounds_batch(&[(first, 0x112233), (second, 0x445566)]).unwrap(),
+            deck.set_slide_backgrounds_batch(&[(first, 0x112233), (second, 0x445566)])
+                .unwrap(),
             2
         );
         assert_eq!(deck.revision(), revision + 1);
         assert_eq!(deck.slide(first).unwrap().background(), 0x112233);
         assert_eq!(deck.slide(second).unwrap().background(), 0x445566);
         let before = deck.clone();
-        assert!(deck.set_slide_backgrounds_batch(&[(first, 0), (first, 1)]).is_err());
-        assert!(deck.set_slide_backgrounds_batch(&[(first, 0), (999, 1)]).is_err());
+        assert!(
+            deck.set_slide_backgrounds_batch(&[(first, 0), (first, 1)])
+                .is_err()
+        );
+        assert!(
+            deck.set_slide_backgrounds_batch(&[(first, 0), (999, 1)])
+                .is_err()
+        );
         assert_eq!(deck, before);
         let revision = deck.revision();
-        assert_eq!(deck.set_slide_backgrounds_batch(&[(first, 0x112233)]).unwrap(), 0);
+        assert_eq!(
+            deck.set_slide_backgrounds_batch(&[(first, 0x112233)])
+                .unwrap(),
+            0
+        );
         assert_eq!(deck.revision(), revision);
     }
 
