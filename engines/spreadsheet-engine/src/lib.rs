@@ -2094,7 +2094,7 @@ mod tests {
         book.clear_cell(1, b1).unwrap();
         index.update_cells(&book, [(1, b1), (1, c1)]).unwrap();
         assert!(index.dependencies_of(1, b1).is_empty());
-        assert!(index.dependents_of(1, b1).is_empty());
+        assert_eq!(index.dependents_of(1, b1), &[(1, c1)]);
         assert!(index.transitive_dependents_of(1, a1).is_empty());
     }
 
