@@ -3480,6 +3480,60 @@ mod tests {
         assert_eq!(pdf_font_resource("Inter Display", false, false), "F1");
     }
 
+    struct TestJpegProvider;
+
+    impl PdfImageProvider for TestJpegProvider {
+        fn resolve_jpeg(&self, source: &str) -> io::Result<Option<PdfJpegImage>> {
+            if source != "photo.jpg" {
+                return Ok(None);
+            }
+            // Minimal SOF-bearing fixture; this test verifies container embedding,
+            // not JPEG decoding (which deliberately belongs to the host application).
+            Ok(Some(PdfJpegImage {
+                bytes: vec![
+                    0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x03,
+                    0x01, 0x11, 0x00, 0xff, 0xd9,
+                ],
+                width: 1,
+                height: 1,
+                color_space: PdfImageColorSpace::Rgb,
+            }))
+        }
+    }
+
+    #[test]
+    fn pdf_export_embeds_provider_jpegs_as_shared_image_xobjects() {
+        let mut deck = Presentation::new("JPEG deck", 640.0, 360.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.add_image(first, rect(10.0, 20.0, 100.0, 80.0), "photo.jpg", "Photo").unwrap();
+        deck.add_image(first, rect(120.0, 20.0, 100.0, 80.0), "photo.jpg", "Photo copy").unwrap();
+        let second = deck.add_slide("Second").unwrap();
+        deck.add_image(second, rect(10.0, 10.0, 50.0, 50.0), "missing.jpg", "Missing").unwrap();
+
+        let pdf = render_presentation_pdf_with_images(&deck, &TestJpegProvider).unwrap();
+        let content = String::from_utf8_lossy(&pdf);
+        assert!(content.contains("/Subtype /Image"));
+        assert!(content.contains("/ColorSpace /DeviceRGB"));
+        assert!(content.contains("/Filter /DCTDecode"));
+        assert!(content.contains("/Im1 Do"));
+        assert!(content.contains("Image not embedded"));
+        assert_eq!(content.matches("/Subtype /Image").count(), 1);
+    }
+
+    #[test]
+    fn pdf_jpeg_metadata_must_match_the_frame_header() {
+        let image = PdfJpegImage {
+            bytes: vec![
+                0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x03,
+                0x01, 0x11, 0x00, 0xff, 0xd9,
+            ],
+            width: 2,
+            height: 1,
+            color_space: PdfImageColorSpace::Rgb,
+        };
+        assert!(image.validate().is_err());
+    }
+
     #[test]
     fn pdf_export_preserves_slide_order_and_marks_external_images() {
         let mut deck = Presentation::new("PDF deck", 640.0, 360.0).unwrap();
