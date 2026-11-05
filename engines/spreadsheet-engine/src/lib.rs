@@ -1640,3 +1640,4 @@ mod session_tests {
         assert!(session.workbook().sheet(999).is_none());
     }
 }
+
