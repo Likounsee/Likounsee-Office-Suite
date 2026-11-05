@@ -5026,6 +5026,28 @@ mod tests {
     }
 
     #[test]
+    fn batch_element_bounds_update_is_atomic_and_advances_revision_once() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide_id = deck.slides()[0].id();
+        let first = deck.add_shape(slide_id, ShapeKind::Rectangle, Rect::new(0.0, 0.0, 10.0, 10.0).unwrap()).unwrap();
+        let second = deck.add_shape(slide_id, ShapeKind::Rectangle, Rect::new(20.0, 0.0, 10.0, 10.0).unwrap()).unwrap();
+        let revision = deck.revision();
+        let first_bounds = Rect::new(5.0, 6.0, 30.0, 40.0).unwrap();
+        let second_bounds = Rect::new(50.0, 60.0, 70.0, 80.0).unwrap();
+        assert_eq!(
+            deck.set_element_bounds_batch(slide_id, &[(first, first_bounds), (second, second_bounds)]).unwrap(),
+            2
+        );
+        assert_eq!(deck.revision(), revision + 1);
+        assert_eq!(deck.slide(slide_id).unwrap().element(first).unwrap().bounds(), first_bounds);
+        assert_eq!(deck.slide(slide_id).unwrap().element(second).unwrap().bounds(), second_bounds);
+        let before = deck.clone();
+        assert!(deck.set_element_bounds_batch(slide_id, &[(first, first_bounds), (first, second_bounds)]).is_err());
+        assert_eq!(deck, before);
+        assert_eq!(deck.set_element_bounds_batch(slide_id, &[(first, first_bounds)]).unwrap(), 0);
+    }
+
+    #[test]
     fn batch_slide_background_update_is_atomic_and_advances_revision_once() {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();

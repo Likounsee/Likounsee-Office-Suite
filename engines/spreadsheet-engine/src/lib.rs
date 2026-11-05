@@ -5341,11 +5341,11 @@ mod session_tests {
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let d4 = CellAddress::parse_a1("D4").unwrap();
         let f5 = CellAddress::parse_a1("F5").unwrap();
-        let g5 = CellAddress::parse_a1("G5").unwrap();
+        let f6 = CellAddress::parse_a1("F6").unwrap();
         session.set_number(sheet, a1, 11.0).unwrap();
         session.set_number(sheet, b1, 22.0).unwrap();
         session.set_number(sheet, f5, 99.0).unwrap();
-        session.set_number(sheet, g5, 88.0).unwrap();
+        session.set_number(sheet, f6, 88.0).unwrap();
         assert_eq!(session.transpose_range(sheet, a1, b1, d4).unwrap(), 2);
         assert_eq!(session.workbook().value(sheet, d4), CellValue::Number(11.0));
         assert_eq!(
@@ -5370,6 +5370,8 @@ mod session_tests {
             session.workbook().sheets()[0].stored_cell_count(),
             revision - 2
         );
+        assert_eq!(session.workbook().value(sheet, f5), CellValue::Blank);
+        assert_eq!(session.workbook().value(sheet, f6), CellValue::Blank);
         session.save_now().unwrap();
         let reopened = WorkbookSession::open(&directory.0).unwrap();
         assert_eq!(

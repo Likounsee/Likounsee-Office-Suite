@@ -4000,6 +4000,33 @@ mod tests {
     }
 
     #[test]
+    fn move_table_column_preserves_cell_ids_and_widths() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(2, 3).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "A").unwrap();
+        session.set_table_cell_text(table_id, 0, 1, "B").unwrap();
+        session.set_table_cell_text(table_id, 0, 2, "C").unwrap();
+        let original = session.document().tables()[0].rows()[0]
+            .cells()
+            .iter()
+            .map(|cell| cell.id())
+            .collect::<Vec<_>>();
+        let widths = session.document().tables()[0].column_widths_twips().to_vec();
+        let revision = session.document().revision();
+        let moved_id = session.move_table_column(table_id, 0, 2).unwrap();
+        let table = &session.document().tables()[0];
+        assert_eq!(table.rows()[0].cells()[0].text(), "B");
+        assert_eq!(table.rows()[0].cells()[1].text(), "C");
+        assert_eq!(table.rows()[0].cells()[2].text(), "A");
+        assert_eq!(table.rows()[0].cells()[2].id(), original[0]);
+        assert_eq!(moved_id, original[0]);
+        assert_eq!(table.column_widths_twips(), &[widths[1], widths[2], widths[0]]);
+        assert_eq!(session.document().revision(), revision + 1);
+        assert!(session.move_table_column(table_id, 0, 9).is_err());
+    }
+
+    #[test]
     fn duplicate_table_column_copies_formatting_with_fresh_ids() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
