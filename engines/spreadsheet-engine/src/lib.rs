@@ -5327,10 +5327,18 @@ mod session_tests {
             CellValue::Number(2.0)
         );
         workbook
-            .set_text(sheet, CellAddress::parse_a1("D1").unwrap(), "old destination")
+            .set_text(
+                sheet,
+                CellAddress::parse_a1("D1").unwrap(),
+                "old destination",
+            )
             .unwrap();
         workbook
-            .set_text(sheet, CellAddress::parse_a1("E1").unwrap(), "old destination")
+            .set_text(
+                sheet,
+                CellAddress::parse_a1("E1").unwrap(),
+                "old destination",
+            )
             .unwrap();
         workbook
             .clear_range(
