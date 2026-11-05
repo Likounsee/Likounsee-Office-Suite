@@ -2474,7 +2474,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn svg_renderer_outputs_text_shapes_and_external_images() {
         let mut deck = Presentation::new("SVG & test", 800.0, 450.0).unwrap();
         let slide = deck.slides()[0].id();
@@ -2554,6 +2553,7 @@ mod tests {
         assert!(svg.contains(">Second</tspan>"));
     }
 
+    #[test]
     fn applies_global_theme_to_all_slides_and_preserves_element_properties() {
         let mut deck = Presentation::new("Theme test", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
