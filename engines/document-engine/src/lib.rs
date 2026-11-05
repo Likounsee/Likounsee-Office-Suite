@@ -3061,7 +3061,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn plain_text_import_and_export_preserve_lines_and_table_cells() {
         let document = Document::from_plain_text("Notes", "First line\r\nSecond line\n").unwrap();
         assert_eq!(document.paragraphs().len(), 3);
@@ -3070,6 +3069,7 @@ mod tests {
         assert_eq!(export_plain_text(&document).unwrap(), "First line\nSecond line\n");
     }
 
+    #[test]
     fn html_export_preserves_semantics_tables_and_escapes_untrusted_text() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
