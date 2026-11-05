@@ -1831,6 +1831,30 @@ impl DocumentSession {
         self.journal_had_truncated_tail
     }
 
+    /// Replace all text in one paragraph while retaining its stable paragraph ID.
+    /// Inline formatting is adjusted by the same UTF-8-safe edit path as normal typing.
+    pub fn replace_paragraph_text(
+        &mut self,
+        paragraph_id: u64,
+        replacement: &str,
+    ) -> io::Result<u64> {
+        validate_document_size(&self.document)?;
+        let mut offset = 0usize;
+        for paragraph in &self.document.paragraphs {
+            if paragraph.id == paragraph_id {
+                let end = offset
+                    .checked_add(paragraph.text.len())
+                    .ok_or_else(|| invalid_input("paragraph offset overflow"))?;
+                return self.replace_range(offset..end, replacement);
+            }
+            offset = offset
+                .checked_add(paragraph.text.len())
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(|| invalid_input("paragraph offset overflow"))?;
+        }
+        Err(invalid_input("paragraph ID does not exist"))
+    }
+
     /// Insert an empty rectangular table. Returns its stable table ID.
     pub fn insert_table(&mut self, rows: usize, columns: usize) -> io::Result<u64> {
         if rows == 0
@@ -3320,6 +3344,20 @@ mod tests {
         assert_eq!(stats.table_cells, 2);
         assert_eq!(stats.words, 4);
         assert_eq!(stats.characters, 15);
+    }
+
+    #[test]
+    fn paragraph_replacement_preserves_identity_and_updates_text() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.insert_text(0, "First paragraph\\nSecond paragraph").unwrap();
+        let first_id = session.document().paragraphs()[0].id();
+        let second_id = session.document().paragraphs()[1].id();
+        session.replace_paragraph_text(second_id, "猫 updated").unwrap();
+        assert_eq!(session.document().paragraphs()[0].id(), first_id);
+        assert_eq!(session.document().paragraphs()[1].id(), second_id);
+        assert_eq!(session.document().paragraphs()[1].text(), "猫 updated");
+        assert!(session.replace_paragraph_text(u64::MAX, "missing").is_err());
     }
 
     #[test]

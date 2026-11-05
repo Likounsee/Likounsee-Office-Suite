@@ -2818,6 +2818,39 @@ pub fn slide_text_statistics(
     })
 }
 
+/// Aggregate speaker-note metrics across all slides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpeakerNotesStatistics {
+    pub slides: usize,
+    pub slides_with_notes: usize,
+    pub characters: usize,
+    pub words: usize,
+}
+
+pub fn speaker_notes_statistics(
+    presentation: &Presentation,
+) -> io::Result<SpeakerNotesStatistics> {
+    presentation.validate()?;
+    let mut stats = SpeakerNotesStatistics {
+        slides: presentation.slides.len(),
+        slides_with_notes: 0,
+        characters: 0,
+        words: 0,
+    };
+    for slide in &presentation.slides {
+        if !slide.notes.trim().is_empty() {
+            stats.slides_with_notes += 1;
+        }
+        stats.characters = stats.characters
+            .checked_add(slide.notes.chars().count())
+            .ok_or_else(|| invalid_data("speaker notes character count overflow"))?;
+        stats.words = stats.words
+            .checked_add(slide.notes.split_whitespace().count())
+            .ok_or_else(|| invalid_data("speaker notes word count overflow"))?;
+    }
+    Ok(stats)
+}
+
 /// Aggregate text metrics across every slide in a presentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresentationTextStatistics {
@@ -4882,6 +4915,21 @@ mod tests {
         assert_eq!(stats.text_elements, 2);
         assert_eq!(stats.characters, 13);
         assert_eq!(stats.words, 4);
+    }
+
+    #[test]
+    fn speaker_notes_statistics_include_empty_and_populated_slides() {
+        let mut deck = Presentation::new("Notes", 960.0, 540.0).unwrap();
+        let first = deck.slides()[0].id();
+        deck.set_slide_notes(first, "Prepare the demo").unwrap();
+        deck.add_slide("Empty").unwrap();
+        let third = deck.add_slide("Wrap up").unwrap();
+        deck.set_slide_notes(third, "猫 café").unwrap();
+        let stats = speaker_notes_statistics(&deck).unwrap();
+        assert_eq!(stats.slides, 3);
+        assert_eq!(stats.slides_with_notes, 2);
+        assert_eq!(stats.characters, 19);
+        assert_eq!(stats.words, 5);
     }
 
     #[test]

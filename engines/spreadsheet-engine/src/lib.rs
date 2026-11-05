@@ -406,6 +406,18 @@ fn remove_reverse_edge(
     }
 }
 
+/// Counts and numeric total for a rectangular worksheet range.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RangeStatistics {
+    pub cells: usize,
+    pub numbers: usize,
+    pub text: usize,
+    pub booleans: usize,
+    pub errors: usize,
+    pub blanks: usize,
+    pub sum: f64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workbook {
     next_sheet_id: u64,
@@ -601,6 +613,58 @@ impl Workbook {
     }
 
     /// Evaluate a cell and all formula dependencies without retaining stale results.
+    /// Calculate typed statistics for an inclusive rectangular range.
+    /// The area is capped to avoid accidental full-sheet scans.
+    pub fn range_statistics(
+        &self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+    ) -> io::Result<RangeStatistics> {
+        if self.sheet(sheet_id).is_none() {
+            return Err(invalid_input("unknown worksheet"));
+        }
+        let min_row = start.row().min(end.row());
+        let max_row = start.row().max(end.row());
+        let min_column = start.column().min(end.column());
+        let max_column = start.column().max(end.column());
+        let rows = (max_row - min_row + 1) as usize;
+        let columns = (max_column - min_column + 1) as usize;
+        let cells = rows
+            .checked_mul(columns)
+            .filter(|count| *count <= MAX_CELLS)
+            .ok_or_else(|| invalid_input("statistics range exceeds the cell limit"))?;
+        let mut stats = RangeStatistics {
+            cells,
+            numbers: 0,
+            text: 0,
+            booleans: 0,
+            errors: 0,
+            blanks: 0,
+            sum: 0.0,
+        };
+        let mut cache = HashMap::new();
+        for row in min_row..=max_row {
+            for column in min_column..=max_column {
+                let address = CellAddress::new(row, column)?;
+                match self.evaluate(sheet_id, address, &mut HashSet::new(), &mut cache) {
+                    CellValue::Blank => stats.blanks += 1,
+                    CellValue::Number(value) => {
+                        stats.numbers += 1;
+                        stats.sum += value;
+                    }
+                    CellValue::Text(_) => stats.text += 1,
+                    CellValue::Boolean(_) => stats.booleans += 1,
+                    CellValue::Error(_) => stats.errors += 1,
+                }
+            }
+        }
+        if !stats.sum.is_finite() {
+            return Err(invalid_data("range statistics sum overflow"));
+        }
+        Ok(stats)
+    }
+
     pub fn value(&self, sheet_id: u64, address: CellAddress) -> CellValue {
         self.values(&[(sheet_id, address)]).remove(0)
     }
@@ -2561,6 +2625,30 @@ fn invalid_data(message: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn range_statistics_count_typed_values_and_evaluate_formulas() {
+        let mut workbook = Workbook::new();
+        let sheet = workbook.sheets()[0].id();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        workbook.set_number(sheet, a1, 4.0).unwrap();
+        workbook.set_text(sheet, CellAddress::parse_a1("A2").unwrap(), "label").unwrap();
+        workbook.set_formula(sheet, CellAddress::parse_a1("A3").unwrap(), "=A1*3").unwrap();
+        workbook.set_boolean(sheet, CellAddress::parse_a1("A4").unwrap(), true).unwrap();
+        let stats = workbook.range_statistics(
+            sheet,
+            CellAddress::parse_a1("A1").unwrap(),
+            CellAddress::parse_a1("B4").unwrap(),
+        ).unwrap();
+        assert_eq!(stats.cells, 8);
+        assert_eq!(stats.numbers, 2);
+        assert_eq!(stats.text, 1);
+        assert_eq!(stats.booleans, 1);
+        assert_eq!(stats.errors, 0);
+        assert_eq!(stats.blanks, 4);
+        assert_eq!(stats.sum, 16.0);
+        assert!(workbook.range_statistics(999, a1, a1).is_err());
+    }
+
     #[test]
     fn csv_import_export_preserves_types_formulas_and_quoted_text() {
         let csv = "Name,Amount,Enabled,Formula\r\n\"Widget, A\",12.5,true,=B2*2\r\n\"She said \"\"hello\"\"\",,false,";
