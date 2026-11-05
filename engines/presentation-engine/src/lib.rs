@@ -205,7 +205,6 @@ pub enum DistributionAxis {
     Vertical,
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum ElementKind {
     Text {
@@ -699,7 +698,9 @@ impl Presentation {
         alignment: ElementAlignment,
     ) -> io::Result<()> {
         if element_ids.len() < 2 {
-            return Err(invalid_input("at least two elements are required for alignment"));
+            return Err(invalid_input(
+                "at least two elements are required for alignment",
+            ));
         }
         let slide = self
             .slide(slide_id)
@@ -781,7 +782,9 @@ impl Presentation {
         axis: DistributionAxis,
     ) -> io::Result<()> {
         if element_ids.len() < 3 {
-            return Err(invalid_input("at least three elements are required for distribution"));
+            return Err(invalid_input(
+                "at least three elements are required for distribution",
+            ));
         }
         let slide = self
             .slide(slide_id)
@@ -831,7 +834,9 @@ impl Presentation {
             .sum();
         let gap = (extent_end - extent_start - total_size) / (indices.len() - 1) as f32;
         if !gap.is_finite() || gap < 0.0 {
-            return Err(invalid_input("selected elements do not fit in the distribution range"));
+            return Err(invalid_input(
+                "selected elements do not fit in the distribution range",
+            ));
         }
 
         let mut cursor = extent_start;
@@ -1790,11 +1795,49 @@ mod tests {
     fn aligns_selected_elements_without_changing_their_sizes_or_order() {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
-        let first = deck.add_shape(slide, rect(10.0, 20.0, 100.0, 40.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
-        let second = deck.add_shape(slide, rect(250.0, 80.0, 60.0, 30.0), ShapeKind::Ellipse, None, None, 0.0).unwrap();
-        let third = deck.add_shape(slide, rect(500.0, 10.0, 80.0, 50.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
-        let order = deck.slide(slide).unwrap().elements().iter().map(SlideElement::id).collect::<Vec<_>>();
-        deck.align_elements(slide, &[first, second, third], ElementAlignment::CenterVertical).unwrap();
+        let first = deck
+            .add_shape(
+                slide,
+                rect(10.0, 20.0, 100.0, 40.0),
+                ShapeKind::Rectangle,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+        let second = deck
+            .add_shape(
+                slide,
+                rect(250.0, 80.0, 60.0, 30.0),
+                ShapeKind::Ellipse,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+        let third = deck
+            .add_shape(
+                slide,
+                rect(500.0, 10.0, 80.0, 50.0),
+                ShapeKind::Rectangle,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+        let order = deck
+            .slide(slide)
+            .unwrap()
+            .elements()
+            .iter()
+            .map(SlideElement::id)
+            .collect::<Vec<_>>();
+        deck.align_elements(
+            slide,
+            &[first, second, third],
+            ElementAlignment::CenterVertical,
+        )
+        .unwrap();
         let elements = deck.slide(slide).unwrap();
         let first_bounds = elements.element(first).unwrap().bounds();
         let second_bounds = elements.element(second).unwrap().bounds();
@@ -1802,25 +1845,73 @@ mod tests {
         assert_eq!(first_bounds.y + first_bounds.height / 2.0, 60.0);
         assert_eq!(second_bounds.y + second_bounds.height / 2.0, 60.0);
         assert_eq!(third_bounds.y + third_bounds.height / 2.0, 60.0);
-        assert_eq!((first_bounds.width, second_bounds.width, third_bounds.width), (100.0, 60.0, 80.0));
-        assert_eq!(elements.elements().iter().map(SlideElement::id).collect::<Vec<_>>(), order);
+        assert_eq!(
+            (first_bounds.width, second_bounds.width, third_bounds.width),
+            (100.0, 60.0, 80.0)
+        );
+        assert_eq!(
+            elements
+                .elements()
+                .iter()
+                .map(SlideElement::id)
+                .collect::<Vec<_>>(),
+            order
+        );
     }
 
     #[test]
     fn distributes_elements_evenly_and_rejects_invalid_selections_atomically() {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
-        let first = deck.add_shape(slide, rect(0.0, 0.0, 20.0, 10.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
-        let middle = deck.add_shape(slide, rect(100.0, 0.0, 20.0, 10.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
-        let last = deck.add_shape(slide, rect(200.0, 0.0, 20.0, 10.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
-        deck.distribute_elements(slide, &[last, first, middle], DistributionAxis::Horizontal).unwrap();
+        let first = deck
+            .add_shape(
+                slide,
+                rect(0.0, 0.0, 20.0, 10.0),
+                ShapeKind::Rectangle,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+        let middle = deck
+            .add_shape(
+                slide,
+                rect(100.0, 0.0, 20.0, 10.0),
+                ShapeKind::Rectangle,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+        let last = deck
+            .add_shape(
+                slide,
+                rect(200.0, 0.0, 20.0, 10.0),
+                ShapeKind::Rectangle,
+                None,
+                None,
+                0.0,
+            )
+            .unwrap();
+        deck.distribute_elements(
+            slide,
+            &[last, first, middle],
+            DistributionAxis::Horizontal,
+        )
+        .unwrap();
         let elements = deck.slide(slide).unwrap();
         assert_eq!(elements.element(first).unwrap().bounds().x(), 0.0);
         assert_eq!(elements.element(middle).unwrap().bounds().x(), 100.0);
         assert_eq!(elements.element(last).unwrap().bounds().x(), 200.0);
         let revision = deck.revision();
-        assert!(deck.align_elements(slide, &[first, first], ElementAlignment::Left).is_err());
-        assert!(deck.distribute_elements(slide, &[first, middle], DistributionAxis::Horizontal).is_err());
+        assert!(
+            deck.align_elements(slide, &[first, first], ElementAlignment::Left)
+                .is_err()
+        );
+        assert!(
+            deck.distribute_elements(slide, &[first, middle], DistributionAxis::Horizontal)
+                .is_err()
+        );
         assert_eq!(deck.revision(), revision);
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
