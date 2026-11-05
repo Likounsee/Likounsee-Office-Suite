@@ -866,7 +866,7 @@ impl Workbook {
                             let column_delta = destination.column() as i64 - source.column() as i64;
                             *formula = translate_formula(formula, row_delta, column_delta)?;
                         }
-                        Ok(cell)
+                        Ok::<Cell, io::Error>(cell)
                     })
                     .transpose()?;
                 snapshot.push((destination, copied));
