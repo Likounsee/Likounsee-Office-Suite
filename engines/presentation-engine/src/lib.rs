@@ -1762,7 +1762,6 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
                 return Err(invalid_input("invalid PNG IEND placement or image data"));
             }
             has_end = true;
-            offset = chunk_end;
             break;
         }
 
@@ -3037,10 +3036,10 @@ mod tests {
         let raw = [0, 0, 0, 0, 0];
         let mut compressed = vec![0x78, 0x01, 0x01, 0x05, 0x00, 0xfa, 0xff];
         compressed.extend_from_slice(&raw);
-        let adler_a = raw
-            .iter()
-            .fold(1u32, |a, byte| (a + u32::from(*byte)) % 65521);
-        let adler_b = raw.iter().fold(0u32, |b, byte| (b + adler_a) % 65521);
+        let (adler_a, adler_b) = raw.iter().fold((1u32, 0u32), |(a, b), byte| {
+            let a = (a + u32::from(*byte)) % 65521;
+            (a, (b + a) % 65521)
+        });
         compressed.extend_from_slice(&((adler_b << 16) | adler_a).to_be_bytes());
         append_chunk(&mut png, b"IDAT", &compressed);
         append_chunk(&mut png, b"IEND", &[]);
