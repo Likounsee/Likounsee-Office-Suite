@@ -286,8 +286,10 @@ impl DependencyIndex {
         address: CellAddress,
     ) -> io::Result<Vec<CellKey>> {
         let source = (sheet_id, address);
-        let mut affected: std::collections::BTreeSet<CellKey> =
-            self.transitive_dependents_of(sheet_id, address).into_iter().collect();
+        let mut affected: std::collections::BTreeSet<CellKey> = self
+            .transitive_dependents_of(sheet_id, address)
+            .into_iter()
+            .collect();
         if self.forward.contains_key(&source) {
             affected.insert(source);
         }
@@ -295,8 +297,7 @@ impl DependencyIndex {
             return Ok(Vec::new());
         }
 
-        let mut indegree: BTreeMap<CellKey, usize> =
-            affected.iter().map(|key| (*key, 0)).collect();
+        let mut indegree: BTreeMap<CellKey, usize> = affected.iter().map(|key| (*key, 0)).collect();
         let mut outgoing: BTreeMap<CellKey, Vec<CellKey>> = BTreeMap::new();
         for formula in &affected {
             for dependency in self.dependencies_of(formula.0, formula.1) {
@@ -345,7 +346,6 @@ fn remove_reverse_edge(
         }
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workbook {
@@ -1929,7 +1929,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn dependency_index_updates_only_edited_formula_edges() {
         let mut book = Workbook::new();
@@ -1996,7 +1995,8 @@ mod tests {
 
         book.set_number(data, a2, 10.0).unwrap();
         assert_eq!(
-            book.recalculate_after_change_with_index(&index, data, a2).unwrap(),
+            book.recalculate_after_change_with_index(&index, data, a2)
+                .unwrap(),
             vec![
                 ((report, b1), CellValue::Number(12.0)),
                 ((report, c1), CellValue::Number(48.0)),
