@@ -271,6 +271,31 @@ impl PresentationTheme {
     }
 }
 
+impl PresentationTheme {
+    /// Built-in light theme for general-purpose decks.
+    pub fn light() -> Self {
+        Self::default()
+    }
+
+    /// Built-in dark theme with high-contrast text and a blue accent.
+    pub fn dark() -> Self {
+        Self::new("Dark", 0x171a21, "Arial", "Arial", 0xf5f7fa, 0xd8dee9, 0x62a0ea)
+            .expect("built-in dark theme is valid")
+    }
+
+    /// Built-in business theme with restrained navy and teal colors.
+    pub fn business() -> Self {
+        Self::new("Business", 0xffffff, "Arial", "Arial", 0x142b4a, 0x334155, 0x0f8b8d)
+            .expect("built-in business theme is valid")
+    }
+
+    /// Built-in high-contrast theme for improved legibility.
+    pub fn high_contrast() -> Self {
+        Self::new("High contrast", 0x000000, "Arial", "Arial", 0xffffff, 0xffffff, 0xffff00)
+            .expect("built-in high-contrast theme is valid")
+    }
+}
+
 impl Default for PresentationTheme {
     fn default() -> Self {
         Self::new(
@@ -2226,6 +2251,26 @@ mod tests {
         let unchanged_revision = deck.revision();
         deck.apply_theme(&theme).unwrap();
         assert_eq!(deck.revision(), unchanged_revision);
+    }
+
+    #[test]
+    fn built_in_theme_presets_are_valid_and_distinct() {
+        let themes = [
+            PresentationTheme::light(),
+            PresentationTheme::dark(),
+            PresentationTheme::business(),
+            PresentationTheme::high_contrast(),
+        ];
+        for theme in &themes {
+            assert!(!theme.name().is_empty());
+            assert!(theme.background() <= 0x00ff_ffff);
+            assert!(theme.title_color() <= 0x00ff_ffff);
+            assert!(theme.body_color() <= 0x00ff_ffff);
+            assert!(theme.accent_color() <= 0x00ff_ffff);
+        }
+        assert_ne!(themes[0], themes[1]);
+        assert_ne!(themes[1], themes[2]);
+        assert_ne!(themes[2], themes[3]);
     }
 
     #[test]
