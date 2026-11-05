@@ -4563,8 +4563,8 @@ mod tests {
         deck.rename_slide(deck.slides()[0].id(), "Opening").unwrap();
         let second = deck.add_slide("Details").unwrap();
         let first = deck.slides()[0].id();
-        deck.add_shape(first, Bounds::new(10.0, 10.0, 100.0, 50.0).unwrap(), ShapeKind::Arrow, 0x112233, 0x445566, 2.0).unwrap();
-        deck.add_shape(second, Bounds::new(20.0, 20.0, 120.0, 60.0).unwrap(), ShapeKind::Arrow, 0x112233, 0x445566, 2.0).unwrap();
+        deck.add_shape(first, Rect::new(10.0, 10.0, 100.0, 50.0).unwrap(), ShapeKind::Arrow, Some(0x112233), Some(0x445566), 2.0).unwrap();
+        deck.add_shape(second, Rect::new(20.0, 20.0, 120.0, 60.0).unwrap(), ShapeKind::Arrow, Some(0x112233), Some(0x445566), 2.0).unwrap();
         let html = export_presentation_html(&deck).unwrap();
         assert!(html.contains("1. Opening"));
         assert!(html.contains("2. Details"));
