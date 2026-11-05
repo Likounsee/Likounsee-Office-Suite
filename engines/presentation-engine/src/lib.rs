@@ -3,6 +3,7 @@
 //! Coordinates are expressed in points. Image sources are references (paths or
 //! URIs); the engine does not decode or embed image bytes yet.
 
+use std::fmt::Write as FmtWrite;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -1499,6 +1500,126 @@ impl Presentation {
     }
 }
 
+/// Render a slide to SVG. Image references remain external and are not embedded.
+pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Result<String> {
+    presentation.validate()?;
+    let slide = presentation
+        .slide(slide_id)
+        .ok_or_else(|| invalid_input("slide does not exist"))?;
+    let mut svg = String::with_capacity(4096);
+    writeln!(
+        svg,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{}pt" height="{}pt" viewBox="0 0 {} {}" role="img" aria-label="{}">"#,
+        presentation.width,
+        presentation.height,
+        presentation.width,
+        presentation.height,
+        escape_xml(&slide.name)
+    )
+    .expect("writing to String cannot fail");
+    writeln!(svg, "<title>{}</title>", escape_xml(&slide.name))
+        .expect("writing to String cannot fail");
+    svg.push_str("<defs><marker id=\"arrowhead\" markerWidth=\"10\" markerHeight=\"7\" refX=\"9\" refY=\"3.5\" orient=\"auto\"><polygon points=\"0 0, 10 3.5, 0 7\" fill=\"context-stroke\"/></marker></defs>\n");
+    writeln!(
+        svg,
+        "<rect x=\"0\" y=\"0\" width=\"100%\" height=\"100%\" fill=\"#{:06x}\"/>",
+        slide.background
+    )
+    .expect("writing to String cannot fail");
+
+    for element in &slide.elements {
+        let bounds = element.bounds;
+        match &element.kind {
+            ElementKind::Text { text, style } => {
+                let (anchor, x) = match style.alignment {
+                    TextAlignment::Left | TextAlignment::Justify => ("start", bounds.x),
+                    TextAlignment::Center => ("middle", bounds.x + bounds.width / 2.0),
+                    TextAlignment::Right => ("end", bounds.x + bounds.width),
+                };
+                let decoration = if style.underline { "underline" } else { "none" };
+                let weight = if style.bold { "bold" } else { "normal" };
+                let italic = if style.italic { "italic" } else { "normal" };
+                writeln!(
+                    svg,
+                    "<text id=\"element-{}\" x=\"{}\" y=\"{}\" fill=\"#{:06x}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\" text-anchor=\"{}\" text-decoration=\"{}\">",
+                    element.id, x, bounds.y + style.font_size, style.color,
+                    escape_xml(&style.font_family), style.font_size, weight, italic,
+                    anchor, decoration
+                )
+                .expect("writing to String cannot fail");
+                for (index, line) in text.split('\n').enumerate() {
+                    if index == 0 {
+                        writeln!(svg, "<tspan x=\"{}\">{}</tspan>", x, escape_xml(line))
+                            .expect("writing to String cannot fail");
+                    } else {
+                        writeln!(
+                            svg,
+                            "<tspan x=\"{}\" dy=\"{}\">{}</tspan>",
+                            x,
+                            style.font_size * 1.2,
+                            escape_xml(line)
+                        )
+                        .expect("writing to String cannot fail");
+                    }
+                }
+                svg.push_str("</text>\n");
+            }
+            ElementKind::Shape { shape, fill, stroke, stroke_width } => {
+                let fill = fill.map_or_else(|| "none".to_owned(), |color| format!("#{color:06x}"));
+                let stroke = stroke.map_or_else(|| "none".to_owned(), |color| format!("#{color:06x}"));
+                match shape {
+                    ShapeKind::Rectangle => writeln!(
+                        svg,
+                        "<rect id=\"element-{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"/>",
+                        element.id, bounds.x, bounds.y, bounds.width, bounds.height, fill, stroke, stroke_width
+                    ),
+                    ShapeKind::Ellipse => writeln!(
+                        svg,
+                        "<ellipse id=\"element-{}\" cx=\"{}\" cy=\"{}\" rx=\"{}\" ry=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"/>",
+                        element.id, bounds.x + bounds.width / 2.0, bounds.y + bounds.height / 2.0,
+                        bounds.width / 2.0, bounds.height / 2.0, fill, stroke, stroke_width
+                    ),
+                    ShapeKind::Line | ShapeKind::Arrow => {
+                        let stroke = if stroke == "none" { "#000000" } else { &stroke };
+                        let marker = if *shape == ShapeKind::Arrow {
+                            " marker-end=\"url(#arrowhead)\""
+                        } else {
+                            ""
+                        };
+                        writeln!(
+                            svg,
+                            "<line id=\"element-{}\" x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"{}\"{}/>",
+                            element.id, bounds.x, bounds.y, bounds.x + bounds.width,
+                            bounds.y + bounds.height, stroke, (*stroke_width).max(1.0), marker
+                        )
+                    }
+                }
+                .expect("writing to String cannot fail");
+            }
+            ElementKind::Image { source, alt_text } => {
+                writeln!(
+                    svg,
+                    "<image id=\"element-{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" xlink:href=\"{}\" preserveAspectRatio=\"xMidYMid meet\"><title>{}</title></image>",
+                    element.id, bounds.x, bounds.y, bounds.width, bounds.height,
+                    escape_xml(source), escape_xml(source), escape_xml(alt_text)
+                )
+                .expect("writing to String cannot fail");
+            }
+        }
+    }
+    svg.push_str("</svg>\n");
+    Ok(svg)
+}
+
+fn escape_xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 pub fn encode_presentation(presentation: &Presentation) -> io::Result<Vec<u8>> {
     presentation.validate()?;
     let mut out = Vec::new();
@@ -2347,6 +2468,43 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn svg_renderer_outputs_text_shapes_and_external_images() {
+        let mut deck = Presentation::new("SVG & test", 800.0, 450.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let mut style = TextStyle::new("Inter & Sans", 28.0, 0x123456).unwrap();
+        style.set_emphasis(true, true, true);
+        style.set_alignment(TextAlignment::Center);
+        deck.add_text(slide, rect(20.0, 30.0, 300.0, 60.0), "Hello <world> & everyone", style).unwrap();
+        deck.add_shape(slide, rect(40.0, 120.0, 100.0, 80.0), ShapeKind::Rectangle, Some(0xaabbcc), Some(0x010203), 2.0).unwrap();
+        deck.add_shape(slide, rect(180.0, 120.0, 100.0, 80.0), ShapeKind::Ellipse, None, Some(0x334455), 3.0).unwrap();
+        deck.add_shape(slide, rect(300.0, 120.0, 100.0, 80.0), ShapeKind::Arrow, None, Some(0x556677), 2.0).unwrap();
+        deck.add_image(slide, rect(420.0, 120.0, 160.0, 100.0), "assets/photo & chart.png", "A <chart>").unwrap();
+        let svg = render_slide_svg(&deck, slide).unwrap();
+        assert!(svg.starts_with("<svg "));
+        assert!(svg.contains("SVG &amp; test"));
+        assert!(svg.contains("Hello &lt;world&gt; &amp; everyone"));
+        assert!(svg.contains("font-family=\"Inter &amp; Sans\""));
+        assert!(svg.contains("text-decoration=\"underline\""));
+        assert!(svg.contains("<rect id=\"element-"));
+        assert!(svg.contains("<ellipse id=\"element-"));
+        assert!(svg.contains("marker-end=\"url(#arrowhead)\""));
+        assert!(svg.contains("assets/photo &amp; chart.png"));
+        assert!(svg.contains("<title>A &lt;chart&gt;</title>"));
+        assert!(svg.ends_with("</svg>\n"));
+    }
+
+    #[test]
+    fn svg_renderer_rejects_missing_slides_and_keeps_newlines() {
+        let mut deck = Presentation::new("SVG", 320.0, 200.0).unwrap();
+        let slide = deck.slides()[0].id();
+        deck.add_text(slide, rect(10.0, 10.0, 200.0, 100.0), "First\nSecond", TextStyle::default()).unwrap();
+        assert!(render_slide_svg(&deck, 999).is_err());
+        let svg = render_slide_svg(&deck, slide).unwrap();
+        assert!(svg.contains("<tspan x=\"10\">First</tspan>"));
+        assert!(svg.contains("dy=\"28.8\">Second</tspan>"));
+    }
+
     fn applies_global_theme_to_all_slides_and_preserves_element_properties() {
         let mut deck = Presentation::new("Theme test", 960.0, 540.0).unwrap();
         let first = deck.slides()[0].id();
