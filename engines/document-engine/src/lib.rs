@@ -3889,6 +3889,29 @@ mod tests {
     }
 
     #[test]
+    fn move_table_column_preserves_cell_identity_and_width() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(2, 3).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "A").unwrap();
+        session.set_table_cell_text(table_id, 0, 1, "B").unwrap();
+        session.set_table_cell_text(table_id, 0, 2, "C").unwrap();
+        let table = &session.document().tables()[0];
+        let cell_ids = table.rows()[0].cells().iter().map(TableCell::id).collect::<Vec<_>>();
+        let widths = table.column_widths_twips().to_vec();
+        let revision = session.document().revision();
+        assert_eq!(session.move_table_column(table_id, 0, 2).unwrap(), cell_ids[0]);
+        let table = &session.document().tables()[0];
+        assert_eq!(table.rows()[0].cells()[0].text(), "B");
+        assert_eq!(table.rows()[0].cells()[1].text(), "C");
+        assert_eq!(table.rows()[0].cells()[2].text(), "A");
+        assert_eq!(table.rows()[0].cells()[2].id(), cell_ids[0]);
+        assert_eq!(table.column_widths_twips(), &[widths[1], widths[2], widths[0]]);
+        assert_eq!(session.document().revision(), revision + 1);
+        assert!(session.move_table_column(table_id, 0, 9).is_err());
+    }
+
+    #[test]
     fn clear_table_row_preserves_cell_identity_and_skips_empty_rows() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();

@@ -5288,6 +5288,32 @@ mod session_tests {
     }
 
     #[test]
+    fn session_transpose_range_is_journaled_and_clears_blank_destinations() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let sheet = session.workbook().sheets()[0].id();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let d4 = CellAddress::parse_a1("D4").unwrap();
+        let e4 = CellAddress::parse_a1("E4").unwrap();
+        let f5 = CellAddress::parse_a1("F5").unwrap();
+        let g5 = CellAddress::parse_a1("G5").unwrap();
+        session.set_number(sheet, a1, 11.0).unwrap();
+        session.set_number(sheet, b1, 22.0).unwrap();
+        session.set_number(sheet, f5, 99.0).unwrap();
+        session.set_number(sheet, g5, 88.0).unwrap();
+        assert_eq!(session.transpose_range(sheet, a1, b1, d4).unwrap(), 2);
+        assert_eq!(session.workbook().value(sheet, d4), CellValue::Number(11.0));
+        assert_eq!(session.workbook().value(sheet, CellAddress::parse_a1("D5").unwrap()), CellValue::Number(22.0));
+        let revision = session.workbook().sheets()[0].stored_cell_count();
+        assert_eq!(session.transpose_range(sheet, CellAddress::parse_a1("C1").unwrap(), CellAddress::parse_a1("D1").unwrap(), f5).unwrap(), 0);
+        assert_eq!(session.workbook().sheets()[0].stored_cell_count(), revision - 2);
+        session.save_now().unwrap();
+        let reopened = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(reopened.workbook().value(sheet, d4), CellValue::Number(11.0));
+    }
+
+    #[test]
     fn session_fill_boolean_range_updates_values_and_dependency_index() {
         let directory = TestDirectory::new();
         let a1 = CellAddress::parse_a1("A1").unwrap();

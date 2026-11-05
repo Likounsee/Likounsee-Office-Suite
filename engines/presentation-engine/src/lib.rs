@@ -4955,6 +4955,27 @@ mod tests {
     }
 
     #[test]
+    fn batch_bounds_update_is_atomic_and_advances_revision_once() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let first = deck.add_shape(slide, rect(10.0, 10.0, 20.0, 20.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
+        let second = deck.add_shape(slide, rect(40.0, 40.0, 30.0, 30.0), ShapeKind::Ellipse, None, None, 0.0).unwrap();
+        let revision = deck.revision();
+        assert_eq!(deck.set_element_bounds_batch(slide, &[
+            (first, rect(100.0, 110.0, 25.0, 25.0)),
+            (second, rect(200.0, 210.0, 35.0, 35.0)),
+        ]).unwrap(), 2);
+        assert_eq!(deck.revision(), revision + 1);
+        assert_eq!(deck.slide(slide).unwrap().element(first).unwrap().bounds(), rect(100.0, 110.0, 25.0, 25.0));
+        let before = deck.clone();
+        assert!(deck.set_element_bounds_batch(slide, &[
+            (first, rect(1.0, 1.0, 10.0, 10.0)),
+            (first, rect(2.0, 2.0, 10.0, 10.0)),
+        ]).is_err());
+        assert_eq!(deck, before);
+    }
+
+    #[test]
     fn aligns_selected_elements_without_changing_their_sizes_or_order() {
         let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
