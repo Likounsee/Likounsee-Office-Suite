@@ -4580,7 +4580,10 @@ mod tests {
         deck.set_slide_notes(first, "Welcome & objectives").unwrap();
         let second = deck.add_slide("Conclusion").unwrap();
         let markdown = export_speaker_notes_markdown(&deck).unwrap();
-        assert!(markdown.find("## 1. Introduction").unwrap() < markdown.find("## 2. Conclusion").unwrap());
+        assert!(
+            markdown.find("## 1. Introduction").unwrap()
+                < markdown.find("## 2. Conclusion").unwrap()
+        );
         assert!(markdown.contains("Welcome & objectives"));
         assert!(markdown.contains("_No speaker notes._"));
         assert!(markdown.contains("# Training — Speaker notes"));
