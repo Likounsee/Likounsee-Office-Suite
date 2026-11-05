@@ -634,6 +634,52 @@ impl Workbook {
         Ok(count)
     }
 
+    /// Fill an inclusive rectangular range with the same text value.
+    /// The entire range and worksheet capacity are checked before any cell is changed.
+    pub fn fill_text_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+        value: impl Into<String>,
+    ) -> io::Result<usize> {
+        let value = value.into();
+        validate_string(&value)?;
+        let sheet = self
+            .sheets
+            .iter()
+            .find(|sheet| sheet.id == sheet_id)
+            .ok_or_else(|| invalid_input("unknown worksheet"))?;
+        let min_row = start.row().min(end.row());
+        let max_row = start.row().max(end.row());
+        let min_column = start.column().min(end.column());
+        let max_column = start.column().max(end.column());
+        let rows = (max_row - min_row + 1) as usize;
+        let columns = (max_column - min_column + 1) as usize;
+        let count = rows
+            .checked_mul(columns)
+            .filter(|count| *count <= MAX_CELLS)
+            .ok_or_else(|| invalid_input("fill range exceeds the cell limit"))?;
+        let new_cells = (min_row..=max_row)
+            .flat_map(|row| (min_column..=max_column).map(move |column| (row, column)))
+            .filter(|(row, column)| {
+                !sheet.cells.contains_key(&CellAddress {
+                    row: *row,
+                    column: *column,
+                })
+            })
+            .count();
+        if sheet.cells.len().saturating_add(new_cells) > MAX_CELLS {
+            return Err(invalid_input("worksheet cell limit reached"));
+        }
+        for row in min_row..=max_row {
+            for column in min_column..=max_column {
+                self.set_text(sheet_id, CellAddress::new(row, column)?, value.clone())?;
+            }
+        }
+        Ok(count)
+    }
+
     /// Clear every stored value or formula in an inclusive rectangular range.
     /// The operation is bounded by MAX_CELLS and leaves cells outside the range untouched.
     pub fn clear_range(
@@ -5141,4 +5187,38 @@ mod session_tests {
                 .is_err()
         );
     }
+    
+    #[test]
+    fn fill_text_range_populates_rectangle_and_normalizes_reversed_bounds() {
+        let mut workbook = Workbook::new();
+        let sheet = workbook.sheets()[0].id();
+        assert_eq!(
+            workbook
+                .fill_text_range(
+                    sheet,
+                    CellAddress::parse_a1("C3").unwrap(),
+                    CellAddress::parse_a1("B2").unwrap(),
+                    "label",
+                )
+                .unwrap(),
+            4
+        );
+        for address in ["B2", "C2", "B3", "C3"] {
+            assert_eq!(
+                workbook.value(sheet, CellAddress::parse_a1(address).unwrap()),
+                CellValue::Text("label".to_owned())
+            );
+        }
+        assert!(
+            workbook
+                .fill_text_range(
+                    sheet,
+                    CellAddress::new(0, 0).unwrap(),
+                    CellAddress::new(1000, 1000).unwrap(),
+                    "x",
+                )
+                .is_err()
+        );
+    }
+
 }

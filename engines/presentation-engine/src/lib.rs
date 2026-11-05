@@ -1544,6 +1544,32 @@ impl Presentation {
         elements.insert(new_index, element);
         Ok(())
     }
+    /// Move an element to the front of the slide's stacking order.
+    pub fn bring_element_to_front(
+        &mut self,
+        slide_id: u64,
+        element_id: u64,
+    ) -> io::Result<()> {
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        let target = slide
+            .elements
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| invalid_input("slide has no elements"))?;
+        self.move_element(slide_id, element_id, target)
+    }
+
+    /// Move an element to the back of the slide's stacking order.
+    pub fn send_element_to_back(
+        &mut self,
+        slide_id: u64,
+        element_id: u64,
+    ) -> io::Result<()> {
+        self.move_element(slide_id, element_id, 0)
+    }
+
     /// Duplicate an element directly after its source, assigning a fresh stable ID.
     pub fn duplicate_element(&mut self, slide_id: u64, element_id: u64) -> io::Result<u64> {
         let slide = self
@@ -5255,4 +5281,44 @@ mod tests {
             vec![(first, second)]
         );
     }
+    
+    #[test]
+    fn element_z_order_helpers_move_elements_to_front_and_back() {
+        let mut presentation = Presentation::new("Layers", 100.0, 80.0).unwrap();
+        let slide_id = presentation.slides()[0].id();
+        let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
+        let first = presentation
+            .add_text(slide_id, rect(0.0, 0.0, 10.0, 10.0), "First", style.clone())
+            .unwrap();
+        let second = presentation
+            .add_text(slide_id, rect(10.0, 0.0, 10.0, 10.0), "Second", style.clone())
+            .unwrap();
+        let third = presentation
+            .add_text(slide_id, rect(20.0, 0.0, 10.0, 10.0), "Third", style)
+            .unwrap();
+        presentation.bring_element_to_front(slide_id, first).unwrap();
+        assert_eq!(
+            presentation
+                .slide(slide_id)
+                .unwrap()
+                .elements()
+                .iter()
+                .map(|element| element.id())
+                .collect::<Vec<_>>(),
+            vec![second, third, first]
+        );
+        presentation.send_element_to_back(slide_id, first).unwrap();
+        assert_eq!(
+            presentation
+                .slide(slide_id)
+                .unwrap()
+                .elements()
+                .iter()
+                .map(|element| element.id())
+                .collect::<Vec<_>>(),
+            vec![first, second, third]
+        );
+        assert!(presentation.bring_element_to_front(u64::MAX, first).is_err());
+    }
+
 }

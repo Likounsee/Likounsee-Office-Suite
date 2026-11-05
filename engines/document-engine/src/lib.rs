@@ -2542,6 +2542,30 @@ impl DocumentSession {
         Ok(id)
     }
 
+    /// Clear paragraph style, list metadata and inline marks while retaining text and IDs.
+    pub fn clear_paragraph_formatting(&mut self, paragraph_id: u64) -> io::Result<u64> {
+        let mut paragraphs = self.document.paragraphs.clone();
+        let paragraph = paragraphs
+            .iter_mut()
+            .find(|paragraph| paragraph.id == paragraph_id)
+            .ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        if paragraph.style == ParagraphStyle::Normal
+            && paragraph.list_kind == ListKind::None
+            && paragraph.list_level == 0
+            && paragraph.spans.is_empty()
+        {
+            return Ok(self.document.revision);
+        }
+        paragraph.style = ParagraphStyle::Normal;
+        paragraph.list_kind = ListKind::None;
+        paragraph.list_level = 0;
+        paragraph.spans.clear();
+        let next = self
+            .document
+            .with_paragraphs(paragraphs, self.document.next_block_id)?;
+        self.record_change(next)
+    }
+
     /// Remove a paragraph while preserving at least one editable paragraph.
     pub fn delete_paragraph(&mut self, paragraph_id: u64) -> io::Result<u64> {
         if self.document.paragraphs.len() == 1 {
@@ -3594,4 +3618,26 @@ mod tests {
             io::ErrorKind::InvalidInput
         );
     }
+    
+    #[test]
+    fn clear_paragraph_formatting_preserves_text_identity_and_revision_on_noop() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("Test paragraph").unwrap();
+        let paragraph_id = session.document().paragraphs()[0].id();
+        session.set_paragraph_style(paragraph_id, ParagraphStyle::Heading1).unwrap();
+        session.set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true).unwrap();
+        let before = session.document().revision();
+        session.clear_paragraph_formatting(paragraph_id).unwrap();
+        let paragraph = &session.document().paragraphs()[0];
+        assert_eq!(paragraph.id(), paragraph_id);
+        assert_eq!(paragraph.text(), "Test paragraph");
+        assert_eq!(paragraph.style(), ParagraphStyle::Normal);
+        assert_eq!(paragraph.spans().len(), 0);
+        assert_eq!(session.document().revision(), before + 1);
+        let revision = session.document().revision();
+        session.clear_paragraph_formatting(paragraph_id).unwrap();
+        assert_eq!(session.document().revision(), revision);
+    }
+
 }
