@@ -155,6 +155,189 @@ impl Worksheet {
 /// Stable worksheet/cell identity used by dependency graph APIs.
 pub type CellKey = (u64, CellAddress);
 
+/// Reusable forward/reverse dependency index for incremental formula updates.
+/// The owner must call update_cell(s) after edits, or rebuild after sheet
+/// renames/removals that can change the meaning of sheet-name references.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DependencyIndex {
+    forward: BTreeMap<CellKey, Vec<CellKey>>,
+    reverse: BTreeMap<CellKey, Vec<CellKey>>,
+}
+
+impl DependencyIndex {
+    pub fn build(workbook: &Workbook) -> io::Result<Self> {
+        let mut index = Self::default();
+        for sheet in &workbook.sheets {
+            for (address, cell) in &sheet.cells {
+                if cell.is_formula() {
+                    index.update_cell(workbook, sheet.id, *address)?;
+                }
+            }
+        }
+        Ok(index)
+    }
+
+    /// Update one formula's outgoing edges after its source cell was edited.
+    /// Existing reverse edges are removed before the new formula is scanned.
+    pub fn update_cell(
+        &mut self,
+        workbook: &Workbook,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<()> {
+        let key = (sheet_id, address);
+        if let Some(previous) = self.forward.remove(&key) {
+            for dependency in previous {
+                remove_reverse_edge(&mut self.reverse, dependency, key);
+            }
+        }
+
+        if let Some(cell) = workbook.sheet(sheet_id).and_then(|sheet| sheet.cell(address)) {
+            if let Some(formula) = cell.formula() {
+                let dependencies = formula_dependencies(workbook, sheet_id, formula)?;
+                for dependency in &dependencies {
+                    let entries = self.reverse.entry(*dependency).or_default();
+                    if !entries.contains(&key) {
+                        entries.push(key);
+                        entries.sort_unstable();
+                    }
+                }
+                self.forward.insert(key, dependencies);
+            }
+        }
+        Ok(())
+    }
+
+    /// Refresh multiple edited cells while preserving unaffected graph edges.
+    pub fn update_cells<I>(&mut self, workbook: &Workbook, cells: I) -> io::Result<()>
+    where
+        I: IntoIterator<Item = CellKey>,
+    {
+        for (sheet_id, address) in cells {
+            self.update_cell(workbook, sheet_id, address)?;
+        }
+        Ok(())
+    }
+
+    /// Remove every formula node belonging to a deleted worksheet and all
+    /// incoming references to cells on that worksheet.
+    pub fn remove_sheet(&mut self, sheet_id: u64) {
+        let formulas: Vec<CellKey> = self
+            .forward
+            .keys()
+            .filter(|(id, _)| *id == sheet_id)
+            .copied()
+            .collect();
+        for key in formulas {
+            if let Some(dependencies) = self.forward.remove(&key) {
+                for dependency in dependencies {
+                    remove_reverse_edge(&mut self.reverse, dependency, key);
+                }
+            }
+        }
+        self.reverse.retain(|(id, _), _| *id != sheet_id);
+        for dependents in self.reverse.values_mut() {
+            dependents.retain(|(id, _)| *id != sheet_id);
+        }
+        self.reverse.retain(|_, dependents| !dependents.is_empty());
+    }
+
+    pub fn dependencies_of(&self, sheet_id: u64, address: CellAddress) -> &[CellKey] {
+        self.forward
+            .get(&(sheet_id, address))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn dependents_of(&self, sheet_id: u64, address: CellAddress) -> &[CellKey] {
+        self.reverse
+            .get(&(sheet_id, address))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn transitive_dependents_of(&self, sheet_id: u64, address: CellAddress) -> Vec<CellKey> {
+        let source = (sheet_id, address);
+        let mut pending = VecDeque::from([source]);
+        let mut visited = std::collections::BTreeSet::from([source]);
+        while let Some(key) = pending.pop_front() {
+            for dependent in self.dependents_of(key.0, key.1) {
+                if visited.insert(*dependent) {
+                    pending.push_back(*dependent);
+                }
+            }
+        }
+        visited.remove(&source);
+        visited.into_iter().collect()
+    }
+
+    pub fn recalculation_order_after_change(
+        &self,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<Vec<CellKey>> {
+        let source = (sheet_id, address);
+        let mut affected: std::collections::BTreeSet<CellKey> =
+            self.transitive_dependents_of(sheet_id, address).into_iter().collect();
+        if self.forward.contains_key(&source) {
+            affected.insert(source);
+        }
+        if affected.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut indegree: BTreeMap<CellKey, usize> =
+            affected.iter().map(|key| (*key, 0)).collect();
+        let mut outgoing: BTreeMap<CellKey, Vec<CellKey>> = BTreeMap::new();
+        for formula in &affected {
+            for dependency in self.dependencies_of(formula.0, formula.1) {
+                if affected.contains(dependency) {
+                    *indegree.get_mut(formula).expect("affected formula exists") += 1;
+                    outgoing.entry(*dependency).or_default().push(*formula);
+                }
+            }
+        }
+
+        let mut ready: std::collections::BTreeSet<CellKey> = indegree
+            .iter()
+            .filter_map(|(key, degree)| (*degree == 0).then_some(*key))
+            .collect();
+        let mut ordered = Vec::with_capacity(affected.len());
+        while let Some(next) = ready.pop_first() {
+            ordered.push(next);
+            if let Some(dependents) = outgoing.get(&next) {
+                for dependent in dependents {
+                    let degree = indegree.get_mut(dependent).expect("dependent is affected");
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.insert(*dependent);
+                    }
+                }
+            }
+        }
+        if ordered.len() != affected.len() {
+            return Err(invalid_input(
+                "formula dependency cycle prevents recalculation order",
+            ));
+        }
+        Ok(ordered)
+    }
+}
+
+fn remove_reverse_edge(
+    reverse: &mut BTreeMap<CellKey, Vec<CellKey>>,
+    dependency: CellKey,
+    formula: CellKey,
+) {
+    if let Some(dependents) = reverse.get_mut(&dependency) {
+        dependents.retain(|dependent| *dependent != formula);
+        if dependents.is_empty() {
+            reverse.remove(&dependency);
+        }
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workbook {
     next_sheet_id: u64,
@@ -515,6 +698,26 @@ impl Workbook {
         address: CellAddress,
     ) -> io::Result<Vec<(CellKey, CellValue)>> {
         let order = self.recalculation_order_after_change(sheet_id, address)?;
+        let mut visiting = HashSet::new();
+        let mut cache = HashMap::new();
+        Ok(order
+            .into_iter()
+            .map(|key| {
+                let value = self.evaluate(key.0, key.1, &mut visiting, &mut cache);
+                (key, value)
+            })
+            .collect())
+    }
+
+    /// Recalculate using a caller-maintained dependency index. Refresh the
+    /// index after every relevant edit before calling this method.
+    pub fn recalculate_after_change_with_index(
+        &self,
+        index: &DependencyIndex,
+        sheet_id: u64,
+        address: CellAddress,
+    ) -> io::Result<Vec<(CellKey, CellValue)>> {
+        let order = index.recalculation_order_after_change(sheet_id, address)?;
         let mut visiting = HashSet::new();
         let mut cache = HashMap::new();
         Ok(order
@@ -1715,6 +1918,103 @@ mod tests {
                 ((1, c1), CellValue::Number(31.0)),
             ]
         );
+    }
+
+
+    #[test]
+    fn dependency_index_updates_only_edited_formula_edges() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        let d1 = CellAddress::parse_a1("D1").unwrap();
+        book.set_formula(1, c1, "=A1+B1").unwrap();
+        book.set_formula(1, d1, "=A1*2").unwrap();
+        let mut index = DependencyIndex::build(&book).unwrap();
+        assert_eq!(index.dependents_of(1, a1), &[(1, c1), (1, d1)]);
+
+        book.set_formula(1, c1, "=B1*3").unwrap();
+        index.update_cell(&book, 1, c1).unwrap();
+        assert_eq!(index.dependencies_of(1, c1), &[(1, b1)]);
+        assert_eq!(index.dependents_of(1, a1), &[(1, d1)]);
+        assert_eq!(index.dependents_of(1, b1), &[(1, c1)]);
+    }
+
+    #[test]
+    fn dependency_index_batches_edits_and_handles_cell_clears() {
+        let mut book = Workbook::new();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        book.set_formula(1, b1, "=A1+1").unwrap();
+        book.set_formula(1, c1, "=B1+1").unwrap();
+        let mut index = DependencyIndex::build(&book).unwrap();
+
+        book.clear_cell(1, b1).unwrap();
+        index.update_cells(&book, [(1, b1), (1, c1)]).unwrap();
+        assert!(index.dependencies_of(1, b1).is_empty());
+        assert!(index.dependents_of(1, b1).is_empty());
+        assert!(index.transitive_dependents_of(1, a1).is_empty());
+    }
+
+    #[test]
+    fn dependency_index_recalculates_cross_sheet_ranges_incrementally() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        book.set_number(data, a1, 2.0).unwrap();
+        book.set_number(data, a2, 3.0).unwrap();
+        book.set_formula(report, b1, "=SUM(Data!A1:A2)").unwrap();
+        book.set_formula(report, c1, "=B1*4").unwrap();
+        let mut index = DependencyIndex::build(&book).unwrap();
+
+        book.set_number(data, a2, 10.0).unwrap();
+        assert_eq!(
+            book.recalculate_after_change_with_index(&index, data, a2).unwrap(),
+            vec![
+                ((report, b1), CellValue::Number(12.0)),
+                ((report, c1), CellValue::Number(48.0)),
+            ]
+        );
+
+        book.set_formula(report, c1, "=B1+100").unwrap();
+        index.update_cell(&book, report, c1).unwrap();
+        assert_eq!(
+            book.recalculate_after_change_with_index(&index, data, a2).unwrap(),
+            vec![
+                ((report, b1), CellValue::Number(12.0)),
+                ((report, c1), CellValue::Number(112.0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn dependency_index_removes_deleted_sheets_and_detects_cycles() {
+        let mut book = Workbook::new();
+        let data = book.add_sheet("Data").unwrap();
+        let report = book.add_sheet("Report").unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        book.set_formula(report, b1, "=Data!A1").unwrap();
+        book.set_formula(report, c1, "=B1+1").unwrap();
+        let mut index = DependencyIndex::build(&book).unwrap();
+        assert_eq!(index.dependents_of(data, a1), &[(report, b1)]);
+
+        book.remove_sheet(data).unwrap();
+        index.remove_sheet(data);
+        assert!(index.dependents_of(data, a1).is_empty());
+        assert_eq!(index.dependencies_of(report, b1), &[]);
+
+        book.set_formula(1, a1, "=C1+1").unwrap();
+        index.update_cell(&book, 1, a1).unwrap();
+        book.set_formula(1, c1, "=A1+1").unwrap();
+        index.update_cell(&book, 1, c1).unwrap();
+        assert!(index.recalculation_order_after_change(1, a1).is_err());
     }
 
     #[test]
