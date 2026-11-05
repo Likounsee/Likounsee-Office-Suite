@@ -6,3 +6,4 @@ rust-version.workspace = true
 [dependencies]
 suite-common = { path = "../../crates/suite-common" }
 crc32fast.workspace = true
+zip.workspace = true
