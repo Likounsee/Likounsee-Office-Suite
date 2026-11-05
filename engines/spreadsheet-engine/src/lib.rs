@@ -2197,7 +2197,7 @@ mod tests {
         assert_eq!(book.value(1, formula_cell), CellValue::Number(77.0));
 
         let fallback = CellAddress::parse_a1("D2").unwrap();
-        book.set_formula(1, fallback, "=IFNA(INDEX('Lookup Data'!A1:B1,1,3),123)")
+        book.set_formula(1, fallback, "=IFERROR(INDEX('Lookup Data'!A1:B1,1,3),123)")
             .unwrap();
         assert_eq!(book.value(1, fallback), CellValue::Number(123.0));
 
