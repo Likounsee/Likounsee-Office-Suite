@@ -3421,7 +3421,6 @@ mod tests {
         let mut workbook = Workbook::new();
         let a1 = CellAddress::parse_a1("A1").unwrap();
         let a2 = CellAddress::parse_a1("A2").unwrap();
-        let a3 = CellAddress::parse_a1("A3").unwrap();
         let d1 = CellAddress::parse_a1("D1").unwrap();
         let e1 = CellAddress::parse_a1("E1").unwrap();
         let f1 = CellAddress::parse_a1("F1").unwrap();
