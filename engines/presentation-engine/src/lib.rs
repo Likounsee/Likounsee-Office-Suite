@@ -1992,9 +1992,13 @@ mod tests {
         assert_eq!(deck.slide(title).unwrap().elements().len(), 2);
         assert_eq!(deck.slide(columns).unwrap().elements().len(), 3);
         assert!(deck.slide(blank).unwrap().elements().is_empty());
-        assert!(deck.slide(title).unwrap().elements().iter().all(|element| {
-            matches!(element.kind(), ElementKind::Text { .. })
-        }));
+        assert!(
+            deck.slide(title)
+                .unwrap()
+                .elements()
+                .iter()
+                .all(|element| { matches!(element.kind(), ElementKind::Text { .. }) })
+        );
         let restored = decode_presentation(&encode_presentation(&deck).unwrap()).unwrap();
         assert_eq!(restored, deck);
     }
