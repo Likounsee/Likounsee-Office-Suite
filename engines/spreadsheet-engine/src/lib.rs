@@ -494,7 +494,9 @@ impl Workbook {
         }
 
         if ordered.len() != affected.len() {
-            return Err(invalid_input("formula dependency cycle prevents recalculation order"));
+            return Err(invalid_input(
+                "formula dependency cycle prevents recalculation order",
+            ));
         }
         Ok(ordered)
     }
@@ -1549,8 +1551,10 @@ mod tests {
         book.set_number(data, a1, 3.0).unwrap();
         book.set_formula(data, b1, "=A1+1").unwrap();
         book.set_formula(data, c1, "=A1*2").unwrap();
-        book.set_formula(report, d1, "=Data2026!B1+Data2026!C1").unwrap();
-        book.set_formula(report, e1, "=SUM(Data2026!A1:B1,D1)").unwrap();
+        book.set_formula(report, d1, "=Data2026!B1+Data2026!C1")
+            .unwrap();
+        book.set_formula(report, e1, "=SUM(Data2026!A1:B1,D1)")
+            .unwrap();
 
         assert_eq!(
             book.recalculation_order_after_change(data, a1).unwrap(),
@@ -1567,7 +1571,7 @@ mod tests {
         let z1 = CellAddress::parse_a1("Z1").unwrap();
 
         book.set_number(1, a1, 1.0).unwrap();
-        book.set_formula(1, b1, "=A1+1").unwrap();
+        book.set_formula(1, b1, "=A1+C1").unwrap();
         book.set_formula(1, c1, "=B1+1").unwrap();
         book.set_formula(1, z1, "=Z1+1").unwrap();
         assert_eq!(
@@ -1575,7 +1579,6 @@ mod tests {
             vec![(1, b1), (1, c1)]
         );
 
-        book.set_formula(1, a1, "=C1+1").unwrap();
         assert!(book.recalculation_order_after_change(1, a1).is_err());
     }
 
@@ -1583,7 +1586,11 @@ mod tests {
     fn recalculation_order_is_empty_for_cells_without_dependents() {
         let book = Workbook::new();
         let a1 = CellAddress::parse_a1("A1").unwrap();
-        assert!(book.recalculation_order_after_change(1, a1).unwrap().is_empty());
+        assert!(
+            book.recalculation_order_after_change(1, a1)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
