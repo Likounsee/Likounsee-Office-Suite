@@ -2728,6 +2728,41 @@ impl DocumentSession {
         self.record_change(next)
     }
 
+    /// Apply list semantics to several paragraphs as one atomic journalled edit.
+    /// Duplicate or missing IDs and invalid levels reject the complete batch.
+    pub fn set_paragraph_lists_batch(
+        &mut self,
+        requested: &[(u64, ListKind, u8)],
+    ) -> io::Result<usize> {
+        if requested.is_empty() { return Ok(0); }
+        let mut seen = std::collections::HashSet::with_capacity(requested.len());
+        for (id, kind, level) in requested {
+            if !seen.insert(*id) { return Err(invalid_input("duplicate paragraph ID in list batch")); }
+            if *level > 8 || (*kind == ListKind::None && *level != 0) {
+                return Err(invalid_input("paragraph list level is invalid"));
+            }
+            if !self.document.paragraphs.iter().any(|paragraph| paragraph.id == *id) {
+                return Err(invalid_input("paragraph ID does not exist"));
+            }
+        }
+        let mut paragraphs = self.document.paragraphs.clone();
+        let mut changed = 0usize;
+        for (id, kind, level) in requested {
+            let paragraph = paragraphs.iter_mut().find(|paragraph| paragraph.id == *id)
+                .expect("paragraph IDs were validated");
+            if paragraph.list_kind != *kind || paragraph.list_level != *level {
+                paragraph.list_kind = *kind;
+                paragraph.list_level = *level;
+                changed += 1;
+            }
+        }
+        if changed == 0 { return Ok(0); }
+        let next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(changed)
+    }
+
     /// Insert a paragraph after the supplied ID, or append when no ID is supplied.
     pub fn insert_paragraph_after(
         &mut self,
@@ -4211,6 +4246,33 @@ mod tests {
             export_text(session.document()).unwrap(),
             "first\nfirst\nsecond\n"
         );
+    }
+
+    #[test]
+    fn paragraph_list_batch_is_atomic_and_advances_revision_once() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("first\nsecond\nthird").unwrap();
+        let ids = session.document().paragraphs().iter().map(Paragraph::id).collect::<Vec<_>>();
+        let revision = session.document().revision();
+        assert_eq!(session.set_paragraph_lists_batch(&[
+            (ids[0], ListKind::Bullet, 0), (ids[1], ListKind::Numbered, 1),
+        ]).unwrap(), 2);
+        assert_eq!(session.document().revision(), revision + 1);
+        assert_eq!(session.document().paragraphs()[0].list_kind(), ListKind::Bullet);
+        assert_eq!(session.document().paragraphs()[1].list_kind(), ListKind::Numbered);
+        let before = session.document().clone();
+        assert!(session.set_paragraph_lists_batch(&[
+            (ids[0], ListKind::Bullet, 0), (ids[0], ListKind::None, 0),
+        ]).is_err());
+        assert_eq!(session.document(), &before);
+        assert!(session.set_paragraph_lists_batch(&[(ids[2], ListKind::Bullet, 9)]).is_err());
+        assert_eq!(session.document(), &before);
+        let revision = session.document().revision();
+        assert_eq!(session.set_paragraph_lists_batch(&[
+            (ids[0], ListKind::Bullet, 0), (ids[1], ListKind::Numbered, 1),
+        ]).unwrap(), 0);
+        assert_eq!(session.document().revision(), revision);
     }
 
     #[test]

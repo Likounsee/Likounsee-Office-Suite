@@ -5215,6 +5215,22 @@ impl WorkbookSession {
         self.record_change(next, dependency_index)
     }
 
+    /// Clear an inclusive rectangle as one durable edit and rebuild formula dependencies.
+    /// Returns the number of stored cells removed; empty rectangles are no-ops.
+    pub fn clear_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+    ) -> io::Result<usize> {
+        let mut next = self.workbook.clone();
+        let removed = next.clear_range(sheet_id, start, end)?;
+        if removed == 0 { return Ok(0); }
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(removed)
+    }
+
     fn record_change(
         &mut self,
         next: Workbook,
@@ -5938,6 +5954,32 @@ mod session_tests {
             workbook.value(sheet, CellAddress::parse_a1("F1").unwrap()),
             CellValue::Number(2.0)
         );
+    }
+
+    #[test]
+    fn session_clear_range_is_journalled_and_removes_formula_dependencies() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let sheet = session.workbook().sheets()[0].id();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let b1 = CellAddress::parse_a1("B1").unwrap();
+        let c1 = CellAddress::parse_a1("C1").unwrap();
+        session.set_number(sheet, a1, 4.0).unwrap();
+        session.set_formula(sheet, b1, "=A1*2").unwrap();
+        session.set_text(sheet, c1, "keep").unwrap();
+        assert_eq!(session.dependency_index().dependents_of(sheet, a1).len(), 1);
+        let revision = session.workbook().revision();
+        assert_eq!(session.clear_range(sheet, a1, b1).unwrap(), 2);
+        assert_eq!(session.workbook().revision(), revision + 1);
+        assert!(session.dependency_index().dependents_of(sheet, a1).is_empty());
+        assert_eq!(session.workbook().value(sheet, a1), CellValue::Blank);
+        assert_eq!(session.workbook().value(sheet, b1), CellValue::Blank);
+        assert_eq!(session.workbook().value(sheet, c1), CellValue::Text("keep".to_owned()));
+        assert_eq!(session.clear_range(sheet, a1, b1).unwrap(), 0);
+        session.save_now().unwrap();
+        drop(session);
+        let recovered = WorkbookSession::open(&directory.0).unwrap();
+        assert_eq!(recovered.workbook().value(sheet, c1), CellValue::Text("keep".to_owned()));
     }
 
     #[test]
