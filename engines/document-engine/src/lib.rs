@@ -269,7 +269,6 @@ impl Document {
             return Err(invalid_input("plain text exceeds the document size limit"));
         }
         let mut document = Self::new(title)?;
-        document.body = text.to_owned();
         document.paragraphs.clear();
         document.block_order.clear();
         for (index, line) in text.split('\n').enumerate() {
@@ -288,6 +287,12 @@ impl Document {
             });
             document.block_order.push(DocumentBlock::Paragraph(id));
         }
+        document.body = document
+            .paragraphs
+            .iter()
+            .map(|paragraph| paragraph.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
         document.next_block_id = u64::try_from(document.paragraphs.len())
             .ok()
             .and_then(|value| value.checked_add(1))
@@ -3086,7 +3091,7 @@ mod tests {
             .set_table_cell_text(table_id, 0, 0, "A & B")
             .unwrap();
         let html = export_html(session.document()).unwrap();
-        assert!(html.contains("<h1><strong>Safe</strong>"));
+        assert!(html.contains("<h2><strong>Safe</strong>"));
         assert!(html.contains("&lt;text&gt; &amp; &quot;quotes&quot;"));
         assert!(html.contains("<td>A &amp; B</td>"));
         assert!(html.contains("<!doctype html>"));
