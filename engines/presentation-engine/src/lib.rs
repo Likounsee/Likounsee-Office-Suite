@@ -1101,6 +1101,16 @@ impl Presentation {
         Ok(())
     }
 
+    /// Clear speaker notes while preserving the slide and its visual elements.
+    /// Clearing already-empty notes is a no-op and does not advance the revision.
+    pub fn clear_slide_notes(&mut self, slide_id: u64) -> io::Result<bool> {
+        let notes = self.slide(slide_id).ok_or_else(|| invalid_input("slide does not exist"))?.notes.clone();
+        if notes.is_empty() { return Ok(false); }
+        self.bump_revision()?;
+        self.slide_mut(slide_id)?.notes.clear();
+        Ok(true)
+    }
+
     /// Rename a slide without changing its stable identity.
     pub fn rename_slide(&mut self, slide_id: u64, name: impl Into<String>) -> io::Result<()> {
         let name = name.into();
@@ -5338,6 +5348,24 @@ mod tests {
                 .bring_element_to_front(u64::MAX, first)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn clear_slide_notes_preserves_elements_and_is_noop_when_empty() {
+        let mut presentation = Presentation::new("Notes", 100.0, 80.0).unwrap();
+        let slide_id = presentation.slides()[0].id();
+        presentation.set_slide_notes(slide_id, "Presenter cue").unwrap();
+        let style = TextStyle::new("Arial", 12.0, 0x000000).unwrap();
+        presentation.add_text(slide_id, rect(1.0, 1.0, 10.0, 10.0), "Keep", style).unwrap();
+        let revision = presentation.revision();
+        assert!(presentation.clear_slide_notes(slide_id).unwrap());
+        assert_eq!(presentation.revision(), revision + 1);
+        let slide = presentation.slide(slide_id).unwrap();
+        assert!(slide.notes().is_empty()); assert_eq!(slide.elements().len(), 1);
+        let revision = presentation.revision();
+        assert!(!presentation.clear_slide_notes(slide_id).unwrap());
+        assert_eq!(presentation.revision(), revision);
+        assert!(presentation.clear_slide_notes(u64::MAX).is_err());
     }
 
     #[test]

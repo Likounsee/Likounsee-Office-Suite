@@ -2573,6 +2573,27 @@ impl DocumentSession {
         Ok(id)
     }
 
+    /// Move a paragraph after another paragraph, or to the end when after_id is None.
+    /// Paragraph identity and formatting are preserved; moving onto itself is a no-op.
+    pub fn move_paragraph_after(&mut self, paragraph_id: u64, after_id: Option<u64>) -> io::Result<()> {
+        if after_id == Some(paragraph_id) { return Ok(()); }
+        let mut paragraphs = self.document.paragraphs.clone();
+        let source_index = paragraphs.iter().position(|p| p.id == paragraph_id).ok_or_else(|| invalid_input("paragraph ID does not exist"))?;
+        if let Some(anchor) = after_id { if !paragraphs.iter().any(|p| p.id == anchor) { return Err(invalid_input("target paragraph ID does not exist")); } }
+        let paragraph = paragraphs.remove(source_index);
+        let target_index = match after_id { Some(anchor) => paragraphs.iter().position(|p| p.id == anchor).unwrap() + 1, None => paragraphs.len() };
+        if target_index == source_index { return Ok(()); }
+        paragraphs.insert(target_index, paragraph);
+        let mut next = self.document.with_paragraphs(paragraphs, self.document.next_block_id)?;
+        let block = DocumentBlock::Paragraph(paragraph_id);
+        next.block_order.retain(|item| *item != block);
+        let insert_at = match after_id { Some(anchor) => next.block_order.iter().position(|item| *item == DocumentBlock::Paragraph(anchor)).map(|i| i + 1).ok_or_else(|| invalid_input("target paragraph block is missing"))?, None => next.block_order.len() };
+        next.block_order.insert(insert_at, block);
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(())
+    }
+
     /// Clear paragraph style, list metadata and inline marks while retaining text and IDs.
     pub fn clear_paragraph_formatting(&mut self, paragraph_id: u64) -> io::Result<u64> {
         let mut paragraphs = self.document.paragraphs.clone();
@@ -3648,6 +3669,20 @@ mod tests {
             session.replace_all_text("", "x").unwrap_err().kind(),
             io::ErrorKind::InvalidInput
         );
+    }
+
+    #[test]
+    fn move_paragraph_preserves_identity_and_reorders_export() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        session.set_body("alpha\nbeta\ngamma").unwrap();
+        let ids = session.document().paragraphs().iter().map(|p| p.id()).collect::<Vec<_>>();
+        session.move_paragraph_after(ids[0], Some(ids[2])).unwrap();
+        assert_eq!(session.document().paragraphs().iter().map(|p| p.id()).collect::<Vec<_>>(), vec![ids[1], ids[2], ids[0]]);
+        assert_eq!(export_text(session.document()).unwrap(), "beta\ngamma\nalpha\n");
+        let revision = session.document().revision();
+        session.move_paragraph_after(ids[0], None).unwrap();
+        assert_eq!(session.document().revision(), revision);
     }
 
     #[test]
