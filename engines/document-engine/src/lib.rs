@@ -3601,7 +3601,11 @@ mod tests {
                 .unwrap()
                 .contains("omega beta omega")
         );
-        assert!(export_text(session.document()).unwrap().contains("omega cell"));
+        assert!(
+            export_text(session.document())
+                .unwrap()
+                .contains("omega cell")
+        );
         assert_eq!(
             session.replace_all_text("", "x").unwrap_err().kind(),
             io::ErrorKind::InvalidInput

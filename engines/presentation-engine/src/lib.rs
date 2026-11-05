@@ -2864,19 +2864,20 @@ pub fn slide_layout_statistics(
     Ok(stats)
 }
 
-
 /// Return IDs of slide elements that extend beyond the slide canvas.
 pub fn slide_elements_outside_canvas(
     presentation: &Presentation,
     slide_id: u64,
 ) -> io::Result<Vec<u64>> {
     presentation.validate()?;
-    let slide = presentation.slide(slide_id)
+    let slide = presentation
+        .slide(slide_id)
         .ok_or_else(|| invalid_input("slide does not exist"))?;
     let mut outside = Vec::new();
     for element in &slide.elements {
         let bounds = element.bounds;
-        if bounds.x < 0.0 || bounds.y < 0.0
+        if bounds.x < 0.0
+            || bounds.y < 0.0
             || bounds.x + bounds.width > presentation.width
             || bounds.y + bounds.height > presentation.height
         {
@@ -2885,7 +2886,6 @@ pub fn slide_elements_outside_canvas(
     }
     Ok(outside)
 }
-
 
 /// Return unordered pairs of element IDs whose rectangles overlap with positive area.
 pub fn overlapping_slide_elements(
