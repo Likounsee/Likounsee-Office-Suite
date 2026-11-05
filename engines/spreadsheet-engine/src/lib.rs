@@ -2881,7 +2881,8 @@ impl<'a> Parser<'a> {
         let haystack = self.text_argument(ranges[1])?;
         let start = if ranges.len() == 3 {
             let value = self.evaluate_argument(ranges[2].0, ranges[2].1)?;
-            if value.fract() != 0.0 || value < 1.0 || value > haystack.chars().count() as f64 + 1.0 {
+            if value.fract() != 0.0 || value < 1.0 || value > haystack.chars().count() as f64 + 1.0
+            {
                 return Err(FormulaError::Type);
             }
             value as usize - 1
@@ -2889,13 +2890,24 @@ impl<'a> Parser<'a> {
             0
         };
         let tail = haystack.chars().skip(start).collect::<String>();
-        let found = if function == "FIND" {
-            tail.find(&needle_or_text)
+        let prefix_length = if function == "FIND" {
+            let found = tail.find(&needle_or_text).ok_or(FormulaError::Type)?;
+            tail.get(..found)
+                .ok_or(FormulaError::Type)?
+                .chars()
+                .count()
         } else {
-            tail.to_lowercase().find(&needle_or_text.to_lowercase())
-        }.ok_or(FormulaError::Type)?;
-        let prefix = tail.get(..found).ok_or(FormulaError::Type)?;
-        Ok((start + prefix.chars().count() + 1) as f64)
+            let lowered = tail.to_lowercase();
+            let found = lowered
+                .find(&needle_or_text.to_lowercase())
+                .ok_or(FormulaError::Type)?;
+            lowered
+                .get(..found)
+                .ok_or(FormulaError::Type)?
+                .chars()
+                .count()
+        };
+        Ok((start + prefix_length + 1) as f64)
     }
 
     fn text_argument(&mut self, range: (usize, usize)) -> Result<String, FormulaError> {
@@ -2910,7 +2922,10 @@ impl<'a> Parser<'a> {
         }
         let (sheet_id, reference) = if let Some((sheet, cell)) = source.split_once('!') {
             let sheet_name = sheet.trim_matches('\'');
-            let sheet_id = self.workbook.sheets.iter()
+            let sheet_id = self
+                .workbook
+                .sheets
+                .iter()
                 .find(|candidate| candidate.name.eq_ignore_ascii_case(sheet_name))
                 .map(|candidate| candidate.id)
                 .ok_or(FormulaError::Reference)?;
@@ -2920,7 +2935,10 @@ impl<'a> Parser<'a> {
         };
         let normalized = reference.replace('$', "");
         let address = CellAddress::parse_a1(&normalized).map_err(|_| FormulaError::Reference)?;
-        match self.workbook.evaluate(sheet_id, address, self.visiting, self.cache) {
+        match self
+            .workbook
+            .evaluate(sheet_id, address, self.visiting, self.cache)
+        {
             CellValue::Blank => Ok(String::new()),
             CellValue::Text(value) => Ok(value),
             CellValue::Number(value) => Ok(value.to_string()),
@@ -6532,17 +6550,28 @@ mod session_tests {
         let c1 = CellAddress::parse_a1("C1").unwrap();
         workbook.set_text(sheet, a1, "Bonjour Monde").unwrap();
         workbook.set_formula(sheet, b1, "=LEN(A1)").unwrap();
-        workbook.set_formula(sheet, c1, "=FIND(\"Monde\",A1)").unwrap();
+        workbook
+            .set_formula(sheet, c1, "=FIND(\"Monde\",A1)")
+            .unwrap();
         assert_eq!(workbook.value(sheet, b1), CellValue::Number(13.0));
         assert_eq!(workbook.value(sheet, c1), CellValue::Number(9.0));
         let d1 = CellAddress::parse_a1("D1").unwrap();
-        workbook.set_formula(sheet, d1, "=SEARCH(\"MONDE\",A1,8)").unwrap();
+        workbook
+            .set_formula(sheet, d1, "=SEARCH(\"MONDE\",A1,8)")
+            .unwrap();
         assert_eq!(workbook.value(sheet, d1), CellValue::Number(9.0));
         let e1 = CellAddress::parse_a1("E1").unwrap();
-        workbook.set_formula(sheet, e1, "=FIND(\"monde\",A1)").unwrap();
-        assert_eq!(workbook.value(sheet, e1), CellValue::Error(FormulaError::Type));
+        workbook
+            .set_formula(sheet, e1, "=FIND(\"monde\",A1)")
+            .unwrap();
+        assert_eq!(
+            workbook.value(sheet, e1),
+            CellValue::Error(FormulaError::Type)
+        );
         let f1 = CellAddress::parse_a1("F1").unwrap();
-        workbook.set_formula(sheet, f1, "=LEN(\"A😀é\")").unwrap();
+        workbook
+            .set_formula(sheet, f1, "=LEN(\"A😀é\")")
+            .unwrap();
         assert_eq!(workbook.value(sheet, f1), CellValue::Number(3.0));
     }
 
