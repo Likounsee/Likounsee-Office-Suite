@@ -5225,7 +5225,9 @@ impl WorkbookSession {
     ) -> io::Result<usize> {
         let mut next = self.workbook.clone();
         let removed = next.clear_range(sheet_id, start, end)?;
-        if removed == 0 { return Ok(0); }
+        if removed == 0 {
+            return Ok(0);
+        }
         let dependency_index = DependencyIndex::build(&next)?;
         self.record_change(next, dependency_index)?;
         Ok(removed)
@@ -5971,15 +5973,26 @@ mod session_tests {
         let revision = session.workbook().revision();
         assert_eq!(session.clear_range(sheet, a1, b1).unwrap(), 2);
         assert_eq!(session.workbook().revision(), revision + 1);
-        assert!(session.dependency_index().dependents_of(sheet, a1).is_empty());
+        assert!(
+            session
+                .dependency_index()
+                .dependents_of(sheet, a1)
+                .is_empty()
+        );
         assert_eq!(session.workbook().value(sheet, a1), CellValue::Blank);
         assert_eq!(session.workbook().value(sheet, b1), CellValue::Blank);
-        assert_eq!(session.workbook().value(sheet, c1), CellValue::Text("keep".to_owned()));
+        assert_eq!(
+            session.workbook().value(sheet, c1),
+            CellValue::Text("keep".to_owned())
+        );
         assert_eq!(session.clear_range(sheet, a1, b1).unwrap(), 0);
         session.save_now().unwrap();
         drop(session);
         let recovered = WorkbookSession::open(&directory.0).unwrap();
-        assert_eq!(recovered.workbook().value(sheet, c1), CellValue::Text("keep".to_owned()));
+        assert_eq!(
+            recovered.workbook().value(sheet, c1),
+            CellValue::Text("keep".to_owned())
+        );
     }
 
     #[test]

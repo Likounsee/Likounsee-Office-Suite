@@ -1300,34 +1300,58 @@ impl Presentation {
         slide_id: u64,
         requested: &[(u64, Option<u32>, Option<u32>, f32)],
     ) -> io::Result<usize> {
-        if requested.is_empty() { return Ok(0); }
-        let slide = self.slide(slide_id).ok_or_else(|| invalid_input("slide does not exist"))?;
+        if requested.is_empty() {
+            return Ok(0);
+        }
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
         let mut seen = std::collections::HashSet::with_capacity(requested.len());
         let mut updates = Vec::with_capacity(requested.len());
         for (id, fill, stroke, width) in requested {
-            if !seen.insert(*id) { return Err(invalid_input("shape style batch contains duplicate IDs")); }
+            if !seen.insert(*id) {
+                return Err(invalid_input("shape style batch contains duplicate IDs"));
+            }
             if fill.is_some_and(|color| color > 0x00ff_ffff)
                 || stroke.is_some_and(|color| color > 0x00ff_ffff)
-                || !width.is_finite() || !(0.0..=1000.0).contains(width) {
+                || !width.is_finite()
+                || !(0.0..=1000.0).contains(width)
+            {
                 return Err(invalid_input("shape styling is invalid"));
             }
-            let element = slide.element(*id).ok_or_else(|| invalid_input("shape element does not exist"))?;
-            let ElementKind::Shape { fill: old_fill, stroke: old_stroke, stroke_width: old_width, .. } = &element.kind else {
+            let element = slide
+                .element(*id)
+                .ok_or_else(|| invalid_input("shape element does not exist"))?;
+            let ElementKind::Shape {
+                fill: old_fill,
+                stroke: old_stroke,
+                stroke_width: old_width,
+                ..
+            } = &element.kind
+            else {
                 return Err(invalid_input("shape element does not exist"));
             };
             if old_fill != fill || old_stroke != stroke || old_width != width {
                 updates.push((*id, *fill, *stroke, *width));
             }
         }
-        if updates.is_empty() { return Ok(0); }
+        if updates.is_empty() {
+            return Ok(0);
+        }
         self.bump_revision()?;
         let elements = &mut self.slide_mut(slide_id)?.elements;
         for (id, fill, stroke, width) in &updates {
-            let element = elements.iter_mut().find(|element| element.id == *id)
+            let element = elements
+                .iter_mut()
+                .find(|element| element.id == *id)
                 .expect("shape IDs were validated");
             if let ElementKind::Shape {
-                fill: current_fill, stroke: current_stroke, stroke_width: current_width, ..
-            } = &mut element.kind {
+                fill: current_fill,
+                stroke: current_stroke,
+                stroke_width: current_width,
+                ..
+            } = &mut element.kind
+            {
                 *current_fill = *fill;
                 *current_stroke = *stroke;
                 *current_width = *width;
@@ -6029,29 +6053,65 @@ mod tests {
     fn batch_shape_styles_update_is_atomic_and_advances_revision_once() {
         let mut deck = Presentation::new("Shape batch", 960.0, 540.0).unwrap();
         let slide_id = deck.slides()[0].id();
-        let first = deck.add_shape(slide_id, Rect::new(0.0, 0.0, 20.0, 20.0).unwrap(),
-            ShapeKind::Rectangle, Some(0x111111), None, 0.0).unwrap();
-        let second = deck.add_shape(slide_id, Rect::new(30.0, 0.0, 20.0, 20.0).unwrap(),
-            ShapeKind::Ellipse, Some(0x222222), None, 0.0).unwrap();
+        let first = deck
+            .add_shape(
+                slide_id,
+                Rect::new(0.0, 0.0, 20.0, 20.0).unwrap(),
+                ShapeKind::Rectangle,
+                Some(0x111111),
+                None,
+                0.0,
+            )
+            .unwrap();
+        let second = deck
+            .add_shape(
+                slide_id,
+                Rect::new(30.0, 0.0, 20.0, 20.0).unwrap(),
+                ShapeKind::Ellipse,
+                Some(0x222222),
+                None,
+                0.0,
+            )
+            .unwrap();
         let revision = deck.revision();
-        assert_eq!(deck.set_shape_styles_batch(slide_id, &[
-            (first, Some(0xabcdef), Some(0x101010), 2.0),
-            (second, Some(0xfedcba), None, 0.0),
-        ]).unwrap(), 2);
+        assert_eq!(
+            deck.set_shape_styles_batch(
+                slide_id,
+                &[
+                    (first, Some(0xabcdef), Some(0x101010), 2.0),
+                    (second, Some(0xfedcba), None, 0.0),
+                ]
+            )
+            .unwrap(),
+            2
+        );
         assert_eq!(deck.revision(), revision + 1);
         let before = deck.clone();
-        assert!(deck.set_shape_styles_batch(slide_id, &[
-            (first, Some(0x123456), None, 1.0), (first, Some(0x654321), None, 1.0),
-        ]).is_err());
+        assert!(deck
+            .set_shape_styles_batch(
+                slide_id,
+                &[
+                    (first, Some(0x123456), None, 1.0),
+                    (first, Some(0x654321), None, 1.0),
+                ]
+            )
+            .is_err());
         assert_eq!(deck, before);
-        assert!(deck.set_shape_styles_batch(slide_id, &[
-            (first, Some(0x1000000), None, 1.0),
-        ]).is_err());
+        assert!(deck
+            .set_shape_styles_batch(slide_id, &[(first, Some(0x1000000), None, 1.0)])
+            .is_err());
         assert_eq!(deck, before);
-        assert_eq!(deck.set_shape_styles_batch(slide_id, &[
-            (first, Some(0xabcdef), Some(0x101010), 2.0),
-            (second, Some(0xfedcba), None, 0.0),
-        ]).unwrap(), 0);
+        assert_eq!(
+            deck.set_shape_styles_batch(
+                slide_id,
+                &[
+                    (first, Some(0xabcdef), Some(0x101010), 2.0),
+                    (second, Some(0xfedcba), None, 0.0),
+                ]
+            )
+            .unwrap(),
+            0
+        );
         assert_eq!(deck.revision(), revision + 1);
     }
 
