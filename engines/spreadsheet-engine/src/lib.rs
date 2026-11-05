@@ -1452,7 +1452,9 @@ impl<'a> Parser<'a> {
         let col_count = first.column().abs_diff(last.column()) + 1;
         let index = self.evaluate_argument(args[2].0, args[2].1)?;
         if index.fract() != 0.0 || index < 1.0 { return Err(FormulaError::Reference); }
-        let exact = if args.len() == 4 { self.evaluate_argument(args[3].0, args[3].1)? == 0.0 } else { true };
+        let match_mode = if args.len() == 4 { self.evaluate_argument(args[3].0, args[3].1)? } else { 0.0 };
+        if match_mode != 0.0 && match_mode != 1.0 { return Err(FormulaError::Number); }
+        let exact = match_mode == 0.0;
         let vertical = function == "VLOOKUP";
         let lookup_len = if vertical { row_count } else { col_count };
         let return_len = if vertical { col_count } else { row_count };
@@ -2011,13 +2013,13 @@ mod tests {
         ] { book.set_number(1, CellAddress::parse_a1(address).unwrap(), value).unwrap(); }
         let formulas = [
             ("=VLOOKUP(20,A1:B3,2,0)", 200.0),
-            ("=HLOOKUP(20,A1:C2,2,0)", 200.0),
+            ("=HLOOKUP(100,A1:C2,2,0)", 200.0),
             ("=INDEX(A1:B3,3,2)", 300.0),
             ("=INDEX(A1:B3,2)", 20.0),
             ("=MATCH(30,A1:A3,0)", 3.0),
             ("=MATCH(4,D1:D3,1)", 2.0),
             ("=VLOOKUP(4,D1:E3,2,1)", 33.0),
-            ("=HLOOKUP(2,D1:E3,2,0)", 33.0),
+            ("=HLOOKUP(11,D1:E3,2,0)", 33.0),
         ];
         for (index, (formula, expected)) in formulas.into_iter().enumerate() {
             let address = CellAddress::new(index as u32, 8).unwrap();
