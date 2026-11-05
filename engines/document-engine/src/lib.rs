@@ -3066,7 +3066,10 @@ mod tests {
         assert_eq!(document.paragraphs().len(), 3);
         assert_eq!(document.paragraphs()[0].text(), "First line");
         assert_eq!(document.paragraphs()[1].text(), "Second line");
-        assert_eq!(export_plain_text(&document).unwrap(), "First line\nSecond line\n");
+        assert_eq!(
+            export_plain_text(&document).unwrap(),
+            "First line\nSecond line\n"
+        );
     }
 
     #[test]
