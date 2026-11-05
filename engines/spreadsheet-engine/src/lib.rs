@@ -771,7 +771,7 @@ pub fn import_csv(sheet_name: impl Into<String>, input: &str) -> io::Result<Work
     if input.len() > MAX_STRING {
         return Err(invalid_input("CSV input exceeds the supported size"));
     }
-    let rows = parse_csv_records(input)?;
+    let rows = Self::parse_csv_records(input)?;
     if rows.len() > MAX_ROW as usize + 1 {
         return Err(invalid_input("CSV row limit exceeded"));
     }
@@ -846,7 +846,7 @@ pub fn export_sheet_csv(workbook: &Workbook, sheet_id: u64) -> io::Result<String
                     FormulaError::NotAvailable => "N/A",
                 }),
             };
-            output.push_str(&csv_escape(&value));
+            output.push_str(&Self::csv_escape(&value));
         }
         output.push_str("\r\n");
     }
@@ -2238,7 +2238,7 @@ mod tests {
     #[test]
     fn csv_import_export_preserves_types_formulas_and_quoted_text() {
         let csv = "Name,Amount,Enabled,Formula\r\n\"Widget, A\",12.5,true,=B2*2\r\n\"She said \"\"hello\"\"\",,false,";
-        let mut workbook = import_csv("Imported", csv).unwrap();
+        let mut workbook = Workbook::import_csv("Imported", csv).unwrap();
         let sheet_id = workbook.sheets()[0].id();
         let a2 = CellAddress::parse_a1("A2").unwrap();
         let b2 = CellAddress::parse_a1("B2").unwrap();
@@ -2248,7 +2248,7 @@ mod tests {
         assert_eq!(workbook.value(sheet_id, b2), CellValue::Number(12.5));
         assert_eq!(workbook.value(sheet_id, c2), CellValue::Boolean(true));
         assert_eq!(workbook.value(sheet_id, d2), CellValue::Number(25.0));
-        let exported = export_sheet_csv(&workbook, sheet_id).unwrap();
+        let exported = Workbook::export_sheet_csv(&workbook, sheet_id).unwrap();
         assert!(exported.starts_with("Name,Amount,Enabled,Formula\r\n"));
         assert!(exported.contains("\"Widget, A\",12.5,true,=B2*2\r\n"));
         assert!(exported.contains("\"She said \"\"hello\"\"\""));
@@ -2259,9 +2259,9 @@ mod tests {
 
     #[test]
     fn csv_parser_rejects_malformed_quotes_and_accepts_empty_fields() {
-        assert!(import_csv("Bad", "\"unterminated").is_err());
+        assert!(Workbook::import_csv("Bad", "\"unterminated").is_err());
         assert!(import_csv("Bad", "\"closed\"x,1").is_err());
-        let workbook = import_csv("Empty", "a,,c\r\n,2,").unwrap();
+        let workbook = Workbook::import_csv("Empty", "a,,c\r\n,2,").unwrap();
         let sheet = workbook.sheets()[0].id();
         assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B1").unwrap()), CellValue::Blank);
         assert_eq!(workbook.value(sheet, CellAddress::parse_a1("B2").unwrap()), CellValue::Number(2.0));
