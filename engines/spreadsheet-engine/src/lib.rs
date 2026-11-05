@@ -430,7 +430,7 @@ fn formula_dependencies(
     formula: &str,
 ) -> io::Result<Vec<CellKey>> {
     let bytes = formula.as_bytes();
-    let mut cursor = usize::from(bytes.first() == Some(&b'='));
+    let mut cursor = if bytes.first() == Some(&b'=') { 1 } else { 0 };
     let mut dependencies = std::collections::BTreeSet::new();
 
     while cursor < bytes.len() {
