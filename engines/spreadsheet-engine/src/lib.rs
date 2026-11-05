@@ -2290,8 +2290,7 @@ mod tests {
         book.set_number(data, b1, 4.0).unwrap();
         book.set_formula(report, a1, "=Data!A1^2+Data!B1^2")
             .unwrap();
-        book.set_formula(report, b1, "=SUM(Data!A1:B1)^2")
-            .unwrap();
+        book.set_formula(report, b1, "=SUM(Data!A1:B1)^2").unwrap();
         book.set_formula(report, c1, "=AVERAGE(Data!A1:B1)^2")
             .unwrap();
 
