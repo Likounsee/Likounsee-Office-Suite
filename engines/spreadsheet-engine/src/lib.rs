@@ -1148,6 +1148,7 @@ impl<'a> Parser<'a> {
             self.cursor += 1;
             return match function.as_str() {
                 "IF" => self.if_arguments(),
+                "IFERROR" => self.iferror_arguments(),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" => {
                     self.aggregate_arguments(&function)
@@ -1158,6 +1159,11 @@ impl<'a> Parser<'a> {
         if self.peek() == Some(b'!') {
             self.cursor += 1;
             return self.reference_on_sheet(identifier);
+        }
+        match function.as_str() {
+            "TRUE" => return Ok(1.0),
+            "FALSE" => return Ok(0.0),
+            _ => {}
         }
         let address = CellAddress::parse_a1(identifier).map_err(|_| FormulaError::Reference)?;
         self.numeric_cell(address)
@@ -1261,8 +1267,22 @@ impl<'a> Parser<'a> {
             return Err(FormulaError::Parse);
         }
         let condition = self.evaluate_argument(ranges[0].0, ranges[0].1)?;
-        let selected = if condition != 0.0 { ranges[1] } else { ranges[2] };
+        let selected = if condition != 0.0 {
+            ranges[1]
+        } else {
+            ranges[2]
+        };
         self.evaluate_argument(selected.0, selected.1)
+    }
+    fn iferror_arguments(&mut self) -> Result<f64, FormulaError> {
+        let ranges = self.function_argument_ranges()?;
+        if ranges.len() != 2 {
+            return Err(FormulaError::Parse);
+        }
+        match self.evaluate_argument(ranges[0].0, ranges[0].1) {
+            Ok(value) => Ok(value),
+            Err(_) => self.evaluate_argument(ranges[1].0, ranges[1].1),
+        }
     }
     fn logical_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let ranges = self.function_argument_ranges()?;
@@ -1314,9 +1334,16 @@ impl<'a> Parser<'a> {
         Err(FormulaError::Parse)
     }
     fn evaluate_argument(&mut self, start: usize, end: usize) -> Result<f64, FormulaError> {
-        let source = std::str::from_utf8(&self.input[start..end])
-            .map_err(|_| FormulaError::Parse)?;
-        Parser::new(source, self.workbook, self.sheet_id, self.visiting, self.cache).parse()
+        let source =
+            std::str::from_utf8(&self.input[start..end]).map_err(|_| FormulaError::Parse)?;
+        Parser::new(
+            source,
+            self.workbook,
+            self.sheet_id,
+            self.visiting,
+            self.cache,
+        )
+        .parse()
     }
     fn aggregate_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
         let mut values = Vec::new();
@@ -2347,6 +2374,52 @@ mod tests {
         assert_eq!(book.value(sheet, b1), CellValue::Error(FormulaError::Parse));
     }
     #[test]
+    fn iferror_recovers_from_formula_errors_without_eager_fallback() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=IFERROR(42,1/0)", 42.0),
+            ("=IFERROR(1/0,99)", 99.0),
+            ("=IFERROR(0^(-1),7)", 7.0),
+            ("=IFERROR(IF(0,1/0,5),8)", 5.0),
+            ("=IFERROR(1/(2-2),IFERROR(1/0,12))", 12.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 0).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+        }
+    }
+
+    #[test]
+    fn boolean_literals_work_in_logical_formulas() {
+        let mut book = Workbook::new();
+        let cases = [
+            ("=TRUE", 1.0),
+            ("=FALSE", 0.0),
+            ("=IF(TRUE,1,2)", 1.0),
+            ("=AND(TRUE,1)", 1.0),
+            ("=OR(FALSE,TRUE)", 1.0),
+        ];
+        for (index, (formula, expected)) in cases.into_iter().enumerate() {
+            let address = CellAddress::new(index as u32, 0).unwrap();
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Number(expected), "{formula}");
+        }
+    }
+
+    #[test]
+    fn iferror_validates_arguments_and_preserves_unhandled_fallback_errors() {
+        let mut book = Workbook::new();
+        let address = CellAddress::parse_a1("A1").unwrap();
+        for formula in ["=IFERROR(1)", "=IFERROR(1,2,3)", "=IFERROR(,2)"] {
+            book.set_formula(1, address, formula).unwrap();
+            assert_eq!(book.value(1, address), CellValue::Error(FormulaError::Parse), "{formula}");
+        }
+        book.set_formula(1, address, "=IFERROR(1/0,2/0)").unwrap();
+        assert_eq!(book.value(1, address), CellValue::Error(FormulaError::DivisionByZero));
+    }
+
+    #[test]
     fn logical_functions_if_and_or_evaluate_nested_formulas() {
         let mut book = Workbook::new();
         let cases = [
@@ -2375,7 +2448,14 @@ mod tests {
     fn logical_functions_validate_argument_counts_and_syntax() {
         let mut book = Workbook::new();
         let address = CellAddress::parse_a1("A1").unwrap();
-        for formula in ["=IF(1,2)", "=IF(1,2,3,4)", "=AND()", "=OR()", "=IF(,1,2)", "=IF(1,,2)"] {
+        for formula in [
+            "=IF(1,2)",
+            "=IF(1,2,3,4)",
+            "=AND()",
+            "=OR()",
+            "=IF(,1,2)",
+            "=IF(1,,2)",
+        ] {
             book.set_formula(1, address, formula).unwrap();
             assert_eq!(
                 book.value(1, address),
