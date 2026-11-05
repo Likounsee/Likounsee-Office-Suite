@@ -5620,7 +5620,7 @@ mod session_tests {
     #[test]
     fn copy_range_translates_relative_and_preserves_absolute_formula_references() {
         let mut workbook = Workbook::new();
-        let sheet = workbook.add_sheet("Sheet1").unwrap();
+        let sheet = workbook.sheets()[0].id();
         let source = CellAddress::parse_a1("C1").unwrap();
         let destination = CellAddress::parse_a1("D2").unwrap();
         workbook
