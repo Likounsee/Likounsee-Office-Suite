@@ -3189,6 +3189,7 @@ impl PresentationSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zip::ZipArchive;
 
     fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
         Rect::new(x, y, width, height).unwrap()
