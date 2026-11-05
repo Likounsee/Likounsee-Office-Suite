@@ -703,7 +703,6 @@ fn html_escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-
 fn markdown_paragraph_text(paragraph: &Paragraph) -> String {
     if paragraph.spans.is_empty() {
         return markdown_escape(&paragraph.text);
