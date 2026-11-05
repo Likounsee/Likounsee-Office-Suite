@@ -1440,8 +1440,11 @@ impl<'a> Parser<'a> {
     }
 
     fn na_arguments(&mut self) -> Result<f64, FormulaError> {
-        let ranges = self.function_argument_ranges()?;
-        if !ranges.is_empty() { return Err(FormulaError::Parse); }
+        self.whitespace();
+        if self.peek() != Some(b')') {
+            return Err(FormulaError::Parse);
+        }
+        self.cursor += 1;
         Err(FormulaError::NotAvailable)
     }
     fn logical_arguments(&mut self, function: &str) -> Result<f64, FormulaError> {
