@@ -4982,9 +4982,24 @@ mod tests {
     fn slide_layout_statistics_count_objects_and_union_bounds() {
         let mut deck = Presentation::new("Layout", 960.0, 540.0).unwrap();
         let slide = deck.slides()[0].id();
-        deck.add_text(slide, rect(10.0, 20.0, 100.0, 30.0), "Title", TextStyle::default()).unwrap();
-        deck.add_shape(slide, rect(50.0, 60.0, 40.0, 20.0), ShapeKind::Rectangle, None, None, 0.0).unwrap();
-        deck.add_image(slide, rect(5.0, 5.0, 10.0, 10.0), "asset://logo", "Logo").unwrap();
+        deck.add_text(
+            slide,
+            rect(10.0, 20.0, 100.0, 30.0),
+            "Title",
+            TextStyle::default(),
+        )
+        .unwrap();
+        deck.add_shape(
+            slide,
+            rect(50.0, 60.0, 40.0, 20.0),
+            ShapeKind::Rectangle,
+            None,
+            None,
+            0.0,
+        )
+        .unwrap();
+        deck.add_image(slide, rect(5.0, 5.0, 10.0, 10.0), "asset://logo", "Logo")
+            .unwrap();
         let stats = slide_layout_statistics(&deck, slide).unwrap();
         assert_eq!(stats.elements, 3);
         assert_eq!(stats.text_elements, 1);

@@ -658,8 +658,10 @@ impl Workbook {
                     CellValue::Number(value) => {
                         stats.numbers += 1;
                         stats.sum += value;
-                        stats.minimum = Some(stats.minimum.map_or(value, |current| current.min(value)));
-                        stats.maximum = Some(stats.maximum.map_or(value, |current| current.max(value)));
+                        stats.minimum =
+                            Some(stats.minimum.map_or(value, |current| current.min(value)));
+                        stats.maximum =
+                            Some(stats.maximum.map_or(value, |current| current.max(value)));
                     }
                     CellValue::Text(_) => stats.text += 1,
                     CellValue::Boolean(_) => stats.booleans += 1,
@@ -2665,7 +2667,7 @@ mod tests {
         assert_eq!(stats.sum, 16.0);
         assert_eq!(stats.minimum, Some(4.0));
         assert_eq!(stats.maximum, Some(12.0));
-        assert_eq!(stats.average, Some(8.0));        assert_eq!(stats.sum, 16.0);
+        assert_eq!(stats.average, Some(8.0));
         assert!(workbook.range_statistics(999, a1, a1).is_err());
     }
 

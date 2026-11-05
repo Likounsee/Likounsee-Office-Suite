@@ -3401,7 +3401,8 @@ mod tests {
 
     #[test]
     fn document_outline_extracts_heading_levels_in_reading_order() {
-        let document = Document::from_plain_text("Outline", "Title\\nBody\\nSection\\nSubsection").unwrap();
+        let document =
+            Document::from_plain_text("Outline", "Title\nBody\nSection\nSubsection").unwrap();
         let mut document = document;
         document.paragraphs[0].style = ParagraphStyle::Heading1;
         document.paragraphs[2].style = ParagraphStyle::Heading1;
