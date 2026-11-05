@@ -2245,6 +2245,30 @@ impl DocumentSession {
         self.set_table_cell_text(table_id, row_index, column_index, "")
     }
 
+    /// Clear every cell in one table row while retaining cell IDs and formatting.
+    /// A row that is already empty is a no-op and does not create a journal revision.
+    pub fn clear_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let row = table
+            .rows
+            .get_mut(row_index)
+            .ok_or_else(|| invalid_input("table row index is out of range"))?;
+        if row.cells.iter().all(|cell| cell.text.is_empty()) {
+            return Ok(self.document.revision());
+        }
+        for cell in &mut row.cells {
+            cell.text.clear();
+        }
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)
+    }
+
     /// Set horizontal alignment for one cell.
     pub fn set_table_cell_alignment(
         &mut self,
@@ -3744,6 +3768,28 @@ mod tests {
         session.clear_table_cell(table_id, 0, 0).unwrap();
         assert_eq!(session.document().revision(), revision);
         assert!(session.clear_table_cell(u64::MAX, 0, 0).is_err());
+    }
+
+    #[test]
+    fn clear_table_row_preserves_cell_identity_and_skips_empty_rows() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(2, 2).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "left").unwrap();
+        session.set_table_cell_text(table_id, 0, 1, "right").unwrap();
+        let cell_id = session.document().tables()[0].rows()[0].cells()[0].id();
+        let revision = session.document().revision();
+        session.clear_table_row(table_id, 0).unwrap();
+        assert_eq!(session.document().revision(), revision + 1);
+        assert_eq!(session.document().tables()[0].rows()[0].cells()[0].id(), cell_id);
+        assert!(session.document().tables()[0].rows()[0]
+            .cells()
+            .iter()
+            .all(|cell| cell.text().is_empty()));
+        let revision = session.document().revision();
+        session.clear_table_row(table_id, 0).unwrap();
+        assert_eq!(session.document().revision(), revision);
+        assert!(session.clear_table_row(table_id, 9).is_err());
     }
 
     #[test]

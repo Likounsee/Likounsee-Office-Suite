@@ -1646,6 +1646,27 @@ impl Presentation {
         Ok(id)
     }
 
+    /// Remove several elements in one revision. Duplicate or missing IDs reject the whole edit.
+    pub fn remove_elements(&mut self, slide_id: u64, element_ids: &[u64]) -> io::Result<usize> {
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        if element_ids.is_empty() {
+            return Ok(0);
+        }
+        let requested = element_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        if requested.len() != element_ids.len()
+            || requested.len() != slide.elements.iter().filter(|element| requested.contains(&element.id)).count()
+        {
+            return Err(invalid_input("element IDs must be unique and exist on the slide"));
+        }
+        self.bump_revision()?;
+        self.slide_mut(slide_id)?
+            .elements
+            .retain(|element| !requested.contains(&element.id));
+        Ok(requested.len())
+    }
+
     pub fn remove_element(&mut self, slide_id: u64, element_id: u64) -> io::Result<()> {
         let slide = self
             .slide(slide_id)
@@ -3904,6 +3925,22 @@ mod tests {
         assert_eq!(deck.slide(slide).unwrap().elements()[0].id(), second);
         deck.remove_element(slide, first).unwrap();
         assert!(deck.slide(slide).unwrap().element(first).is_none());
+    }
+
+    #[test]
+    fn remove_elements_is_atomic_and_removes_multiple_items_in_one_revision() {
+        let mut deck = Presentation::new("Deck", 960.0, 540.0).unwrap();
+        let slide = deck.slides()[0].id();
+        let first = deck.add_text(slide, rect(0.0, 0.0, 100.0, 40.0), "One", TextStyle::default()).unwrap();
+        let second = deck.add_text(slide, rect(0.0, 50.0, 100.0, 40.0), "Two", TextStyle::default()).unwrap();
+        let revision = deck.revision();
+        assert!(deck.remove_elements(slide, &[first, u64::MAX]).is_err());
+        assert_eq!(deck.revision(), revision);
+        assert_eq!(deck.slide(slide).unwrap().elements().len(), 2);
+        assert_eq!(deck.remove_elements(slide, &[first, second]).unwrap(), 2);
+        assert_eq!(deck.revision(), revision + 1);
+        assert!(deck.slide(slide).unwrap().elements().is_empty());
+        assert_eq!(deck.remove_elements(slide, &[]).unwrap(), 0);
     }
 
     #[test]
