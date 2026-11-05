@@ -1940,18 +1940,10 @@ mod tests {
             )
             .unwrap();
 
-        deck.align_elements_to_canvas(
-            slide,
-            &[first],
-            ElementAlignment::CenterHorizontal,
-        )
-        .unwrap();
-        deck.align_elements_to_canvas(
-            slide,
-            &[first, second],
-            ElementAlignment::Bottom,
-        )
-        .unwrap();
+        deck.align_elements_to_canvas(slide, &[first], ElementAlignment::CenterHorizontal)
+            .unwrap();
+        deck.align_elements_to_canvas(slide, &[first, second], ElementAlignment::Bottom)
+            .unwrap();
 
         let elements = deck.slide(slide).unwrap();
         assert_eq!(elements.element(first).unwrap().bounds().x(), 430.0);
@@ -1995,12 +1987,8 @@ mod tests {
                 0.0,
             )
             .unwrap();
-        deck.distribute_elements(
-            slide,
-            &[last, first, middle],
-            DistributionAxis::Horizontal,
-        )
-        .unwrap();
+        deck.distribute_elements(slide, &[last, first, middle], DistributionAxis::Horizontal)
+            .unwrap();
         let elements = deck.slide(slide).unwrap();
         assert_eq!(elements.element(first).unwrap().bounds().x(), 0.0);
         assert_eq!(elements.element(middle).unwrap().bounds().x(), 100.0);
