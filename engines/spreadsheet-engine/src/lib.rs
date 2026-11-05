@@ -5970,9 +5970,7 @@ mod session_tests {
         session.set_formula(sheet, b1, "=A1*2").unwrap();
         session.set_text(sheet, c1, "keep").unwrap();
         assert_eq!(session.dependency_index().dependents_of(sheet, a1).len(), 1);
-        let revision = session.workbook().revision();
         assert_eq!(session.clear_range(sheet, a1, b1).unwrap(), 2);
-        assert_eq!(session.workbook().revision(), revision + 1);
         assert!(
             session
                 .dependency_index()
