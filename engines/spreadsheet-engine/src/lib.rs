@@ -1376,7 +1376,7 @@ impl<'a> Parser<'a> {
                 "ABS" | "ROUND" | "ROUNDUP" | "ROUNDDOWN" | "SQRT" | "SIGN" | "INT" | "POWER"
                 | "MOD" | "LOG" | "EXP" | "LN" | "LOG10" | "SIN" | "COS" | "TAN" | "ASIN"
                 | "ACOS" | "ATAN" | "DEGREES" | "RADIANS" | "PI" | "SINH" | "COSH" | "TANH"
-                | "COT" | "FACT" | "TRUNC" => self.math_function_arguments(&function),
+                | "COT" | "FACT" | "TRUNC" | "CEILING" | "FLOOR" => self.math_function_arguments(&function),
                 "AND" | "OR" => self.logical_arguments(&function),
                 "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT" | "PRODUCT" | "MEDIAN" => {
                     self.aggregate_arguments(&function)
@@ -1664,6 +1664,27 @@ impl<'a> Parser<'a> {
                     return Err(FormulaError::DivisionByZero);
                 }
                 value - divisor * (value / divisor).floor()
+            }
+            "CEILING" | "FLOOR" => {
+                let significance = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
+                if significance == 0.0 {
+                    if value == 0.0 {
+                        0.0
+                    } else {
+                        return Err(FormulaError::DivisionByZero);
+                    }
+                } else {
+                    let quotient = value / significance;
+                    if !quotient.is_finite() {
+                        return Err(FormulaError::Number);
+                    }
+                    let rounded = if function == "CEILING" {
+                        quotient.ceil()
+                    } else {
+                        quotient.floor()
+                    };
+                    rounded * significance
+                }
             }
             "ROUND" | "ROUNDUP" | "ROUNDDOWN" => {
                 let digits = self.evaluate_argument(ranges[1].0, ranges[1].1)?;
@@ -3317,6 +3338,24 @@ mod tests {
                 "{formula}"
             );
         }
+    }
+
+    #[test]
+    fn ceiling_and_floor_round_to_significance_and_validate_zero() {
+        let directory = TestDirectory::new();
+        let mut session = WorkbookSession::open(&directory.0).unwrap();
+        let a1 = CellAddress::parse_a1("A1").unwrap();
+        let a2 = CellAddress::parse_a1("A2").unwrap();
+        let a3 = CellAddress::parse_a1("A3").unwrap();
+        let a4 = CellAddress::parse_a1("A4").unwrap();
+        session.set_formula(1, a1, "=CEILING(12.2, 5)").unwrap();
+        session.set_formula(1, a2, "=FLOOR(12.2, 5)").unwrap();
+        session.set_formula(1, a3, "=CEILING(-12.2, 5)").unwrap();
+        session.set_formula(1, a4, "=CEILING(1, 0)").unwrap();
+        assert_eq!(session.workbook().value(1, a1), CellValue::Number(15.0));
+        assert_eq!(session.workbook().value(1, a2), CellValue::Number(10.0));
+        assert_eq!(session.workbook().value(1, a3), CellValue::Number(-10.0));
+        assert_eq!(session.workbook().value(1, a4), CellValue::Error(FormulaError::DivisionByZero));
     }
 
     #[test]
