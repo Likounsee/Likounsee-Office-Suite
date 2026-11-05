@@ -1624,6 +1624,19 @@ pub fn render_slide_svg(presentation: &Presentation, slide_id: u64) -> io::Resul
     Ok(svg)
 }
 
+/// Render every slide in presentation order, preserving each stable slide ID.
+pub fn render_all_slides_svg(presentation: &Presentation) -> io::Result<Vec<(u64, String)>> {
+    presentation.validate()?;
+    presentation
+        .slides()
+        .iter()
+        .map(|slide| {
+            let id = slide.id();
+            render_slide_svg(presentation, id).map(|svg| (id, svg))
+        })
+        .collect()
+}
+
 fn wrap_text_for_svg(text: &str, max_width: f32, font_size: f32) -> Vec<String> {
     let max_chars = ((max_width / (font_size * 0.55)).floor() as usize).max(1);
     let mut output = Vec::new();
@@ -2571,6 +2584,22 @@ mod tests {
         assert!(svg.contains("assets/photo &amp; chart.png"));
         assert!(svg.contains("<title>A &lt;chart&gt;</title>"));
         assert!(svg.ends_with("</svg>\n"));
+    }
+
+    #[test]
+    fn svg_renderer_exports_all_slides_in_presentation_order() {
+        let mut deck = Presentation::new("Batch SVG", 640.0, 360.0).unwrap();
+        let first = deck.slides()[0].id();
+        let second = deck.add_slide("Second").unwrap();
+        let third = deck.add_slide("Third").unwrap();
+        let rendered = render_all_slides_svg(&deck).unwrap();
+        assert_eq!(
+            rendered.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![first, second, third]
+        );
+        assert!(rendered[0].1.contains("<title>Slide 1</title>"));
+        assert!(rendered[1].1.contains("<title>Second</title>"));
+        assert!(rendered[2].1.contains("<title>Third</title>"));
     }
 
     #[test]
