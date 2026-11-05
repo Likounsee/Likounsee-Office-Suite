@@ -1743,7 +1743,9 @@ fn validate_png(png: &[u8], expected_width: u32, expected_height: u32) -> io::Re
                     .expect("four-byte PNG height"),
             );
             if actual_width != expected_width || actual_height != expected_height {
-                return Err(invalid_input("rasterizer returned unexpected PNG dimensions"));
+                return Err(invalid_input(
+                    "rasterizer returned unexpected PNG dimensions",
+                ));
             }
             if actual_width == 0 || actual_height == 0 {
                 return Err(invalid_input("PNG dimensions must be greater than zero"));
@@ -3035,10 +3037,10 @@ mod tests {
         let raw = [0, 0, 0, 0, 0];
         let mut compressed = vec![0x78, 0x01, 0x01, 0x05, 0x00, 0xfa, 0xff];
         compressed.extend_from_slice(&raw);
-        let adler_a = raw.iter().fold(1u32, |a, byte| (a + u32::from(*byte)) % 65521);
-        let adler_b = raw
+        let adler_a = raw
             .iter()
-            .fold(0u32, |b, byte| (b + adler_a) % 65521);
+            .fold(1u32, |a, byte| (a + u32::from(*byte)) % 65521);
+        let adler_b = raw.iter().fold(0u32, |b, byte| (b + adler_a) % 65521);
         compressed.extend_from_slice(&((adler_b << 16) | adler_a).to_be_bytes());
         append_chunk(&mut png, b"IDAT", &compressed);
         append_chunk(&mut png, b"IEND", &[]);
@@ -3065,8 +3067,7 @@ mod tests {
         let second = deck.add_slide("Second").unwrap();
         let third = deck.add_slide("Third").unwrap();
         let rasterizer = TestPngRasterizer::new();
-        let rendered =
-            render_presentation_png_with(&deck, 320, 180, &rasterizer).unwrap();
+        let rendered = render_presentation_png_with(&deck, 320, 180, &rasterizer).unwrap();
         assert_eq!(
             rendered.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
             vec![first, second, third]
@@ -3075,7 +3076,10 @@ mod tests {
         assert!(rendered.iter().all(|(_, png)| png.starts_with(b"\x89PNG")));
 
         let mut corrupt = test_png(320, 180);
-        let idat = corrupt.windows(4).position(|window| window == b"IDAT").unwrap();
+        let idat = corrupt
+            .windows(4)
+            .position(|window| window == b"IDAT")
+            .unwrap();
         corrupt[idat + 5] ^= 0x40;
         assert!(validate_png(&corrupt, 320, 180).is_err());
         assert!(validate_png(&test_png(320, 180), 640, 180).is_err());
