@@ -2609,14 +2609,14 @@ pub fn export_pptx(presentation: &Presentation) -> io::Result<Vec<u8>> {
 /// Export speaker notes as a portable Markdown document in slide order.
 pub fn export_speaker_notes_markdown(presentation: &Presentation) -> io::Result<String> {
     presentation.validate()?;
-    let mut output = format!("# {} — Speaker notes\\n\\n", presentation.title);
+    let mut output = format!("# {} — Speaker notes\n\n", presentation.title);
     for (index, slide) in presentation.slides.iter().enumerate() {
         let _ = writeln!(output, "## {}. {}", index + 1, slide.name);
         if slide.notes.trim().is_empty() {
-            output.push_str("_No speaker notes._\\n\\n");
+            output.push_str("_No speaker notes._\n\n");
         } else {
             output.push_str(slide.notes.trim());
-            output.push_str("\\n\\n");
+            output.push_str("\n\n");
         }
     }
     Ok(output)
