@@ -829,7 +829,11 @@ fn rewrite_sheet_references(formula: &str, old_name: &str, new_name: &str) -> St
             continue;
         }
 
-        let next = cursor + 1;
+        let character = formula[cursor..]
+            .chars()
+            .next()
+            .expect("cursor is before the end of the formula");
+        let next = cursor + character.len_utf8();
         output.push_str(&formula[cursor..next]);
         cursor = next;
     }
