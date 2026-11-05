@@ -4565,5 +4565,4 @@ mod tests {
         let reopened = DocumentSession::open(&directory.0).unwrap();
         assert_eq!(reopened.document().body(), "gamma\\nalpha\\nbeta");
     }
-
 }

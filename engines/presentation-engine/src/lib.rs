@@ -6380,5 +6380,4 @@ mod tests {
         assert_eq!(deck, before);
         assert_eq!(deck.apply_theme_to_slides(&[first], &theme).unwrap(), 0);
     }
-
 }
