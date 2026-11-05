@@ -1139,7 +1139,8 @@ impl<'a> Parser<'a> {
         }
     }
     fn absolute_cell_reference(&mut self) -> Result<f64, FormulaError> {
-        self.numeric_cell(self.cell_address()?)
+        let address = self.cell_address()?;
+        self.numeric_cell(address)
     }
 
     fn number(&mut self) -> Result<f64, FormulaError> {
@@ -1165,7 +1166,8 @@ impl<'a> Parser<'a> {
             .map_err(|_| FormulaError::Parse)?;
         if self.peek() == Some(36) && identifier.bytes().all(|byte| byte.is_ascii_alphabetic()) {
             self.cursor = start;
-            return self.numeric_cell(self.cell_address()?);
+            let address = self.cell_address()?;
+            return self.numeric_cell(address);
         }
         self.whitespace();
         let function = identifier.to_ascii_uppercase();
@@ -2238,7 +2240,6 @@ mod tests {
     fn formulas_evaluate_precedence_references_and_updates_without_stale_cache() {
         let mut book = Workbook::new();
         let sheet = book.sheets()[0].id();
-        let a1 = CellAddress::parse_a1("A1").unwrap();
         let b1 = CellAddress::parse_a1("B1").unwrap();
         let c1 = CellAddress::parse_a1("C1").unwrap();
         book.set_number(sheet, a1, 10.0).unwrap();
@@ -3067,7 +3068,6 @@ mod tests {
         let mut book = Workbook::new();
         let data = book.add_sheet("Data Sheet").unwrap();
         let text_cell = CellAddress::parse_a1("A1").unwrap();
-        let blank_cell = CellAddress::parse_a1("B1").unwrap();
         book.set_text(data, text_cell, "sample").unwrap();
         let formulas = [
             ("=ISTEXT('Data Sheet'!A1)", 1.0),
