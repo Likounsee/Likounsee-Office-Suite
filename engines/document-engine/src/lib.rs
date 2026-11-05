@@ -2000,6 +2000,35 @@ impl DocumentSession {
         Ok(row_id)
     }
 
+    /// Duplicate a table row immediately after its source, preserving formatting and assigning fresh IDs.
+    pub fn duplicate_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let mut next_id = next.next_block_id;
+        let table = next.tables.iter_mut().find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        let source = table.rows.get(row_index).cloned()
+            .ok_or_else(|| invalid_input("table row index is out of range"))?;
+        if table.rows.len() >= 1024 {
+            return Err(invalid_input("table row limit reached"));
+        }
+        let row_id = next_id;
+        next_id = next_id.checked_add(1)
+            .ok_or_else(|| invalid_input("block ID space exhausted"))?;
+        let mut duplicate = source;
+        duplicate.id = row_id;
+        for cell in &mut duplicate.cells {
+            cell.id = next_id;
+            next_id = next_id.checked_add(1)
+                .ok_or_else(|| invalid_input("block ID space exhausted"))?;
+        }
+        table.rows.insert(row_index + 1, duplicate);
+        next.next_block_id = next_id;
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        Ok(row_id)
+    }
+
     /// Remove a row by zero-based index. A table always retains at least one row.
     pub fn delete_table_row(&mut self, table_id: u64, row_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
@@ -3768,6 +3797,29 @@ mod tests {
         session.clear_table_cell(table_id, 0, 0).unwrap();
         assert_eq!(session.document().revision(), revision);
         assert!(session.clear_table_cell(u64::MAX, 0, 0).is_err());
+    }
+
+    #[test]
+    fn duplicate_table_row_preserves_formatting_and_assigns_fresh_ids() {
+        let directory = TestDirectory::new();
+        let mut session = DocumentSession::open(&directory.0).unwrap();
+        let table_id = session.insert_table(2, 2).unwrap();
+        session.set_table_cell_text(table_id, 0, 0, "copied").unwrap();
+        session.set_table_cell_alignment(table_id, 0, 0, CellAlignment::Center).unwrap();
+        let original = session.document().tables()[0].rows()[0].clone();
+        let revision = session.document().revision();
+        let duplicate_id = session.duplicate_table_row(table_id, 0).unwrap();
+        let rows = session.document().tables()[0].rows();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1].id(), duplicate_id);
+        assert_eq!(rows[1].cells()[0].text(), "copied");
+        assert_eq!(rows[1].cells()[0].alignment(), CellAlignment::Center);
+        assert_ne!(rows[1].id(), original.id());
+        for (copy, source) in rows[1].cells().iter().zip(original.cells()) {
+            assert_ne!(copy.id(), source.id());
+        }
+        assert_eq!(session.document().revision(), revision + 1);
+        assert!(session.duplicate_table_row(table_id, usize::MAX).is_err());
     }
 
     #[test]
