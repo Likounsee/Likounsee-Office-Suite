@@ -5187,7 +5187,7 @@ mod session_tests {
                 .is_err()
         );
     }
-    
+
     #[test]
     fn fill_text_range_populates_rectangle_and_normalizes_reversed_bounds() {
         let mut workbook = Workbook::new();
@@ -5220,5 +5220,4 @@ mod session_tests {
                 .is_err()
         );
     }
-
 }

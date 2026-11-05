@@ -3618,15 +3618,19 @@ mod tests {
             io::ErrorKind::InvalidInput
         );
     }
-    
+
     #[test]
     fn clear_paragraph_formatting_preserves_text_identity_and_revision_on_noop() {
         let directory = TestDirectory::new();
         let mut session = DocumentSession::open(&directory.0).unwrap();
         session.set_body("Test paragraph").unwrap();
         let paragraph_id = session.document().paragraphs()[0].id();
-        session.set_paragraph_style(paragraph_id, ParagraphStyle::Heading1).unwrap();
-        session.set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true).unwrap();
+        session
+            .set_paragraph_style(paragraph_id, ParagraphStyle::Heading1)
+            .unwrap();
+        session
+            .set_inline_mark(paragraph_id, 0..4, InlineMark::Bold, true)
+            .unwrap();
         let before = session.document().revision();
         session.clear_paragraph_formatting(paragraph_id).unwrap();
         let paragraph = &session.document().paragraphs()[0];
@@ -3639,5 +3643,4 @@ mod tests {
         session.clear_paragraph_formatting(paragraph_id).unwrap();
         assert_eq!(session.document().revision(), revision);
     }
-
 }

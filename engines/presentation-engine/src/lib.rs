@@ -1545,11 +1545,7 @@ impl Presentation {
         Ok(())
     }
     /// Move an element to the front of the slide's stacking order.
-    pub fn bring_element_to_front(
-        &mut self,
-        slide_id: u64,
-        element_id: u64,
-    ) -> io::Result<()> {
+    pub fn bring_element_to_front(&mut self, slide_id: u64, element_id: u64) -> io::Result<()> {
         let slide = self
             .slide(slide_id)
             .ok_or_else(|| invalid_input("slide does not exist"))?;
@@ -1562,11 +1558,7 @@ impl Presentation {
     }
 
     /// Move an element to the back of the slide's stacking order.
-    pub fn send_element_to_back(
-        &mut self,
-        slide_id: u64,
-        element_id: u64,
-    ) -> io::Result<()> {
+    pub fn send_element_to_back(&mut self, slide_id: u64, element_id: u64) -> io::Result<()> {
         self.move_element(slide_id, element_id, 0)
     }
 
@@ -5281,7 +5273,7 @@ mod tests {
             vec![(first, second)]
         );
     }
-    
+
     #[test]
     fn element_z_order_helpers_move_elements_to_front_and_back() {
         let mut presentation = Presentation::new("Layers", 100.0, 80.0).unwrap();
@@ -5291,12 +5283,19 @@ mod tests {
             .add_text(slide_id, rect(0.0, 0.0, 10.0, 10.0), "First", style.clone())
             .unwrap();
         let second = presentation
-            .add_text(slide_id, rect(10.0, 0.0, 10.0, 10.0), "Second", style.clone())
+            .add_text(
+                slide_id,
+                rect(10.0, 0.0, 10.0, 10.0),
+                "Second",
+                style.clone(),
+            )
             .unwrap();
         let third = presentation
             .add_text(slide_id, rect(20.0, 0.0, 10.0, 10.0), "Third", style)
             .unwrap();
-        presentation.bring_element_to_front(slide_id, first).unwrap();
+        presentation
+            .bring_element_to_front(slide_id, first)
+            .unwrap();
         assert_eq!(
             presentation
                 .slide(slide_id)
@@ -5318,7 +5317,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![first, second, third]
         );
-        assert!(presentation.bring_element_to_front(u64::MAX, first).is_err());
+        assert!(
+            presentation
+                .bring_element_to_front(u64::MAX, first)
+                .is_err()
+        );
     }
-
 }
