@@ -1627,6 +1627,47 @@ impl Presentation {
         Ok(requested.len())
     }
 
+    /// Update multiple element rectangles atomically with a single revision increment.
+    /// The operation rejects duplicate or missing IDs before changing any element.
+    pub fn set_element_bounds_batch(
+        &mut self,
+        slide_id: u64,
+        requested: &[(u64, Rect)],
+    ) -> io::Result<usize> {
+        if requested.is_empty() {
+            return Ok(0);
+        }
+        let slide = self
+            .slide(slide_id)
+            .ok_or_else(|| invalid_input("slide does not exist"))?;
+        let mut seen = HashSet::with_capacity(requested.len());
+        let mut updates = Vec::with_capacity(requested.len());
+        for (element_id, bounds) in requested {
+            bounds.validate()?;
+            if !seen.insert(*element_id) {
+                return Err(invalid_input("element selection contains duplicate IDs"));
+            }
+            let index = slide
+                .elements
+                .iter()
+                .position(|element| element.id == *element_id)
+                .ok_or_else(|| invalid_input("element does not exist"))?;
+            if slide.elements[index].bounds != *bounds {
+                updates.push((index, *bounds));
+            }
+        }
+        if updates.is_empty() {
+            return Ok(0);
+        }
+        self.bump_revision()?;
+        let elements = &mut self.slide_mut(slide_id)?.elements;
+        let changed = updates.len();
+        for (index, bounds) in updates {
+            elements[index].bounds = bounds;
+        }
+        Ok(changed)
+    }
+
     pub fn set_element_bounds(
         &mut self,
         slide_id: u64,

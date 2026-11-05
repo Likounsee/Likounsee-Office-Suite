@@ -5115,6 +5115,21 @@ impl WorkbookSession {
         Ok(count)
     }
 
+    /// Transpose a range through the durable session and rebuild formula dependencies.
+    pub fn transpose_range(
+        &mut self,
+        sheet_id: u64,
+        start: CellAddress,
+        end: CellAddress,
+        destination: CellAddress,
+    ) -> io::Result<usize> {
+        let mut next = self.workbook.clone();
+        let count = next.transpose_range(sheet_id, start, end, destination)?;
+        let dependency_index = DependencyIndex::build(&next)?;
+        self.record_change(next, dependency_index)?;
+        Ok(count)
+    }
+
     pub fn copy_range(
         &mut self,
         sheet_id: u64,

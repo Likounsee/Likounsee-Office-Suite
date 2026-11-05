@@ -2175,6 +2175,39 @@ impl DocumentSession {
         first_cell_id.ok_or_else(|| invalid_data("table has no rows"))
     }
 
+    /// Move a column to a new zero-based position, preserving cell IDs and column widths.
+    pub fn move_table_column(
+        &mut self,
+        table_id: u64,
+        source_index: usize,
+        destination_index: usize,
+    ) -> io::Result<u64> {
+        let mut next = self.document.clone();
+        let table = next
+            .tables
+            .iter_mut()
+            .find(|table| table.id == table_id)
+            .ok_or_else(|| invalid_input("table ID does not exist"))?;
+        if source_index >= table.columns || destination_index >= table.columns {
+            return Err(invalid_input("table column index is out of range"));
+        }
+        if source_index == destination_index {
+            return Ok(table.rows[0].cells[source_index].id);
+        }
+        let mut first_cell_id = None;
+        for row in &mut table.rows {
+            let cell = row.cells.remove(source_index);
+            first_cell_id.get_or_insert(cell.id);
+            row.cells.insert(destination_index, cell);
+        }
+        let width = table.column_widths_twips.remove(source_index);
+        table.column_widths_twips.insert(destination_index, width);
+        self.document.increment_revision(&mut next)?;
+        validate_document_size(&next)?;
+        self.record_change(next)?;
+        first_cell_id.ok_or_else(|| invalid_data("table has no rows"))
+    }
+
     /// Remove a column by zero-based index. A table always retains at least one column.
     pub fn delete_table_column(&mut self, table_id: u64, column_index: usize) -> io::Result<u64> {
         let mut next = self.document.clone();
