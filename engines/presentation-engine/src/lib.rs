@@ -283,20 +283,32 @@ impl PresentationTheme {
 
     /// Built-in dark theme with high-contrast text and a blue accent.
     pub fn dark() -> Self {
-        Self::new("Dark", 0x171a21, "Arial", "Arial", 0xf5f7fa, 0xd8dee9, 0x62a0ea)
-            .expect("built-in dark theme is valid")
+        Self::new(
+            "Dark", 0x171a21, "Arial", "Arial", 0xf5f7fa, 0xd8dee9, 0x62a0ea,
+        )
+        .expect("built-in dark theme is valid")
     }
 
     /// Built-in business theme with restrained navy and teal colors.
     pub fn business() -> Self {
-        Self::new("Business", 0xffffff, "Arial", "Arial", 0x142b4a, 0x334155, 0x0f8b8d)
-            .expect("built-in business theme is valid")
+        Self::new(
+            "Business", 0xffffff, "Arial", "Arial", 0x142b4a, 0x334155, 0x0f8b8d,
+        )
+        .expect("built-in business theme is valid")
     }
 
     /// Built-in high-contrast theme for improved legibility.
     pub fn high_contrast() -> Self {
-        Self::new("High contrast", 0x000000, "Arial", "Arial", 0xffffff, 0xffffff, 0xffff00)
-            .expect("built-in high-contrast theme is valid")
+        Self::new(
+            "High contrast",
+            0x000000,
+            "Arial",
+            "Arial",
+            0xffffff,
+            0xffffff,
+            0xffff00,
+        )
+        .expect("built-in high-contrast theme is valid")
     }
 }
 
@@ -2336,7 +2348,16 @@ mod tests {
             )
             .unwrap();
         let second = deck.add_slide("Second").unwrap();
-        let theme = PresentationTheme::new("Night", 0x101820, "Inter Display", "Inter", 0xf0f0f0, 0xd0d0d0, 0x00aacc).unwrap();
+        let theme = PresentationTheme::new(
+            "Night",
+            0x101820,
+            "Inter Display",
+            "Inter",
+            0xf0f0f0,
+            0xd0d0d0,
+            0x00aacc,
+        )
+        .unwrap();
         let revision = deck.revision();
         deck.apply_theme(&theme).unwrap();
         assert_eq!(deck.revision(), revision + 1);
