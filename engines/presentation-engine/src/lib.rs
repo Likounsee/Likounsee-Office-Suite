@@ -4,6 +4,13 @@
 //! URIs); the engine does not decode or embed image bytes yet.
 
 use std::io;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use suite_common::autosave::AutosaveScheduler;
+use suite_common::checkpoint::{Checkpoint, read_checkpoint, verify_checkpoint, write_checkpoint};
+use suite_common::recovery::RecoveryJournal;
+use suite_common::storage::{FileSystem, LocalFileSystem};
 
 const PRESENTATION_MAGIC: &[u8; 8] = b"LOUSPRS1";
 const PRESENTATION_VERSION: u32 = 1;
@@ -515,12 +522,199 @@ impl Reader<'_> {
     }
 }
 
+const CHECKPOINT_FILE: &str = "presentation.checkpoint";
+const JOURNAL_FILE: &str = "presentation.journal";
+
+/// Crash-recoverable presentation session. Each edit is journaled before it
+/// becomes visible in memory; checkpoints compact the journal on save.
+pub struct PresentationSession {
+    filesystem: LocalFileSystem,
+    directory: PathBuf,
+    presentation: Presentation,
+    journal: RecoveryJournal,
+    autosave: AutosaveScheduler,
+    checkpoint_generation: u64,
+    recovered_records: usize,
+    journal_had_truncated_tail: bool,
+}
+
+impl PresentationSession {
+    pub fn open(directory: impl AsRef<Path>) -> io::Result<Self> {
+        let directory = directory.as_ref().to_path_buf();
+        let filesystem = LocalFileSystem;
+        filesystem.create_dir_all(&directory)?;
+        let checkpoint_path = directory.join(CHECKPOINT_FILE);
+        let journal = RecoveryJournal::open(directory.join(JOURNAL_FILE))?;
+        let checkpoint = if filesystem.exists(&checkpoint_path) {
+            Some(read_checkpoint(&filesystem, &checkpoint_path)?)
+        } else {
+            None
+        };
+        let (mut presentation, checkpoint_generation, replay) =
+            if let Some(checkpoint) = checkpoint {
+                let replay = journal.replay_after(checkpoint.journal_sequence)?;
+                (
+                    decode_presentation(&checkpoint.payload)?,
+                    checkpoint.generation,
+                    replay,
+                )
+            } else {
+                let replay = journal.replay()?;
+                if replay.base_sequence != 0 {
+                    return Err(invalid_data(
+                        "journal has a checkpoint base sequence but checkpoint is missing",
+                    ));
+                }
+                (Presentation::new("Untitled", 960.0, 540.0)?, 0, replay)
+            };
+        let recovered_records = replay.records.len();
+        let journal_had_truncated_tail = replay.had_truncated_tail;
+        for record in replay.records {
+            let recovered = decode_presentation(&record.payload)?;
+            let expected_revision = presentation.revision.checked_add(1)
+                .ok_or_else(|| invalid_data("presentation revision exhausted during recovery"))?;
+            if recovered.revision != expected_revision {
+                return Err(invalid_data("presentation journal revisions are not contiguous"));
+            }
+            presentation = recovered;
+        }
+        let mut autosave = AutosaveScheduler::default();
+        if recovered_records > 0 {
+            autosave.mark_dirty(Instant::now());
+        }
+        Ok(Self {
+            filesystem, directory, presentation, journal, autosave,
+            checkpoint_generation, recovered_records, journal_had_truncated_tail,
+        })
+    }
+
+    pub fn presentation(&self) -> &Presentation { &self.presentation }
+    pub fn recovered_records(&self) -> usize { self.recovered_records }
+    pub fn journal_had_truncated_tail(&self) -> bool { self.journal_had_truncated_tail }
+    pub fn is_dirty(&self) -> bool { self.autosave.is_dirty() }
+
+    /// Apply one model operation transactionally and append its snapshot.
+    pub fn edit<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Presentation) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let mut next = self.presentation.clone();
+        let result = operation(&mut next)?;
+        next.validate()?;
+        let expected_revision = self.presentation.revision.checked_add(1)
+            .ok_or_else(|| invalid_input("presentation revision exhausted"))?;
+        if next.revision != expected_revision {
+            return Err(invalid_input("a session edit must perform exactly one presentation mutation"));
+        }
+        let encoded = encode_presentation(&next)?;
+        self.journal.append(&encoded)?;
+        self.presentation = next;
+        self.autosave.mark_dirty(Instant::now());
+        Ok(result)
+    }
+
+    pub fn autosave_if_due(&mut self, now: Instant) -> io::Result<bool> {
+        if !self.autosave.should_save(now) { return Ok(false); }
+        self.save_now()?;
+        Ok(true)
+    }
+
+    pub fn save_now(&mut self) -> io::Result<()> {
+        if !self.autosave.is_dirty() && self.filesystem.exists(&self.checkpoint_path()) {
+            return Ok(());
+        }
+        let generation = self.checkpoint_generation.checked_add(1)
+            .ok_or_else(|| invalid_input("checkpoint generation exhausted"))?;
+        let sequence = self.journal.latest_sequence()?;
+        let checkpoint = Checkpoint::new(generation, sequence, encode_presentation(&self.presentation)?);
+        let path = self.checkpoint_path();
+        write_checkpoint(&self.filesystem, &path, &checkpoint)?;
+        verify_checkpoint(&self.filesystem, &path, generation)?;
+        self.journal.reset_after_checkpoint(sequence)?;
+        self.checkpoint_generation = generation;
+        self.autosave.mark_saved();
+        self.recovered_records = 0;
+        self.journal_had_truncated_tail = false;
+        Ok(())
+    }
+
+    fn checkpoint_path(&self) -> PathBuf {
+        self.directory.join(CHECKPOINT_FILE)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
         Rect::new(x, y, width, height).unwrap()
+    }
+
+
+    #[test]
+    fn session_journals_edits_and_recovers_after_reopen() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let path = std::env::temp_dir().join(format!(
+            "likounsee-presentation-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        {
+            let mut session = PresentationSession::open(&path).unwrap();
+            let slide = session.presentation().slides()[0].id();
+            session.edit(|deck| deck.add_slide("Recovered slide")).unwrap();
+            session.edit(|deck| deck.add_text(
+                slide, rect(10.0, 10.0, 200.0, 50.0), "Journaled",
+                TextStyle::default(),
+            )).unwrap();
+            assert!(session.is_dirty());
+        }
+        {
+            let session = PresentationSession::open(&path).unwrap();
+            assert_eq!(session.presentation().slides().len(), 2);
+            assert_eq!(session.presentation().slides()[0].elements().len(), 1);
+            assert_eq!(session.recovered_records(), 2);
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn session_rejects_failed_edits_without_committing_them() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let path = std::env::temp_dir().join(format!(
+            "likounsee-presentation-rollback-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mut session = PresentationSession::open(&path).unwrap();
+        let revision = session.presentation().revision();
+        let result = session.edit(|deck| deck.remove_slide(deck.slides()[0].id()));
+        assert!(result.is_err());
+        assert_eq!(session.presentation().revision(), revision);
+        assert!(!session.is_dirty());
+        drop(session);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn session_checkpoint_compacts_journal_and_reopens_cleanly() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let path = std::env::temp_dir().join(format!(
+            "likounsee-presentation-checkpoint-{}",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        {
+            let mut session = PresentationSession::open(&path).unwrap();
+            session.edit(|deck| deck.add_slide("Saved")).unwrap();
+            session.save_now().unwrap();
+            assert!(!session.is_dirty());
+            assert_eq!(session.recovered_records(), 0);
+        }
+        {
+            let session = PresentationSession::open(&path).unwrap();
+            assert_eq!(session.presentation().slides().len(), 2);
+            assert_eq!(session.recovered_records(), 0);
+        }
+        std::fs::remove_dir_all(path).unwrap();
     }
 
     #[test]
